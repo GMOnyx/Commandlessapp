@@ -6,9 +6,6 @@ import CommandMappings from "@/pages/CommandMappings";
 import BotConnections from "@/pages/BotConnections";
 import NotFound from "@/pages/not-found";
 import { useAuth } from "@/lib/auth";
-import Onboarding from "@/pages/Onboarding";
-import Training from "@/pages/Training";
-import TeamCollaboration from "@/pages/TeamCollaboration";
 
 function App() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -53,25 +50,6 @@ function App() {
       <Route path="/connections">
         <Layout>
           <BotConnections />
-        </Layout>
-      </Route>
-      
-      {/* Employee Onboarding and Training routes */}
-      <Route path="/onboarding">
-        <Layout>
-          <Onboarding />
-        </Layout>
-      </Route>
-      
-      <Route path="/training">
-        <Layout>
-          <Training />
-        </Layout>
-      </Route>
-      
-      <Route path="/team-collaboration">
-        <Layout>
-          <TeamCollaboration />
         </Layout>
       </Route>
       

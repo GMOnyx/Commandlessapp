@@ -103,7 +103,7 @@ export default function Sidebar({ user }: SidebarProps) {
             <div className="flex items-center">
               <div>
                 <Avatar>
-                  <AvatarImage src={user.avatar} alt={user.name || user.username} />
+                  <AvatarImage src={user.avatar || undefined} alt={user.name || user.username} />
                   <AvatarFallback>{user.name?.[0] || user.username[0]}</AvatarFallback>
                 </Avatar>
               </div>

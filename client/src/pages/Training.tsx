@@ -41,7 +41,9 @@ import {
   PlusCircle,
   Calendar,
   PlayCircle,
-  Search
+  Search,
+  Clock,
+  MapPin
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
