@@ -52,7 +52,8 @@ export default function Sidebar({ user }: SidebarProps) {
       <div className="flex flex-col w-64 border-r border-gray-200 bg-white">
         <div className="flex flex-col flex-grow pt-5 pb-4 overflow-y-auto">
           <div className="flex items-center flex-shrink-0 px-4">
-            <span className="text-xl font-bold text-gray-800">CommandHub</span>
+            <BotIcon className="h-6 w-6 text-primary mr-2" />
+            <span className="text-xl font-bold text-gray-800">Commandless</span>
           </div>
           
           <nav className="mt-8 flex-1 px-2 space-y-1">
