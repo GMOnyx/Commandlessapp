@@ -1,19 +1,28 @@
 import { ReactNode } from "react";
 import Sidebar from "@/components/ui/sidebar";
 import TopBar from "@/components/TopBar";
-import { useAuth } from "@/lib/auth";
+import { User } from "@shared/schema";
 
 interface LayoutProps {
   children: ReactNode;
 }
 
+// Demo user for Commandless platform
+const demoUser: User = {
+  id: 1,
+  username: "demo",
+  password: "password123",
+  name: "Demo User",
+  email: "demo@example.com",
+  role: "Admin",
+  avatar: null
+};
+
 export default function Layout({ children }: LayoutProps) {
-  const { user } = useAuth();
-  
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50">
       {/* Sidebar */}
-      <Sidebar user={user} />
+      <Sidebar user={demoUser} />
       
       {/* Main Content */}
       <div className="flex flex-col flex-1 overflow-hidden">

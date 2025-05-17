@@ -6,27 +6,28 @@ import Login from "@/pages/Login";
 import CommandMappings from "@/pages/CommandMappings";
 import BotConnections from "@/pages/BotConnections";
 import NotFound from "@/pages/not-found";
+import { User } from "@shared/schema";
 
-// Mock user for demo purposes
-const demoUser = {
+// Demo user for Commandless platform
+const demoUser: User = {
   id: 1,
   username: "demo",
   password: "password123",
-  name: "Sarah Johnson",
-  email: "sarah@example.com",
-  role: "Marketing Lead",
-  avatar: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?ixlib=rb-4.0.3&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=facearea&facepad=2&w=256&h=256&q=80"
+  name: "Demo User",
+  email: "demo@example.com",
+  role: "Admin",
+  avatar: null
 };
 
 function App() {
-  // In a real app, this would be managed by a proper auth system
-  const [user] = useState(demoUser);
+  // Simple auth state management - would be more robust in production
+  const [user] = useState<User>(demoUser);
   
   return (
     <Switch>
       <Route path="/login" component={Login} />
       
-      {/* Main routes */}
+      {/* Main routes for Commandless platform */}
       <Route path="/">
         <Layout>
           <Dashboard />
