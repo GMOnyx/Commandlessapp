@@ -26,21 +26,6 @@ export default function Sidebar({ user }: SidebarProps) {
       icon: HomeIcon 
     },
     { 
-      href: "/onboarding", 
-      label: "Employee Onboarding", 
-      icon: UsersIcon 
-    },
-    { 
-      href: "/training", 
-      label: "Training Materials", 
-      icon: MessageSquareTextIcon 
-    },
-    { 
-      href: "/team-collaboration", 
-      label: "Team Collaboration", 
-      icon: UsersIcon 
-    },
-    { 
       href: "/mappings", 
       label: "Command Mappings", 
       icon: MessageSquareTextIcon 

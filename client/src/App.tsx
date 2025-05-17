@@ -1,40 +1,17 @@
-import { Switch, Route, useLocation } from "wouter";
+import { Switch, Route } from "wouter";
 import Layout from "@/components/Layout";
 import Dashboard from "@/pages/Dashboard";
 import Login from "@/pages/Login";
 import CommandMappings from "@/pages/CommandMappings";
 import BotConnections from "@/pages/BotConnections";
 import NotFound from "@/pages/not-found";
-import { useAuth } from "@/lib/auth";
 
 function App() {
-  const { isAuthenticated, isLoading } = useAuth();
-  const [location, setLocation] = useLocation();
-  
-  // If auth is still loading, don't render anything
-  if (isLoading) {
-    return <div className="flex items-center justify-center min-h-screen">
-      <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
-    </div>;
-  }
-  
-  // Redirect to login if not authenticated
-  if (!isAuthenticated && location !== "/login") {
-    setLocation("/login");
-    return null;
-  }
-  
-  // Redirect to dashboard if authenticated and trying to access login
-  if (isAuthenticated && location === "/login") {
-    setLocation("/");
-    return null;
-  }
-  
   return (
     <Switch>
       <Route path="/login" component={Login} />
       
-      {/* Protected routes */}
+      {/* Main routes */}
       <Route path="/">
         <Layout>
           <Dashboard />
