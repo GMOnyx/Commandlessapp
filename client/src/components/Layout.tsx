@@ -1,4 +1,5 @@
-import { ReactNode } from "react";
+import { ReactNode, useEffect, useState } from "react";
+import { useLocation } from "wouter";
 import Sidebar from "@/components/ui/sidebar";
 import TopBar from "@/components/TopBar";
 import { User } from "@shared/schema";
@@ -19,6 +20,16 @@ const demoUser: User = {
 };
 
 export default function Layout({ children }: LayoutProps) {
+  const [, navigate] = useLocation();
+  
+  // Check if user is logged in
+  useEffect(() => {
+    const isLoggedIn = localStorage.getItem("isLoggedIn");
+    if (!isLoggedIn) {
+      navigate("/login");
+    }
+  }, [navigate]);
+  
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50">
       {/* Sidebar */}

@@ -1,7 +1,9 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useAuth } from "@/lib/auth";
+import { useLocation } from "wouter";
+import { useState } from "react";
+import { useToast } from "@/hooks/use-toast";
 import { 
   Card,
   CardContent,
@@ -28,7 +30,9 @@ const formSchema = z.object({
 });
 
 export default function Login() {
-  const { login, isLoading } = useAuth();
+  const [isLoading, setIsLoading] = useState(false);
+  const [, navigate] = useLocation();
+  const { toast } = useToast();
   
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -39,7 +43,25 @@ export default function Login() {
   });
   
   const onSubmit = async (data: z.infer<typeof formSchema>) => {
-    await login(data);
+    setIsLoading(true);
+    
+    // Simple demo login - in a real app this would validate against an API
+    if (data.username === "demo" && data.password === "password123") {
+      // Store the logged-in state
+      localStorage.setItem("isLoggedIn", "true");
+      
+      // Redirect to dashboard
+      setTimeout(() => {
+        navigate("/");
+      }, 500);
+    } else {
+      toast({
+        title: "Login failed",
+        description: "Invalid credentials. Use demo/password123",
+        variant: "destructive",
+      });
+      setIsLoading(false);
+    }
   };
   
   return (
@@ -47,7 +69,7 @@ export default function Login() {
       <div className="mb-8 text-center">
         <div className="flex items-center justify-center">
           <BotIcon className="h-10 w-10 text-primary mr-2" />
-          <h1 className="text-3xl font-bold text-gray-900">CommandHub</h1>
+          <h1 className="text-3xl font-bold text-gray-900">Commandless</h1>
         </div>
         <p className="mt-2 text-gray-600">Transform command-based bots into conversational AI</p>
       </div>

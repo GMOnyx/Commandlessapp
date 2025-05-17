@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { 
   BellIcon, 
   HelpCircleIcon, 
@@ -7,14 +8,18 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useAuth } from "@/lib/auth";
 
 export default function TopBar() {
-  const { logout } = useAuth();
+  const [, navigate] = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
   const toggleMobileMenu = () => {
     setIsMobileMenuOpen(!isMobileMenuOpen);
+  };
+  
+  const handleLogout = () => {
+    localStorage.removeItem("isLoggedIn");
+    navigate("/login");
   };
   
   return (
@@ -39,7 +44,7 @@ export default function TopBar() {
               <Input 
                 id="search-field" 
                 className="block w-full h-full pl-10 pr-3 py-2 border-transparent text-gray-900 placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-0 focus:border-transparent sm:text-sm"
-                placeholder="Search commands, teams, or users" 
+                placeholder="Search command mappings or bots" 
                 type="search"
               />
             </div>
@@ -65,7 +70,7 @@ export default function TopBar() {
             <Button 
               variant="ghost"
               size="sm"
-              onClick={logout}
+              onClick={handleLogout}
               className="text-gray-500 hover:text-gray-700"
             >
               Logout
@@ -81,9 +86,6 @@ export default function TopBar() {
             <a href="/" className="block px-3 py-2 rounded-md text-base font-medium text-gray-900 bg-gray-50">Dashboard</a>
             <a href="/mappings" className="block px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:bg-gray-50 hover:text-gray-900">Command Mappings</a>
             <a href="/connections" className="block px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:bg-gray-50 hover:text-gray-900">Bot Connections</a>
-            <a href="/team" className="block px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:bg-gray-50 hover:text-gray-900">Team Management</a>
-            <a href="/analytics" className="block px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:bg-gray-50 hover:text-gray-900">Analytics</a>
-            <a href="/settings" className="block px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:bg-gray-50 hover:text-gray-900">Settings</a>
           </div>
         </div>
       )}
