@@ -4,7 +4,9 @@ import { format, formatDistanceToNow } from "date-fns";
 import { 
   BotIcon, 
   Edit3Icon, 
-  AlertTriangleIcon 
+  AlertTriangleIcon,
+  ClockIcon,
+  TrendingUpIcon
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -53,8 +55,17 @@ export default function ActivityFeed() {
   // If there are no activities yet
   if (activities.length === 0) {
     return (
-      <div className="text-center py-4 text-gray-500">
-        No recent activities
+      <div className="px-6 py-8 text-center">
+        <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-gradient-to-br from-green-100 to-emerald-100 mb-4">
+          <TrendingUpIcon className="h-6 w-6 text-green-600" />
+        </div>
+        <h3 className="text-base font-semibold text-gray-900 mb-2">
+          Your activity feed is ready
+        </h3>
+        <p className="text-sm text-gray-600 max-w-xs mx-auto">
+          As you create command mappings and use your bots, 
+          activity will appear here to keep you informed.
+        </p>
       </div>
     );
   }

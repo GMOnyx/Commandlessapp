@@ -4,7 +4,7 @@ import { Bot, CommandMapping } from "@shared/schema";
 import CommandMappingItem from "@/components/CommandMappingItem";
 import CommandMappingBuilder from "@/components/CommandMappingBuilder";
 import { Button } from "@/components/ui/button";
-import { PlusIcon, SearchIcon } from "lucide-react";
+import { PlusIcon, SearchIcon, BotIcon, WandIcon, SparklesIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { 
@@ -128,23 +128,27 @@ export default function CommandMappings() {
           </ul>
         </div>
       ) : (
-        <div className="bg-white shadow overflow-hidden sm:rounded-md p-8 text-center">
-          <div className="flex flex-col items-center justify-center">
-            <div className="mb-4">
-              <BotIcon className="h-12 w-12 text-gray-300" />
+        <div className="bg-white shadow overflow-hidden sm:rounded-md">
+          <div className="px-8 py-8 text-center">
+            <div className="flex flex-col items-center justify-center">
+              <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-gradient-to-br from-purple-100 to-blue-100 mb-4">
+                {searchTerm || statusFilter !== "all" ? (
+                  <SearchIcon className="h-6 w-6 text-purple-600" />
+                ) : (
+                  <WandIcon className="h-6 w-6 text-purple-600" />
+                )}
+              </div>
+              <h3 className="text-base font-semibold text-gray-900 mb-2">
+                {searchTerm || statusFilter !== "all" 
+                  ? "No mappings found" 
+                  : "Ready to create your first command?"}
+              </h3>
+              <p className="text-sm text-gray-600 max-w-sm mx-auto">
+                {searchTerm || statusFilter !== "all" 
+                  ? "Try adjusting your search terms or filters to find the command mappings you're looking for."
+                  : "Connect a bot to automatically discover and create command mappings, or manually create your first command mapping."}
+              </p>
             </div>
-            <h3 className="text-lg font-medium text-gray-900 mb-1">No mappings found</h3>
-            <p className="text-gray-500 mb-4">
-              {searchTerm || statusFilter !== "all" 
-                ? "Try adjusting your search or filters"
-                : "Create your first command mapping to get started"}
-            </p>
-            {!showBuilder && (
-              <Button onClick={toggleBuilder}>
-                <PlusIcon className="-ml-1 mr-2 h-5 w-5" />
-                Create Command Mapping
-              </Button>
-            )}
           </div>
         </div>
       )}

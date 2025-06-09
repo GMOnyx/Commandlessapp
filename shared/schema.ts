@@ -1,9 +1,9 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, boolean, timestamp, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 export const users = pgTable("users", {
-  id: serial("id").primaryKey(),
+  id: text("id").primaryKey(),
   username: text("username").notNull().unique(),
   password: text("password").notNull(),
   name: text("name"),
@@ -27,12 +27,13 @@ export const loginUserSchema = z.object({
 });
 
 export const bots = pgTable("bots", {
-  id: serial("id").primaryKey(),
-  userId: integer("user_id").notNull(),
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
   platformType: text("platform_type").notNull(), // 'discord' or 'telegram'
   botName: text("bot_name").notNull(),
   token: text("token").notNull(),
   clientId: text("client_id"),
+  personalityContext: text("personality_context"), // Optional: Custom bot personality and context
   isConnected: boolean("is_connected").default(false),
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -43,12 +44,13 @@ export const insertBotSchema = createInsertSchema(bots).pick({
   botName: true,
   token: true,
   clientId: true,
+  personalityContext: true,
 });
 
 export const commandMappings = pgTable("command_mappings", {
-  id: serial("id").primaryKey(),
-  userId: integer("user_id").notNull(),
-  botId: integer("bot_id").notNull(),
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  botId: text("bot_id").notNull(),
   name: text("name").notNull(),
   naturalLanguagePattern: text("natural_language_pattern").notNull(),
   commandOutput: text("command_output").notNull(),
@@ -67,8 +69,8 @@ export const insertCommandMappingSchema = createInsertSchema(commandMappings).pi
 });
 
 export const activities = pgTable("activities", {
-  id: serial("id").primaryKey(),
-  userId: integer("user_id").notNull(),
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
   activityType: text("activity_type").notNull(), // 'command_used', 'command_created', 'bot_connected', etc.
   description: text("description").notNull(),
   metadata: jsonb("metadata"),

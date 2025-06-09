@@ -1,7 +1,12 @@
+import 'dotenv/config';
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { setupSampleData } from "./setupSampleData";
+import { initSupabase } from "./supabase";
+import { resetData } from "./resetData";
+import { validateEncryptionSetup } from "./utils/encryption";
+import { validateGeminiConfig } from "./gemini/client";
 
 const app = express();
 app.use(express.json());
@@ -38,8 +43,35 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Validate security configuration
+  log('🔒 Validating security configuration...', 'info');
+  validateEncryptionSetup();
+  validateGeminiConfig();
+  
+  // Initialize Supabase if enabled
+  if (process.env.USE_SUPABASE === 'true') {
+    try {
+      await initSupabase();
+    } catch (error) {
+      log(`Error initializing Supabase: ${(error as Error).message}. Continuing without Supabase.`, 'error');
+    }
+  } else {
+    log('Supabase disabled (USE_SUPABASE is not set to true)', 'info');
+  }
+  
+  // Reset all data if requested
+  if (process.env.RESET_DATA === 'true') {
+    log('Resetting all application data...', 'info');
+    await resetData();
+    log('Data reset complete.', 'info');
+  }
+  
   // Setup sample data for demo purposes
+  if (process.env.SKIP_SAMPLE_DATA !== 'true') {
   await setupSampleData();
+  } else {
+    log('Skipping sample data setup (SKIP_SAMPLE_DATA=true)', 'info');
+  }
   
   const server = await registerRoutes(app);
 
@@ -60,10 +92,8 @@ app.use((req, res, next) => {
     serveStatic(app);
   }
 
-  // ALWAYS serve the app on port 5000
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
-  const port = 5000;
+  // Using port 5001 to avoid conflict with port 5000 which is already in use
+  const port = 5001;
   server.listen({
     port,
     host: "0.0.0.0",

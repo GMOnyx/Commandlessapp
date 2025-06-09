@@ -6,6 +6,17 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { useState } from "react";
+import { 
+  AlertDialog, 
+  AlertDialogContent, 
+  AlertDialogHeader, 
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogAction
+} from "@/components/ui/alert-dialog";
+import BotCreationDialog from "@/components/BotCreationDialog";
 
 interface ConnectionCardProps {
   bot: Bot;
@@ -15,6 +26,17 @@ interface ConnectionCardProps {
 export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCardProps) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const [showErrorDialog, setShowErrorDialog] = useState(false);
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [errorDetails, setErrorDetails] = useState<{
+    message: string;
+    troubleshooting?: string[];
+    details?: string;
+  }>({
+    message: "",
+    troubleshooting: [],
+    details: ""
+  });
   
   const connectMutation = useMutation({
     mutationFn: async () => {
@@ -27,12 +49,62 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
         description: `${bot.botName} has been connected.`,
       });
     },
-    onError: (error) => {
+    onError: (error: any) => {
+      // Try to parse the error response for detailed information
+      let errorMessage = `Failed to connect ${bot.botName}`;
+      let troubleshooting: string[] | undefined;
+      let details: string | undefined;
+      
+      if (error instanceof Error) {
+        try {
+          // Check if the error has structured data
+          const errorText = error.message;
+          
+          // Extract JSON from error message if present
+          const jsonMatch = errorText.match(/\{.*\}/);
+          if (jsonMatch) {
+            const errorData = JSON.parse(jsonMatch[0]);
+            errorMessage = errorData.message || errorMessage;
+            troubleshooting = errorData.troubleshooting;
+            details = errorData.details;
+          } else {
+            // Handle cases where the error message contains the structured response
+            if (errorText.includes("500:") || errorText.includes("400:")) {
+              const responseMatch = errorText.match(/(?:500|400):\s*(.+)/);
+              if (responseMatch) {
+                try {
+                  const responseData = JSON.parse(responseMatch[1]);
+                  errorMessage = responseData.message || errorMessage;
+                  troubleshooting = responseData.troubleshooting;
+                  details = responseData.details;
+                } catch {
+                  errorMessage = responseMatch[1];
+                }
+              }
+            } else {
+              errorMessage = errorText;
+            }
+          }
+        } catch {
+          errorMessage = error.message;
+        }
+      }
+      
+      // Show detailed error information if available
+      if (troubleshooting && troubleshooting.length > 0) {
+        setErrorDetails({
+          message: errorMessage,
+          troubleshooting,
+          details
+        });
+        setShowErrorDialog(true);
+      } else {
       toast({
         title: "Error",
-        description: `Failed to connect ${bot.botName}. ${error instanceof Error ? error.message : ''}`,
+          description: errorMessage,
         variant: "destructive",
       });
+      }
     },
   });
   
@@ -58,25 +130,25 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
   
   if (isNewCard) {
     return (
-      <Card className="overflow-hidden border-2 border-dashed border-gray-300">
-        <CardContent className="p-5 flex justify-center items-center h-full">
-          <button 
-            type="button" 
-            className="relative block w-full py-6 text-center"
-            onClick={() => {
-              // Handle showing the add new bot dialog
-              // This would be implemented with a modal component
-              toast({
-                title: "Coming Soon",
-                description: "Adding new bots will be available soon!",
-              });
-            }}
-          >
-            <div className="text-gray-400 text-2xl mb-2">+</div>
-            <span className="block text-sm font-medium text-gray-900">Connect a new platform</span>
-          </button>
-        </CardContent>
-      </Card>
+      <>
+        <Card className="overflow-hidden border-2 border-dashed border-gray-300">
+          <CardContent className="p-5 flex justify-center items-center h-full">
+            <button 
+              type="button" 
+              className="relative block w-full py-6 text-center"
+              onClick={() => setShowCreateDialog(true)}
+            >
+              <div className="text-gray-400 text-2xl mb-2">+</div>
+              <span className="block text-sm font-medium text-gray-900">Connect new bot</span>
+            </button>
+          </CardContent>
+        </Card>
+        
+        <BotCreationDialog 
+          open={showCreateDialog} 
+          onOpenChange={setShowCreateDialog} 
+        />
+      </>
     );
   }
   
@@ -99,6 +171,7 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
   };
   
   return (
+    <>
     <Card className="overflow-hidden">
       <CardContent className="p-5">
         <div className="flex items-center">
@@ -157,5 +230,49 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
         </div>
       </CardFooter>
     </Card>
+      
+      <AlertDialog open={showErrorDialog} onOpenChange={setShowErrorDialog}>
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Connection Failed</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>{errorDetails.message}</p>
+                
+                {errorDetails.troubleshooting && (
+                  <div>
+                    <p className="font-medium text-sm">Troubleshooting steps:</p>
+                    <ul className="list-disc list-inside text-sm space-y-1 mt-1">
+                      {errorDetails.troubleshooting.map((step, index) => (
+                        <li key={index}>{step}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                
+                {errorDetails.details && (
+                  <div>
+                    <p className="font-medium text-sm">Technical details:</p>
+                    <p className="text-xs text-gray-600 mt-1 font-mono bg-gray-100 p-2 rounded">
+                      {errorDetails.details}
+                    </p>
+                  </div>
+                )}
+                
+                <div className="text-sm text-blue-600">
+                  <p className="font-medium">Need help?</p>
+                  <p>Visit the <a href="https://discord.com/developers/applications" target="_blank" rel="noopener noreferrer" className="underline">Discord Developer Portal</a> to check your bot settings.</p>
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => setShowErrorDialog(false)}>
+              Got it
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

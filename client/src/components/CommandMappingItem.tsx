@@ -3,6 +3,7 @@ import { Link } from "wouter";
 import { SiDiscord, SiTelegram } from "react-icons/si";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { TrendingUpIcon, MessageCircleIcon } from "lucide-react";
 
 interface CommandMappingItemProps {
   mapping: CommandMapping;
@@ -11,6 +12,7 @@ interface CommandMappingItemProps {
 
 export default function CommandMappingItem({ mapping, bots }: CommandMappingItemProps) {
   const bot = bots.find(b => b.id === mapping.botId);
+  const usageCount = mapping.usageCount || 0;
   
   const renderPlatformIcon = () => {
     if (!bot) return null;
@@ -36,45 +38,64 @@ export default function CommandMappingItem({ mapping, bots }: CommandMappingItem
         return "bg-blue-100 text-blue-800";
     }
   };
+
+  const getUsageInfo = () => {
+    if (usageCount === 0) {
+      return { text: "Not used yet", color: "text-gray-500", icon: MessageCircleIcon };
+    } else if (usageCount < 10) {
+      return { text: `${usageCount} uses`, color: "text-blue-600", icon: MessageCircleIcon };
+    } else {
+      return { text: `${usageCount} uses`, color: "text-green-600", icon: TrendingUpIcon };
+    }
+  };
+
+  const usageInfo = getUsageInfo();
+  const UsageIcon = usageInfo.icon;
   
   return (
     <li>
       <Link href={`/mappings/${mapping.id}`}>
-        <a className="block hover:bg-gray-50">
+        <a className="block hover:bg-gray-50 transition-colors">
           <div className="px-4 py-4 sm:px-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center">
-                <p className="text-sm font-medium text-primary truncate">
-                  {mapping.name}
-                </p>
-                <div className="ml-2 flex-shrink-0 flex">
-                  <p className={cn(
-                    "px-2 inline-flex text-xs leading-5 font-semibold rounded-full",
-                    getStatusColor(mapping.status)
-                  )}>
-                    {mapping.status.charAt(0).toUpperCase() + mapping.status.slice(1)}
+            {/* Mobile-first layout */}
+            <div className="space-y-3">
+              {/* Header row */}
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-primary truncate">
+                    {mapping.name}
                   </p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className={cn(
+                      "px-2 py-1 text-xs leading-4 font-semibold rounded-full",
+                      getStatusColor(mapping.status || "active")
+                    )}>
+                      {(mapping.status || "active").charAt(0).toUpperCase() + (mapping.status || "active").slice(1)}
+                    </span>
+                    <span className="flex items-center text-xs text-gray-500">
+                      {renderPlatformIcon()}
+                      {bot?.platformType === "discord" ? "Discord" : "Telegram"}
+                    </span>
+                  </div>
+                </div>
+                
+                {/* Usage stats - always visible on the right */}
+                <div className="flex-shrink-0 text-right">
+                  <div className={cn("flex items-center gap-1", usageInfo.color)}>
+                    <UsageIcon className="h-3 w-3" />
+                    <span className="text-xs font-medium">{usageInfo.text}</span>
+                  </div>
+                  {usageCount > 0 && (
+                    <p className="text-xs text-gray-400 mt-0.5">this week</p>
+                  )}
                 </div>
               </div>
-              <div className="ml-2 flex-shrink-0 flex">
-                <p className="flex items-center text-sm text-gray-500">
-                  {renderPlatformIcon()}
-                  {bot?.platformType === "discord" ? "Discord" : "Telegram"}
-                </p>
-              </div>
-            </div>
-            <div className="mt-2 sm:flex sm:justify-between">
-              <div className="sm:flex">
-                <p className="flex items-center text-sm text-gray-600">
-                  <svg className="flex-shrink-0 mr-1.5 h-4 w-4 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M18 5v8a2 2 0 01-2 2h-5l-5 4v-4H4a2 2 0 01-2-2V5a2 2 0 012-2h12a2 2 0 012 2zM7 8H5v2h2V8zm2 0h2v2H9V8zm6 0h-2v2h2V8z" clipRule="evenodd" />
-                  </svg>
+              
+              {/* Natural language pattern */}
+              <div className="flex items-start gap-2">
+                <MessageCircleIcon className="flex-shrink-0 h-4 w-4 text-gray-400 mt-0.5" />
+                <p className="text-sm text-gray-600 break-words">
                   "{mapping.naturalLanguagePattern}"
-                </p>
-              </div>
-              <div className="mt-2 flex items-center text-sm text-gray-500 sm:mt-0">
-                <p>
-                  Used {mapping.usageCount} times {mapping.usageCount > 0 ? "this week" : ""}
                 </p>
               </div>
             </div>
@@ -84,3 +105,4 @@ export default function CommandMappingItem({ mapping, bots }: CommandMappingItem
     </li>
   );
 }
+
