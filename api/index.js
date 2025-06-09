@@ -1,26 +1,40 @@
 import 'dotenv/config';
+import express from 'express';
 
-// Helper function to parse request body
-async function parseBody(req) {
-  return new Promise((resolve) => {
-    if (req.method === 'GET') {
-      resolve({});
-      return;
+// Create Express app
+const app = express();
+app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
+
+// Import and register the real routes
+let routesInitialized = false;
+
+async function initializeRoutes() {
+  if (routesInitialized) return;
+  
+  try {
+    // Import the real registerRoutes function from the built server
+    const { registerRoutes } = await import('../dist/index.js');
+    if (registerRoutes) {
+      await registerRoutes(app);
+      routesInitialized = true;
+      console.log('[API] Real server routes initialized successfully');
+    } else {
+      throw new Error('registerRoutes function not found');
     }
-    
-    let body = '';
-    req.on('data', chunk => {
-      body += chunk.toString();
+  } catch (error) {
+    console.error('[API] Failed to initialize real routes:', error);
+    // Set up basic fallback endpoints
+    app.get('/api/bots', (req, res) => {
+      res.status(500).json({ error: 'Server routes not available', message: error.message });
     });
-    
-    req.on('end', () => {
-      try {
-        resolve(body ? JSON.parse(body) : {});
-      } catch (e) {
-        resolve({});
-      }
+    app.get('/api/mappings', (req, res) => {
+      res.status(500).json({ error: 'Server routes not available', message: error.message });
     });
-  });
+    app.get('/api/activities', (req, res) => {
+      res.status(500).json({ error: 'Server routes not available', message: error.message });
+    });
+  }
 }
 
 export default async function handler(req, res) {
@@ -33,80 +47,17 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  // Log the request for debugging
-  console.log(`[API] ${req.method} ${req.url}`);
+  // Initialize routes on first request
+  await initializeRoutes();
   
-  // Parse request body for POST requests
-  const body = await parseBody(req);
-  console.log('[API] Request body:', body);
-  
-  // TEMPORARILY SKIP AUTHENTICATION TO TEST
-  // TODO: Re-enable authentication once we confirm this fixes the issue
-  
-  // Handle various Discord token validation endpoints
-  if (req.method === 'POST' && (
-    req.url === '/api/discord/validate-token' ||
-    req.url === '/api/bots/validate' ||
-    req.url === '/api/validate-token' ||
-    req.url.includes('validate')
-  )) {
-    console.log('[API] Validating Discord token (accepting all tokens for testing)');
-    return res.status(200).json({ 
-      valid: true, 
-      botName: body.botName || 'Test Bot',
-      message: 'Token is valid' 
+  // Handle the request through the real Express app
+  return new Promise((resolve, reject) => {
+    app(req, res, (err) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve();
+      }
     });
-  }
-  
-  // Handle bot creation
-  if (req.method === 'POST' && req.url === '/api/bots') {
-    console.log('[API] Creating new bot', body);
-    // Return a mock successful bot creation
-    const mockBot = {
-      id: 'bot_' + Date.now(),
-      userId: 'user_123',
-      platformType: body.platformType || 'discord',
-      botName: body.botName || 'Test Bot',
-      token: body.token || '',
-      isConnected: false,
-      createdAt: new Date().toISOString()
-    };
-    return res.status(201).json(mockBot);
-  }
-  
-  // Handle bot connection
-  if (req.method === 'POST' && req.url.startsWith('/api/bots/') && req.url.endsWith('/connect')) {
-    console.log('[API] Connecting bot');
-    return res.status(200).json({ success: true, message: 'Bot connected successfully' });
-  }
-  
-  // Handle bot disconnection  
-  if (req.method === 'POST' && req.url.startsWith('/api/bots/') && req.url.endsWith('/disconnect')) {
-    console.log('[API] Disconnecting bot');
-    return res.status(200).json({ success: true, message: 'Bot disconnected successfully' });
-  }
-  
-  // Return empty arrays for dashboard endpoints
-  if (req.url === '/api/bots') {
-    console.log('[API] Returning empty bots array');
-    return res.status(200).json([]);
-  }
-  
-  if (req.url === '/api/mappings') {
-    console.log('[API] Returning empty mappings array');
-    return res.status(200).json([]);
-  }
-  
-  if (req.url === '/api/activities') {
-    console.log('[API] Returning empty activities array');
-    return res.status(200).json([]);
-  }
-  
-  // Default response
-  console.log(`[API] Unknown endpoint: ${req.url}`);
-  return res.status(404).json({
-    error: 'Endpoint not found',
-    url: req.url,
-    method: req.method
   });
 } 
