@@ -10,26 +10,48 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  // For now, return empty arrays for the dashboard to load
-  // This is a temporary fix while we debug the full server integration
+  // Log the request for debugging
+  console.log(`[API] ${req.method} ${req.url}`);
   
+  // Check for authorization header
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    console.log('[API] No authorization header - returning 401');
+    return res.status(401).json({
+      error: 'No authorization token provided',
+      message: 'Authentication required'
+    });
+  }
+
+  // For now, accept any bearer token (simplified for testing)
+  if (!authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({
+      error: 'Invalid authorization format',
+      message: 'Bearer token required'
+    });
+  }
+
+  // Return empty arrays for dashboard endpoints
   if (req.url === '/api/bots') {
+    console.log('[API] Returning empty bots array');
     return res.status(200).json([]);
   }
   
   if (req.url === '/api/mappings') {
+    console.log('[API] Returning empty mappings array');
     return res.status(200).json([]);
   }
   
   if (req.url === '/api/activities') {
+    console.log('[API] Returning empty activities array');
     return res.status(200).json([]);
   }
   
   // Default response
-  return res.status(200).json({
-    message: 'API is working',
+  console.log(`[API] Unknown endpoint: ${req.url}`);
+  return res.status(404).json({
+    error: 'Endpoint not found',
     url: req.url,
-    method: req.method,
-    note: 'Simplified API for dashboard loading'
+    method: req.method
   });
 } 
