@@ -2,6 +2,12 @@
   "version": 2,
   "buildCommand": "npm run vercel-build",
   "outputDirectory": "dist/public",
+  "builds": [
+    {
+      "src": "api/index.js",
+      "use": "@vercel/node"
+    }
+  ],
   "routes": [
     {
       "handle": "filesystem"
@@ -15,11 +21,6 @@
       "dest": "/index.html"
     }
   ],
-  "functions": {
-    "api/index.js": {
-      "runtime": "nodejs18.x"
-    }
-  },
   "env": {
     "NODE_ENV": "production",
     "USE_SUPABASE": "true",
