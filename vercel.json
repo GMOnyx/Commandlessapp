@@ -19,6 +19,12 @@
       "dest": "/api/index.js"
     },
     {
+      "src": "/(.*\\.(png|jpg|jpeg|gif|svg|css|js|ico))",
+      "headers": { 
+        "cache-control": "s-maxage=31536000,immutable"
+      }
+    },
+    {
       "handle": "filesystem"
     },
     {
