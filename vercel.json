@@ -35,6 +35,9 @@
   "env": {
     "NODE_ENV": "production",
     "USE_SUPABASE": "true",
-    "SKIP_SAMPLE_DATA": "true"
+    "SKIP_SAMPLE_DATA": "true",
+    "VITE_API_URL": "https://commandlessapp.vercel.app",
+    "VERIFY_DISCORD_SIGNATURE": "false",
+    "USE_AI_INTENT_PROCESSING": "true"
   }
 } 
