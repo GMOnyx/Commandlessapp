@@ -9,6 +9,8 @@ export async function apiRequest(endpoint: string, options: RequestInit = {}) {
   let token: string | null = null;
   
   console.log('🔍 apiRequest called for:', endpoint);
+  console.log('🌐 Base URL:', baseUrl);
+  console.log('🔗 Full URL:', url);
   
   // Try to get token from Clerk directly
   try {
@@ -34,19 +36,29 @@ export async function apiRequest(endpoint: string, options: RequestInit = {}) {
     },
   };
 
-  console.log(`Making API request to ${endpoint}`, { hasToken: !!token });
+  console.log(`Making API request to ${endpoint}`, { hasToken: !!token, config });
 
-  const response = await fetch(url, config);
+  try {
+    const response = await fetch(url, config);
+    console.log(`📡 Fetch response for ${endpoint}:`, { 
+      status: response.status, 
+      ok: response.ok,
+      statusText: response.statusText 
+    });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error(`API Error ${response.status}:`, errorText);
-    throw new Error(`HTTP ${response.status}: ${errorText}`);
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`❌ API Error ${response.status}:`, errorText);
+      throw new Error(`HTTP ${response.status}: ${errorText}`);
+    }
+
+    const data = await response.json();
+    console.log(`✅ API response from ${endpoint}:`, data);
+    return data;
+  } catch (error) {
+    console.error(`💥 Fetch failed for ${endpoint}:`, error);
+    throw error;
   }
-
-  const data = await response.json();
-  console.log(`API response from ${endpoint}:`, data);
-  return data;
 }
 
 // Default query function for React Query
