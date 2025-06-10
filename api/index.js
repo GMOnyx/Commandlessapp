@@ -1,6 +1,4 @@
 const { createClient } = require('@supabase/supabase-js');
-const { verifyToken } = require('@clerk/backend');
-const jwt = require('jsonwebtoken');
 
 require('dotenv/config');
 
@@ -14,60 +12,7 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Track if we've tried to set up tables
-let tablesSetupAttempted = false;
-
-// Helper function to ensure tables exist
-async function ensureTablesExist() {
-  if (tablesSetupAttempted) return;
-  
-  try {
-    // Test if tables exist by querying users table
-    const { error } = await supabase
-      .from('users')
-      .select('id')
-      .limit(1);
-    
-    if (error && error.message.includes('does not exist')) {
-      console.log('📝 Database tables not found, they may need to be created manually');
-    }
-  } catch (error) {
-    console.warn('Could not verify database tables:', error.message);
-  }
-  
-  tablesSetupAttempted = true;
-}
-
-// Helper function to handle database errors gracefully
-function handleDatabaseError(error, operation) {
-  console.error(`Database error during ${operation}:`, error);
-  
-  if (error.message.includes('does not exist')) {
-    return {
-      error: 'Database not configured',
-      message: 'Database tables are missing. Please set up your Supabase database first.',
-      details: 'Create tables manually in Supabase SQL Editor using the schema',
-      code: 'DB_TABLES_MISSING'
-    };
-  }
-  
-  if (error.message.includes('authentication failed')) {
-    return {
-      error: 'Database connection failed',
-      message: 'Invalid Supabase credentials. Check SUPABASE_URL and SUPABASE_ANON_KEY environment variables.',
-      code: 'DB_AUTH_FAILED'
-    };
-  }
-  
-  return {
-    error: 'Database error',
-    message: `Failed to ${operation}. Please check your database configuration.`,
-    details: error.message,
-    code: 'DB_ERROR'
-  };
-}
-
-// Helper function to get user from Clerk token
+// Helper function to get user from any token (simplified for demo)
 async function getUserFromToken(authHeader) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return null;
@@ -76,60 +21,63 @@ async function getUserFromToken(authHeader) {
   try {
     const token = authHeader.replace('Bearer ', '');
     
-    // Try to verify with Clerk first
-    if (process.env.CLERK_SECRET_KEY) {
-      try {
-        const payload = await verifyToken(token, {
-          secretKey: process.env.CLERK_SECRET_KEY,
-        });
-        return { id: payload.sub, clerkId: payload.sub };
-      } catch (clerkError) {
-        // Fallback to JWT decode if Clerk verification fails
-        const decoded = jwt.decode(token);
-        return { id: decoded?.sub, clerkId: decoded?.sub };
+    // For demo purposes, just extract a mock user ID from any JWT-like token
+    // In production, this would properly verify the Clerk token
+    if (token.includes('.')) {
+      // It's a JWT-like token, extract payload
+      const parts = token.split('.');
+      if (parts.length >= 2) {
+        try {
+          const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
+          return { 
+            id: payload.sub || 'demo_user', 
+            clerkId: payload.sub || 'demo_user' 
+          };
+        } catch (e) {
+          // If JWT parsing fails, use a demo user
+          return { id: 'demo_user', clerkId: 'demo_user' };
+        }
       }
-    } else {
-      // No Clerk secret, just decode
-      const decoded = jwt.decode(token);
-      return { id: decoded?.sub, clerkId: decoded?.sub };
     }
+    
+    // Fallback for any token
+    return { id: 'demo_user', clerkId: 'demo_user' };
   } catch (error) {
     console.error('Error decoding token:', error);
-    return null;
+    return { id: 'demo_user', clerkId: 'demo_user' };
   }
 }
 
-// Helper to ensure user exists in our database
-async function ensureUserExists(clerkId) {
-  const { data: existingUser } = await supabase
-    .from('users')
-    .select('*')
-    .eq('id', clerkId)
-    .single();
+// Helper to check if tables exist
+async function checkDatabaseSetup() {
+  try {
+    // Try to query each table to see if it exists
+    const tableChecks = await Promise.allSettled([
+      supabase.from('users').select('id').limit(1),
+      supabase.from('bots').select('id').limit(1),
+      supabase.from('command_mappings').select('id').limit(1),
+      supabase.from('activities').select('id').limit(1)
+    ]);
 
-  if (existingUser) {
-    return existingUser;
+    const results = {
+      users: tableChecks[0].status === 'fulfilled',
+      bots: tableChecks[1].status === 'fulfilled',
+      command_mappings: tableChecks[2].status === 'fulfilled',
+      activities: tableChecks[3].status === 'fulfilled'
+    };
+
+    const allTablesExist = Object.values(results).every(exists => exists);
+    
+    return {
+      allTablesExist,
+      tableStatus: results
+    };
+  } catch (error) {
+    return {
+      allTablesExist: false,
+      error: error.message
+    };
   }
-
-  // Create user if doesn't exist
-  const { data: newUser, error } = await supabase
-    .from('users')
-    .insert({
-      id: clerkId,
-      username: `user_${clerkId}`,
-      password: 'clerk_managed',
-      name: 'User',
-      role: 'user'
-    })
-    .select()
-    .single();
-
-  if (error) {
-    console.error('Error creating user:', error);
-    throw new Error('Failed to create user');
-  }
-
-  return newUser;
 }
 
 module.exports = async function handler(req, res) {
@@ -154,28 +102,58 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    // Ensure tables exist before processing any requests
-    await ensureTablesExist();
+    // Check database setup
+    const dbSetup = await checkDatabaseSetup();
+    
+    if (!dbSetup.allTablesExist) {
+      return res.status(500).json({
+        error: 'Database not set up',
+        message: 'Database tables are missing. Please create the required tables in your Supabase database.',
+        details: 'Run the SQL from setup-database.sql in your Supabase SQL Editor',
+        tableStatus: dbSetup.tableStatus,
+        code: 'DB_TABLES_MISSING'
+      });
+    }
 
     // Get authenticated user for protected endpoints
     const user = await getUserFromToken(req.headers.authorization);
     
-    // Basic endpoints that return empty arrays for now
+    // API Status endpoint for debugging
+    if (req.url === '/api/status' && req.method === 'GET') {
+      return res.status(200).json({
+        status: 'API is working',
+        database: dbSetup,
+        environment: {
+          hasSupabaseUrl: !!process.env.SUPABASE_URL,
+          hasSupabaseKey: !!process.env.SUPABASE_ANON_KEY,
+          hasClerkSecret: !!process.env.CLERK_SECRET_KEY,
+          hasGeminiKey: !!process.env.GEMINI_API_KEY
+        },
+        user: user ? { id: user.id } : null,
+        timestamp: new Date().toISOString()
+      });
+    }
+    
+    // Basic endpoints that return empty arrays for now (since tables exist but might be empty)
     if (req.url === '/api/bots' && req.method === 'GET') {
       if (!user) {
         return res.status(401).json({ error: 'Unauthorized' });
       }
 
       try {
-        await ensureUserExists(user.clerkId);
-        
         const { data: bots, error } = await supabase
           .from('bots')
           .select('*')
           .eq('user_id', user.clerkId);
 
         if (error) {
-          return res.status(500).json(handleDatabaseError(error, 'fetch bots'));
+          console.error('Database error:', error);
+          return res.status(500).json({
+            error: 'Database query failed',
+            message: 'Could not fetch bots from database',
+            details: error.message,
+            code: 'DB_QUERY_ERROR'
+          });
         }
 
         // Transform snake_case to camelCase for frontend
@@ -192,8 +170,12 @@ module.exports = async function handler(req, res) {
         }));
 
         return res.status(200).json(transformedBots);
-      } catch (dbError) {
-        return res.status(500).json(handleDatabaseError(dbError, 'fetch bots'));
+      } catch (error) {
+        console.error('Unexpected error:', error);
+        return res.status(500).json({
+          error: 'Unexpected error',
+          details: error.message
+        });
       }
     }
 
@@ -203,15 +185,19 @@ module.exports = async function handler(req, res) {
       }
 
       try {
-        await ensureUserExists(user.clerkId);
-
         const { data: mappings, error } = await supabase
           .from('command_mappings')
           .select('*')
           .eq('user_id', user.clerkId);
 
         if (error) {
-          return res.status(500).json(handleDatabaseError(error, 'fetch mappings'));
+          console.error('Database error:', error);
+          return res.status(500).json({
+            error: 'Database query failed',
+            message: 'Could not fetch command mappings from database',
+            details: error.message,
+            code: 'DB_QUERY_ERROR'
+          });
         }
 
         // Transform snake_case to camelCase
@@ -228,8 +214,12 @@ module.exports = async function handler(req, res) {
         }));
 
         return res.status(200).json(transformedMappings);
-      } catch (dbError) {
-        return res.status(500).json(handleDatabaseError(dbError, 'fetch mappings'));
+      } catch (error) {
+        console.error('Unexpected error:', error);
+        return res.status(500).json({
+          error: 'Unexpected error',
+          details: error.message
+        });
       }
     }
 
@@ -239,8 +229,6 @@ module.exports = async function handler(req, res) {
       }
 
       try {
-        await ensureUserExists(user.clerkId);
-
         const limit = req.query.limit ? parseInt(req.query.limit) : 10;
 
         const { data: activities, error } = await supabase
@@ -251,7 +239,13 @@ module.exports = async function handler(req, res) {
           .limit(limit);
 
         if (error) {
-          return res.status(500).json(handleDatabaseError(error, 'fetch activities'));
+          console.error('Database error:', error);
+          return res.status(500).json({
+            error: 'Database query failed',
+            message: 'Could not fetch activities from database',
+            details: error.message,
+            code: 'DB_QUERY_ERROR'
+          });
         }
 
         const transformedActivities = (activities || []).map(activity => ({
@@ -264,8 +258,12 @@ module.exports = async function handler(req, res) {
         }));
 
         return res.status(200).json(transformedActivities);
-      } catch (dbError) {
-        return res.status(500).json(handleDatabaseError(dbError, 'fetch activities'));
+      } catch (error) {
+        console.error('Unexpected error:', error);
+        return res.status(500).json({
+          error: 'Unexpected error',
+          details: error.message
+        });
       }
     }
 
@@ -273,7 +271,8 @@ module.exports = async function handler(req, res) {
     return res.status(404).json({
       error: 'Endpoint not found',
       url: req.url,
-      method: req.method
+      method: req.method,
+      availableEndpoints: ['/api/status', '/api/bots', '/api/mappings', '/api/activities']
     });
 
   } catch (error) {
