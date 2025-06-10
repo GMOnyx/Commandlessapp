@@ -14,35 +14,52 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Helper function to get user from any token (simplified for demo)
 async function getUserFromToken(authHeader) {
+  console.log('[AUTH] Processing auth header:', authHeader ? `Bearer ${authHeader.substring(7, 20)}...` : 'none');
+  
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    console.log('[AUTH] No Bearer token found');
     return null;
   }
 
   try {
     const token = authHeader.replace('Bearer ', '');
+    console.log('[AUTH] Token length:', token.length);
     
     // For demo purposes, extract user ID from JWT-like token
     if (token.includes('.')) {
+      console.log('[AUTH] JWT-like token detected, parsing...');
       // It's a JWT-like token, extract payload
       const parts = token.split('.');
       if (parts.length >= 2) {
         try {
           const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
-          return { 
-            id: payload.sub || null, 
-            clerkId: payload.sub || null 
-          };
+          console.log('[AUTH] JWT payload parsed:', { 
+            sub: payload.sub, 
+            exp: payload.exp ? new Date(payload.exp * 1000) : 'no exp',
+            iss: payload.iss 
+          });
+          
+          if (payload.sub) {
+            return { 
+              id: payload.sub, 
+              clerkId: payload.sub 
+            };
+          } else {
+            console.log('[AUTH] No sub claim in JWT');
+            return null;
+          }
         } catch (e) {
-          // If JWT parsing fails, return null (unauthorized)
+          console.log('[AUTH] JWT parsing failed:', e.message);
           return null;
         }
       }
     }
     
     // For any other token, return null (unauthorized)
+    console.log('[AUTH] Not a valid JWT format');
     return null;
   } catch (error) {
-    console.error('Error decoding token:', error);
+    console.error('[AUTH] Error decoding token:', error);
     return null;
   }
 }
@@ -102,9 +119,11 @@ async function ensureUserExists(userId) {
       .single();
 
     if (existingUser) {
+      console.log('[USER] Found existing user:', existingUser.id);
       return existingUser;
     }
 
+    console.log('[USER] User not found, creating new user for ID:', userId);
     // If user doesn't exist, create them
     const { data: newUser, error: createError } = await supabase
       .from('users')
@@ -123,6 +142,7 @@ async function ensureUserExists(userId) {
       throw new Error(`Failed to create user: ${createError.message}`);
     }
 
+    console.log('[USER] Created new user:', newUser.id);
     return newUser;
   } catch (error) {
     throw new Error(`User management failed: ${error.message}`);
@@ -140,6 +160,11 @@ module.exports = async function handler(req, res) {
   }
 
   console.log(`[API] ${req.method} ${req.url}`);
+  console.log(`[API] Headers:`, {
+    authorization: req.headers.authorization ? `Bearer ${req.headers.authorization.substring(7, 20)}...` : 'none',
+    contentType: req.headers['content-type'],
+    origin: req.headers.origin
+  });
 
   // Ensure database is configured
   if (!supabaseUrl || !supabaseKey) {
@@ -172,13 +197,17 @@ module.exports = async function handler(req, res) {
       return res.status(200).json({
         status: 'API is working',
         database: dbSetup,
+        authentication: {
+          hasAuthHeader: !!req.headers.authorization,
+          userAuthenticated: !!user,
+          userId: user?.id || null
+        },
         environment: {
           hasSupabaseUrl: !!process.env.SUPABASE_URL,
           hasSupabaseKey: !!process.env.SUPABASE_ANON_KEY,
           hasClerkSecret: !!process.env.CLERK_SECRET_KEY,
           hasGeminiKey: !!process.env.GEMINI_API_KEY
         },
-        user: user ? { id: user.id } : null,
         timestamp: new Date().toISOString()
       });
     }
@@ -189,7 +218,12 @@ module.exports = async function handler(req, res) {
         return res.status(401).json({ 
           error: 'Unauthorized',
           message: 'Valid authorization token required',
-          hint: 'Please log in with Clerk to access this resource'
+          hint: 'Please log in with Clerk to access this resource',
+          debug: {
+            hasAuthHeader: !!req.headers.authorization,
+            authHeaderFormat: req.headers.authorization ? 'Bearer token' : 'none',
+            tokenParsed: !!user
+          }
         });
       }
 
@@ -211,6 +245,8 @@ module.exports = async function handler(req, res) {
             code: 'DB_QUERY_ERROR'
           });
         }
+
+        console.log(`[API] Found ${bots.length} bots for user ${user.id}`);
 
         // Transform snake_case to camelCase for frontend
         const transformedBots = (bots || []).map(bot => ({
@@ -241,7 +277,12 @@ module.exports = async function handler(req, res) {
         return res.status(401).json({ 
           error: 'Unauthorized',
           message: 'Valid authorization token required',
-          hint: 'Please log in with Clerk to access this resource'
+          hint: 'Please log in with Clerk to access this resource',
+          debug: {
+            hasAuthHeader: !!req.headers.authorization,
+            authHeaderFormat: req.headers.authorization ? 'Bearer token' : 'none',
+            tokenParsed: !!user
+          }
         });
       }
 
@@ -263,6 +304,8 @@ module.exports = async function handler(req, res) {
             code: 'DB_QUERY_ERROR'
           });
         }
+
+        console.log(`[API] Found ${mappings.length} command mappings for user ${user.id}`);
 
         // Transform snake_case to camelCase
         const transformedMappings = (mappings || []).map(mapping => ({
@@ -293,7 +336,12 @@ module.exports = async function handler(req, res) {
         return res.status(401).json({ 
           error: 'Unauthorized',
           message: 'Valid authorization token required',
-          hint: 'Please log in with Clerk to access this resource'
+          hint: 'Please log in with Clerk to access this resource',
+          debug: {
+            hasAuthHeader: !!req.headers.authorization,
+            authHeaderFormat: req.headers.authorization ? 'Bearer token' : 'none',
+            tokenParsed: !!user
+          }
         });
       }
 
@@ -319,6 +367,8 @@ module.exports = async function handler(req, res) {
             code: 'DB_QUERY_ERROR'
           });
         }
+
+        console.log(`[API] Found ${activities.length} activities for user ${user.id}`);
 
         const transformedActivities = (activities || []).map(activity => ({
           id: activity.id,
