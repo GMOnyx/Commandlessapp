@@ -21,8 +21,7 @@ async function getUserFromToken(authHeader) {
   try {
     const token = authHeader.replace('Bearer ', '');
     
-    // For demo purposes, just extract a mock user ID from any JWT-like token
-    // In production, this would properly verify the Clerk token
+    // For demo purposes, extract user ID from JWT-like token
     if (token.includes('.')) {
       // It's a JWT-like token, extract payload
       const parts = token.split('.');
@@ -30,33 +29,33 @@ async function getUserFromToken(authHeader) {
         try {
           const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
           return { 
-            id: payload.sub || 'demo_user', 
-            clerkId: payload.sub || 'demo_user' 
+            id: payload.sub || null, 
+            clerkId: payload.sub || null 
           };
         } catch (e) {
-          // If JWT parsing fails, use a demo user
-          return { id: 'demo_user', clerkId: 'demo_user' };
+          // If JWT parsing fails, return null (unauthorized)
+          return null;
         }
       }
     }
     
-    // Fallback for any token
-    return { id: 'demo_user', clerkId: 'demo_user' };
+    // For any other token, return null (unauthorized)
+    return null;
   } catch (error) {
     console.error('Error decoding token:', error);
-    return { id: 'demo_user', clerkId: 'demo_user' };
+    return null;
   }
 }
 
-// Helper to check if tables exist
+// Helper to check if tables exist and their schema
 async function checkDatabaseSetup() {
   try {
-    // Try to query each table to see if it exists
+    // Try to query each table to see if it exists and get schema info
     const tableChecks = await Promise.allSettled([
       supabase.from('users').select('id').limit(1),
-      supabase.from('bots').select('id').limit(1),
-      supabase.from('command_mappings').select('id').limit(1),
-      supabase.from('activities').select('id').limit(1)
+      supabase.from('bots').select('id, user_id').limit(1),
+      supabase.from('command_mappings').select('id, user_id').limit(1),
+      supabase.from('activities').select('id, user_id').limit(1)
     ]);
 
     const results = {
@@ -68,15 +67,65 @@ async function checkDatabaseSetup() {
 
     const allTablesExist = Object.values(results).every(exists => exists);
     
+    // Try to get sample data to understand schema
+    let schemaInfo = {};
+    if (results.users) {
+      const { data: sampleUser } = await supabase.from('users').select('id').limit(1);
+      schemaInfo.userIdType = sampleUser && sampleUser[0] ? typeof sampleUser[0].id : 'unknown';
+    }
+    
     return {
       allTablesExist,
-      tableStatus: results
+      tableStatus: results,
+      schemaInfo
     };
   } catch (error) {
     return {
       allTablesExist: false,
       error: error.message
     };
+  }
+}
+
+// Helper to find or create user
+async function ensureUserExists(userId) {
+  if (!userId) {
+    throw new Error('No user ID provided');
+  }
+
+  try {
+    // Try to find existing user
+    const { data: existingUser, error: findError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', userId)
+      .single();
+
+    if (existingUser) {
+      return existingUser;
+    }
+
+    // If user doesn't exist, create them
+    const { data: newUser, error: createError } = await supabase
+      .from('users')
+      .insert({
+        id: userId,
+        username: `user_${userId.slice(-8)}`, // Last 8 chars of ID
+        password: 'clerk_managed',
+        name: 'User',
+        role: 'user'
+      })
+      .select()
+      .single();
+
+    if (createError) {
+      console.error('Error creating user:', createError);
+      throw new Error(`Failed to create user: ${createError.message}`);
+    }
+
+    return newUser;
+  } catch (error) {
+    throw new Error(`User management failed: ${error.message}`);
   }
 }
 
@@ -134,17 +183,24 @@ module.exports = async function handler(req, res) {
       });
     }
     
-    // Basic endpoints that return empty arrays for now (since tables exist but might be empty)
+    // Endpoints that require authentication
     if (req.url === '/api/bots' && req.method === 'GET') {
-      if (!user) {
-        return res.status(401).json({ error: 'Unauthorized' });
+      if (!user || !user.id) {
+        return res.status(401).json({ 
+          error: 'Unauthorized',
+          message: 'Valid authorization token required',
+          hint: 'Please log in with Clerk to access this resource'
+        });
       }
 
       try {
+        // Ensure user exists in database
+        await ensureUserExists(user.id);
+        
         const { data: bots, error } = await supabase
           .from('bots')
           .select('*')
-          .eq('user_id', user.clerkId);
+          .eq('user_id', user.id);
 
         if (error) {
           console.error('Database error:', error);
@@ -162,7 +218,7 @@ module.exports = async function handler(req, res) {
           userId: bot.user_id,
           platformType: bot.platform_type,
           botName: bot.bot_name,
-          token: bot.token,
+          token: bot.token ? '[HIDDEN]' : null, // Don't expose tokens
           clientId: bot.client_id,
           personalityContext: bot.personality_context,
           isConnected: bot.is_connected,
@@ -174,21 +230,29 @@ module.exports = async function handler(req, res) {
         console.error('Unexpected error:', error);
         return res.status(500).json({
           error: 'Unexpected error',
-          details: error.message
+          message: error.message,
+          code: 'INTERNAL_ERROR'
         });
       }
     }
 
     if (req.url === '/api/mappings' && req.method === 'GET') {
-      if (!user) {
-        return res.status(401).json({ error: 'Unauthorized' });
+      if (!user || !user.id) {
+        return res.status(401).json({ 
+          error: 'Unauthorized',
+          message: 'Valid authorization token required',
+          hint: 'Please log in with Clerk to access this resource'
+        });
       }
 
       try {
+        // Ensure user exists in database
+        await ensureUserExists(user.id);
+
         const { data: mappings, error } = await supabase
           .from('command_mappings')
           .select('*')
-          .eq('user_id', user.clerkId);
+          .eq('user_id', user.id);
 
         if (error) {
           console.error('Database error:', error);
@@ -218,23 +282,31 @@ module.exports = async function handler(req, res) {
         console.error('Unexpected error:', error);
         return res.status(500).json({
           error: 'Unexpected error',
-          details: error.message
+          message: error.message,
+          code: 'INTERNAL_ERROR'
         });
       }
     }
 
     if (req.url === '/api/activities' && req.method === 'GET') {
-      if (!user) {
-        return res.status(401).json({ error: 'Unauthorized' });
+      if (!user || !user.id) {
+        return res.status(401).json({ 
+          error: 'Unauthorized',
+          message: 'Valid authorization token required',
+          hint: 'Please log in with Clerk to access this resource'
+        });
       }
 
       try {
+        // Ensure user exists in database
+        await ensureUserExists(user.id);
+
         const limit = req.query.limit ? parseInt(req.query.limit) : 10;
 
         const { data: activities, error } = await supabase
           .from('activities')
           .select('*')
-          .eq('user_id', user.clerkId)
+          .eq('user_id', user.id)
           .order('created_at', { ascending: false })
           .limit(limit);
 
@@ -262,7 +334,8 @@ module.exports = async function handler(req, res) {
         console.error('Unexpected error:', error);
         return res.status(500).json({
           error: 'Unexpected error',
-          details: error.message
+          message: error.message,
+          code: 'INTERNAL_ERROR'
         });
       }
     }
