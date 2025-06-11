@@ -1,5 +1,10 @@
 {
   "version": 2,
+  "functions": {
+    "api/index.js": {
+      "runtime": "@vercel/node@20"
+    }
+  },
   "builds": [
     {
       "src": "package.json",
@@ -11,10 +16,6 @@
         "VITE_API_URL": "https://www.commandless.app",
         "VITE_CLERK_PUBLISHABLE_KEY": "$VITE_CLERK_PUBLISHABLE_KEY"
       }
-    },
-    {
-      "src": "api/index.js",
-      "use": "@vercel/node"
     }
   ],
   "routes": [
