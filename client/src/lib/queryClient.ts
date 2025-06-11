@@ -2,17 +2,24 @@ import { QueryClient } from "@tanstack/react-query";
 
 // API request function that includes authentication
 export async function apiRequest(endpoint: string, options: RequestInit = {}) {
-  // In production, default to the current domain if VITE_API_URL is not set
-  let baseUrl = import.meta.env.VITE_API_URL;
+  // Determine base URL based on environment
+  let baseUrl: string;
   
-  if (!baseUrl) {
-    // If we're in a browser environment, use the current domain
-    if (typeof window !== 'undefined') {
-      baseUrl = window.location.origin;
-    } else {
-      // Fallback for localhost development
+  // Check if we have the environment variable
+  if (import.meta.env.VITE_API_URL) {
+    baseUrl = import.meta.env.VITE_API_URL;
+  } else if (typeof window !== 'undefined') {
+    // In browser environment, determine based on hostname
+    const hostname = window.location.hostname;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
       baseUrl = 'http://localhost:5001';
+    } else {
+      // Production environment - use the current domain
+      baseUrl = window.location.origin;
     }
+  } else {
+    // Fallback for server-side rendering
+    baseUrl = 'http://localhost:5001';
   }
   
   const url = `${baseUrl}${endpoint}`;
@@ -98,16 +105,23 @@ export function setAuthTokenGetter(getter: () => Promise<string | null>) {
 // Alternative API request for use outside React components
 export async function apiRequestWithToken(endpoint: string, token: string | null, options: RequestInit = {}) {
   // Use the same logic as apiRequest for consistent behavior
-  let baseUrl = import.meta.env.VITE_API_URL;
+  let baseUrl: string;
   
-  if (!baseUrl) {
-    // If we're in a browser environment, use the current domain
-    if (typeof window !== 'undefined') {
-      baseUrl = window.location.origin;
-    } else {
-      // Fallback for localhost development
+  // Check if we have the environment variable
+  if (import.meta.env.VITE_API_URL) {
+    baseUrl = import.meta.env.VITE_API_URL;
+  } else if (typeof window !== 'undefined') {
+    // In browser environment, determine based on hostname
+    const hostname = window.location.hostname;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
       baseUrl = 'http://localhost:5001';
+    } else {
+      // Production environment - use the current domain
+      baseUrl = window.location.origin;
     }
+  } else {
+    // Fallback for server-side rendering
+    baseUrl = 'http://localhost:5001';
   }
   
   const url = `${baseUrl}${endpoint}`;
