@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express, { type Request, Response, NextFunction } from "express";
+import cors from 'cors';
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { setupSampleData } from "./setupSampleData";
@@ -9,6 +10,18 @@ import { validateEncryptionSetup } from "./utils/encryption";
 import { validateGeminiConfig } from "./gemini/client";
 
 const app = express();
+
+// CORS Configuration - This is the fix.
+// It allows your Vercel frontend to make requests to this Railway backend.
+const allowedOrigins = ['https://www.commandless.app', 'https://commandless.app'];
+if (process.env.NODE_ENV === 'development') {
+  allowedOrigins.push('http://localhost:5173');
+}
+app.use(cors({
+  origin: allowedOrigins,
+  credentials: true,
+}));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
