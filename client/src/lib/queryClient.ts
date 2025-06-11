@@ -2,19 +2,17 @@ import { QueryClient } from "@tanstack/react-query";
 
 // API request function that includes authentication
 export async function apiRequest(endpoint: string, options: RequestInit = {}) {
-  // Determine base URL based on environment
+  // Determine base URL based on environment - hardcode production URL
   let baseUrl: string;
   
-  // Check if we have the environment variable
-  if (import.meta.env.VITE_API_URL) {
-    baseUrl = import.meta.env.VITE_API_URL;
-  } else if (typeof window !== 'undefined') {
-    // In browser environment, determine based on hostname
+  if (typeof window !== 'undefined') {
     const hostname = window.location.hostname;
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
       baseUrl = 'http://localhost:5001';
+    } else if (hostname === 'www.commandless.app' || hostname === 'commandless.app') {
+      baseUrl = 'https://www.commandless.app';
     } else {
-      // Production environment - use the current domain
+      // For any other domain (like vercel preview URLs), use the current origin
       baseUrl = window.location.origin;
     }
   } else {
@@ -104,19 +102,17 @@ export function setAuthTokenGetter(getter: () => Promise<string | null>) {
 
 // Alternative API request for use outside React components
 export async function apiRequestWithToken(endpoint: string, token: string | null, options: RequestInit = {}) {
-  // Use the same logic as apiRequest for consistent behavior
+  // Use the same logic as apiRequest for consistent behavior - hardcode production URL
   let baseUrl: string;
   
-  // Check if we have the environment variable
-  if (import.meta.env.VITE_API_URL) {
-    baseUrl = import.meta.env.VITE_API_URL;
-  } else if (typeof window !== 'undefined') {
-    // In browser environment, determine based on hostname
+  if (typeof window !== 'undefined') {
     const hostname = window.location.hostname;
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
       baseUrl = 'http://localhost:5001';
+    } else if (hostname === 'www.commandless.app' || hostname === 'commandless.app') {
+      baseUrl = 'https://www.commandless.app';
     } else {
-      // Production environment - use the current domain
+      // For any other domain (like vercel preview URLs), use the current origin
       baseUrl = window.location.origin;
     }
   } else {
