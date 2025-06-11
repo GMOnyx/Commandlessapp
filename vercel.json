@@ -11,14 +11,14 @@
       "use": "@vercel/static-build",
       "config": {
         "distDir": "dist/public"
-      },
-      "env": {
-        "VITE_API_URL": "https://www.commandless.app",
-        "VITE_CLERK_PUBLISHABLE_KEY": "$VITE_CLERK_PUBLISHABLE_KEY"
       }
     }
   ],
   "routes": [
+    {
+      "src": "/api/test",
+      "dest": "/api/test.js"
+    },
     {
       "src": "/api/(.*)",
       "dest": "/api/index.js"
@@ -42,6 +42,8 @@
     "USE_SUPABASE": "true",
     "SKIP_SAMPLE_DATA": "true",
     "VERIFY_DISCORD_SIGNATURE": "false",
-    "USE_AI_INTENT_PROCESSING": "true"
+    "USE_AI_INTENT_PROCESSING": "true",
+    "VITE_API_URL": "https://www.commandless.app",
+    "VITE_CLERK_PUBLISHABLE_KEY": "$VITE_CLERK_PUBLISHABLE_KEY"
   }
 } 
