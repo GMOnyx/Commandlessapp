@@ -49,11 +49,11 @@ export async function apiRequest(endpoint: string, options: RequestInit = {}) {
       logDetailed('URL_DETECTION', 'Using localhost backend', { baseUrl });
     } else if (hostname === 'www.commandless.app' || hostname === 'commandless.app') {
       baseUrl = 'https://commandlessapp-production.up.railway.app';
-      logDetailed('URL_DETECTION', 'Using Railway backend for production', { baseUrl, hostname });
+      logDetailed('URL_DETECTION', 'Using Railway backend for production (hardcoded)', { baseUrl, hostname });
     } else if (hostname.includes('commandless')) {
       // Force correct domain for any commandless-related hostname
       baseUrl = 'https://commandlessapp-production.up.railway.app';
-      logDetailed('URL_DETECTION', 'Forcing Railway backend for commandless hostname', { baseUrl, hostname });
+      logDetailed('URL_DETECTION', 'Forcing Railway backend for commandless hostname (hardcoded)', { baseUrl, hostname });
     } else {
       // For any other domain, use the current origin
       baseUrl = window.location.origin;
