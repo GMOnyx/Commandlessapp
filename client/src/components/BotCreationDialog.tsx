@@ -73,7 +73,10 @@ export default function BotCreationDialog({ open, onOpenChange }: BotCreationDia
   // Create bot mutation
   const createBotMutation = useMutation({
     mutationFn: async (data: z.infer<typeof formSchema>) => {
-      await apiRequest("POST", "/api/bots", data);
+      await apiRequest("/api/bots", {
+        method: "POST",
+        body: JSON.stringify(data)
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/bots"] });
@@ -104,8 +107,10 @@ export default function BotCreationDialog({ open, onOpenChange }: BotCreationDia
     setTokenValidation({ isValidating: true });
     
     try {
-      const response = await apiRequest("POST", "/api/discord/validate-token", { botToken: token });
-      const result = await response.json();
+      const result = await apiRequest("/api/discord/validate-token", {
+        method: "POST",
+        body: JSON.stringify({ botToken: token })
+      });
       
       setTokenValidation({
         valid: result.valid,
