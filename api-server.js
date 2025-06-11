@@ -40,8 +40,8 @@ app.get('/health', (req, res) => {
 });
 
 // Basic endpoints to start
-app.get('/status', (req, res) => {
-  console.log('📊 Status requested');
+app.get('/api/status', (req, res) => {
+  console.log('📊 API Status requested');
   res.json({
     status: 'API running on Railway',
     timestamp: new Date().toISOString(),
@@ -54,19 +54,40 @@ app.get('/status', (req, res) => {
   });
 });
 
-app.get('/bots', (req, res) => {
-  console.log('🤖 Bots endpoint requested');
+app.get('/api/bots', (req, res) => {
+  console.log('🤖 API Bots endpoint requested');
   res.json([]);
+});
+
+app.get('/api/mappings', (req, res) => {
+  console.log('🗺️ API Mappings endpoint requested');
+  res.json([]);
+});
+
+app.get('/api/activities', (req, res) => {
+  console.log('📈 API Activities endpoint requested');
+  res.json([]);
+});
+
+// Legacy endpoints without /api prefix (for backward compatibility)
+app.get('/status', (req, res) => {
+  console.log('📊 Legacy Status requested');
+  res.redirect('/api/status');
+});
+
+app.get('/bots', (req, res) => {
+  console.log('🤖 Legacy Bots requested');
+  res.redirect('/api/bots');
 });
 
 app.get('/mappings', (req, res) => {
-  console.log('🗺️ Mappings endpoint requested');
-  res.json([]);
+  console.log('🗺️ Legacy Mappings requested');
+  res.redirect('/api/mappings');
 });
 
 app.get('/activities', (req, res) => {
-  console.log('📈 Activities endpoint requested');
-  res.json([]);
+  console.log('📈 Legacy Activities requested');
+  res.redirect('/api/activities');
 });
 
 // Catch all for testing
@@ -76,7 +97,7 @@ app.use('*', (req, res) => {
     error: 'Endpoint not found',
     url: req.originalUrl,
     method: req.method,
-    availableEndpoints: ['/health', '/status', '/bots', '/mappings', '/activities']
+    availableEndpoints: ['/health', '/api/status', '/api/bots', '/api/mappings', '/api/activities']
   });
 });
 
