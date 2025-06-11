@@ -48,12 +48,12 @@ export async function apiRequest(endpoint: string, options: RequestInit = {}) {
       baseUrl = 'http://localhost:5001';
       logDetailed('URL_DETECTION', 'Using localhost backend', { baseUrl });
     } else if (hostname === 'www.commandless.app' || hostname === 'commandless.app') {
-      baseUrl = 'https://www.commandless.app';
-      logDetailed('URL_DETECTION', 'Using production domain', { baseUrl, hostname });
+      baseUrl = 'https://commandlessapp-production.up.railway.app';
+      logDetailed('URL_DETECTION', 'Using Railway backend for production', { baseUrl, hostname });
     } else if (hostname.includes('commandless')) {
       // Force correct domain for any commandless-related hostname
-      baseUrl = 'https://www.commandless.app';
-      logDetailed('URL_DETECTION', 'Forcing production domain for commandless hostname', { baseUrl, hostname });
+      baseUrl = 'https://commandlessapp-production.up.railway.app';
+      logDetailed('URL_DETECTION', 'Forcing Railway backend for commandless hostname', { baseUrl, hostname });
     } else {
       // For any other domain, use the current origin
       baseUrl = window.location.origin;
@@ -191,7 +191,7 @@ export async function apiRequestWithToken(endpoint: string, token: string | null
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
       baseUrl = 'http://localhost:5001';
     } else if (hostname === 'www.commandless.app' || hostname === 'commandless.app') {
-      baseUrl = 'https://www.commandless.app';
+      baseUrl = 'https://commandlessapp-production.up.railway.app';
     } else {
       // For any other domain (like vercel preview URLs), use the current origin
       baseUrl = window.location.origin;
