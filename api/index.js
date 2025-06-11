@@ -637,6 +637,148 @@ module.exports = async (req, res) => {
       }
     }
 
+    // Bot connect endpoint
+    if (url.match(/^\/api\/bots\/[^\/]+\/connect$/) && method === 'POST') {
+      const botId = url.split('/')[3]; // Extract bot ID from URL
+      await logToDatabase('info', 'BOTS', 'Bot connect requested', { botId, userId: user.id });
+      
+      try {
+        await ensureUserExists(user);
+        
+        // Get the bot first to verify ownership
+        const { data: bot, error: fetchError } = await supabase
+          .from('bot_connections')
+          .select('*')
+          .eq('id', botId)
+          .eq('user_id', user.id)
+          .single();
+
+        if (fetchError || !bot) {
+          await logToDatabase('warn', 'BOTS', 'Bot not found for connect', { botId, userId: user.id, error: fetchError?.message });
+          return res.status(404).json({
+            error: 'Bot not found',
+            message: 'Bot not found or you do not have access to it',
+            code: 'BOT_NOT_FOUND'
+          });
+        }
+
+        // Update bot connection status
+        const { data: updatedBot, error: updateError } = await supabase
+          .from('bot_connections')
+          .update({ 
+            is_connected: true,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', botId)
+          .eq('user_id', user.id)
+          .select()
+          .single();
+
+        if (updateError) {
+          await logToDatabase('error', 'BOTS', 'Failed to update bot connection status', { 
+            botId, 
+            userId: user.id, 
+            error: updateError.message 
+          });
+          return res.status(500).json({
+            error: 'Failed to connect bot',
+            message: updateError.message,
+            code: 'DB_UPDATE_ERROR'
+          });
+        }
+
+        await logToDatabase('info', 'BOTS', 'Bot connected successfully', { 
+          botId, 
+          botName: bot.name, 
+          userId: user.id 
+        });
+
+        return res.status(200).json(updatedBot);
+      } catch (error) {
+        await logToDatabase('error', 'BOTS', 'Error in bot connect', { 
+          botId, 
+          userId: user.id, 
+          error: error.message 
+        });
+        return res.status(500).json({
+          error: 'Internal server error',
+          message: error.message,
+          code: 'INTERNAL_ERROR'
+        });
+      }
+    }
+
+    // Bot disconnect endpoint
+    if (url.match(/^\/api\/bots\/[^\/]+\/disconnect$/) && method === 'POST') {
+      const botId = url.split('/')[3]; // Extract bot ID from URL
+      await logToDatabase('info', 'BOTS', 'Bot disconnect requested', { botId, userId: user.id });
+      
+      try {
+        await ensureUserExists(user);
+        
+        // Get the bot first to verify ownership
+        const { data: bot, error: fetchError } = await supabase
+          .from('bot_connections')
+          .select('*')
+          .eq('id', botId)
+          .eq('user_id', user.id)
+          .single();
+
+        if (fetchError || !bot) {
+          await logToDatabase('warn', 'BOTS', 'Bot not found for disconnect', { botId, userId: user.id, error: fetchError?.message });
+          return res.status(404).json({
+            error: 'Bot not found',
+            message: 'Bot not found or you do not have access to it',
+            code: 'BOT_NOT_FOUND'
+          });
+        }
+
+        // Update bot connection status
+        const { data: updatedBot, error: updateError } = await supabase
+          .from('bot_connections')
+          .update({ 
+            is_connected: false,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', botId)
+          .eq('user_id', user.id)
+          .select()
+          .single();
+
+        if (updateError) {
+          await logToDatabase('error', 'BOTS', 'Failed to update bot disconnection status', { 
+            botId, 
+            userId: user.id, 
+            error: updateError.message 
+          });
+          return res.status(500).json({
+            error: 'Failed to disconnect bot',
+            message: updateError.message,
+            code: 'DB_UPDATE_ERROR'
+          });
+        }
+
+        await logToDatabase('info', 'BOTS', 'Bot disconnected successfully', { 
+          botId, 
+          botName: bot.name, 
+          userId: user.id 
+        });
+
+        return res.status(200).json(updatedBot);
+      } catch (error) {
+        await logToDatabase('error', 'BOTS', 'Error in bot disconnect', { 
+          botId, 
+          userId: user.id, 
+          error: error.message 
+        });
+        return res.status(500).json({
+          error: 'Internal server error',
+          message: error.message,
+          code: 'INTERNAL_ERROR'
+        });
+      }
+    }
+
     // Activity data endpoint
     if (url === '/api/activities' && method === 'GET') {
       await logToDatabase('info', 'ACTIVITIES', 'Fetching activity data', { userId: user.id });
