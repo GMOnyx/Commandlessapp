@@ -11,6 +11,10 @@
   ],
   "routes": [
     {
+      "src": "/api/hello",
+      "dest": "/api/hello.js"
+    },
+    {
       "handle": "filesystem"
     },
     {
