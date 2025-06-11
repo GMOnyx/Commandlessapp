@@ -7,12 +7,18 @@ export async function apiRequest(endpoint: string, options: RequestInit = {}) {
   
   if (typeof window !== 'undefined') {
     const hostname = window.location.hostname;
+    console.log('🌍 Hostname detected:', hostname);
+    console.log('🌍 Full location:', window.location.href);
+    
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
       baseUrl = 'http://localhost:5001';
     } else if (hostname === 'www.commandless.app' || hostname === 'commandless.app') {
       baseUrl = 'https://www.commandless.app';
+    } else if (hostname.includes('commandless')) {
+      // Force correct domain for any commandless-related hostname
+      baseUrl = 'https://www.commandless.app';
     } else {
-      // For any other domain (like vercel preview URLs), use the current origin
+      // For any other domain, use the current origin
       baseUrl = window.location.origin;
     }
   } else {
