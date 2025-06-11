@@ -144,21 +144,40 @@ async function ensureUserExists(user) {
       return existingUser;
     }
 
-    console.log('[USER] User not found, creating new user for UUID:', user.id, 'Clerk ID:', user.clerkId);
     // If user doesn't exist, create them
+    console.log('[USER] User not found, creating new user for UUID:', user.id, 'Clerk ID:', user.clerkId);
+    
+    // Use upsert to handle race conditions
     const { data: newUser, error: createError } = await supabase
       .from('users')
-      .insert({
+      .upsert({
         id: user.id, // UUID format
         username: user.clerkId || `user_${user.id.slice(-8)}`, // Store original Clerk ID or fallback
         password: 'clerk_managed',
         name: 'User',
         role: 'user'
+      }, {
+        onConflict: 'id',
+        ignoreDuplicates: false
       })
       .select()
       .single();
 
     if (createError) {
+      // If it's a duplicate key error, try to fetch the existing user
+      if (createError.code === '23505' || createError.message.includes('duplicate key')) {
+        console.log('[USER] Duplicate key detected, fetching existing user');
+        const { data: existingUser } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', user.id)
+          .single();
+        
+        if (existingUser) {
+          return existingUser;
+        }
+      }
+      
       console.error('Error creating user:', createError);
       throw new Error(`Failed to create user: ${createError.message}`);
     }
