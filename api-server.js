@@ -76,8 +76,8 @@ app.post('/api/client-logs', (req, res) => {
 });
 
 // Token validation endpoint  
-app.post('/api/validate-token', (req, res) => {
-  console.log('🔍 Token validation requested');
+app.post('/api/discord/validate-token', (req, res) => {
+  console.log('🔍 Discord Token validation requested');
   const { token, platform } = req.body;
   
   if (!token) {
@@ -144,6 +144,12 @@ app.get('/activities', (req, res) => {
   res.redirect('/api/activities');
 });
 
+// DEPRECATED - remove later
+app.post('/api/validate-token', (req, res) => {
+  console.log('⚠️ Deprecated /api/validate-token called');
+  res.redirect(308, '/api/discord/validate-token');
+});
+
 // Catch all for testing
 app.use('*', (req, res) => {
   console.log(`❌ Unknown endpoint: ${req.method} ${req.originalUrl}`);
@@ -158,7 +164,7 @@ app.use('*', (req, res) => {
       '/api/mappings', 
       '/api/activities',
       '/api/client-logs',
-      '/api/validate-token'
+      '/api/discord/validate-token'
     ]
   });
 });
