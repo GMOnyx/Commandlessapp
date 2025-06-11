@@ -16,6 +16,10 @@
   ],
   "routes": [
     {
+      "src": "/api/hello",
+      "dest": "/api/hello.js"
+    },
+    {
       "src": "/api/simple(.*)",
       "dest": "/api/simple.js"
     },
