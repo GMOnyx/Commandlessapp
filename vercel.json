@@ -1,5 +1,19 @@
 {
   "version": 2,
+  "functions": {
+    "api/hello.js": {
+      "runtime": "@vercel/node@20"
+    },
+    "api/simple.js": {
+      "runtime": "@vercel/node@20"
+    },
+    "api/test.js": {
+      "runtime": "@vercel/node@20"
+    },
+    "api/index.js": {
+      "runtime": "@vercel/node@20"
+    }
+  },
   "builds": [
     {
       "src": "package.json",
@@ -10,10 +24,6 @@
     }
   ],
   "routes": [
-    {
-      "src": "/api/hello",
-      "dest": "/api/hello.js"
-    },
     {
       "handle": "filesystem"
     },
