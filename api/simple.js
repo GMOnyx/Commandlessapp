@@ -1,51 +1,84 @@
-module.exports = async function handler(req, res) {
-  // Set CORS headers
+// Simple API endpoint without any external dependencies
+module.exports = async (req, res) => {
+  // Enable CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  
+
   if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+    res.status(200).end();
+    return;
   }
 
-  console.log(`[API] ${req.method} ${req.url}`);
+  const { method, url } = req;
+  
+  console.log(`[SIMPLE] ${method} ${url}`);
 
   try {
-    if (req.url === '/api/simple' && req.method === 'GET') {
+    // Health check
+    if (method === 'GET' && url === '/api/simple/health') {
       return res.status(200).json({
-        message: 'Simple API working',
+        status: 'ok',
+        message: 'Simple API is working',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Status endpoint
+    if (method === 'GET' && url === '/api/simple/status') {
+      return res.status(200).json({
+        status: 'Simple API is working',
         timestamp: new Date().toISOString(),
         environment: {
-          hasSupabaseUrl: !!process.env.SUPABASE_URL,
-          hasSupabaseKey: !!process.env.SUPABASE_ANON_KEY,
-          hasClerkSecret: !!process.env.CLERK_SECRET_KEY
+          nodeEnv: process.env.NODE_ENV,
+          platform: process.platform,
+          nodeVersion: process.version
         }
       });
     }
 
-    if (req.url === '/api/bots' && req.method === 'GET') {
-      return res.status(200).json([]);
+    // Logs viewer endpoint
+    if (method === 'GET' && url === '/api/simple/logs') {
+      return res.status(200).send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Simple Debug Info</title>
+          <style>
+            body { font-family: monospace; padding: 20px; background: #1a1a1a; color: #fff; }
+            .info { color: #74c0fc; margin: 10px 0; }
+          </style>
+        </head>
+        <body>
+          <h1>Simple Debug Info</h1>
+          <div class="info">Timestamp: ${new Date().toISOString()}</div>
+          <div class="info">Node Version: ${process.version}</div>
+          <div class="info">Platform: ${process.platform}</div>
+          <div class="info">Environment: ${process.env.NODE_ENV || 'not set'}</div>
+          <div class="info">URL: ${url}</div>
+          <div class="info">Method: ${method}</div>
+        </body>
+        </html>
+      `);
     }
 
-    if (req.url === '/api/mappings' && req.method === 'GET') {
-      return res.status(200).json([]);
-    }
-
-    if (req.url === '/api/activities' && req.method === 'GET') {
-      return res.status(200).json([]);
-    }
-
-    return res.status(404).json({
-      error: 'Endpoint not found',
-      url: req.url,
-      method: req.method
+    // Default response
+    return res.status(200).json({
+      message: 'Simple API endpoint',
+      method,
+      url,
+      availableEndpoints: [
+        '/api/simple/health',
+        '/api/simple/status', 
+        '/api/simple/logs'
+      ]
     });
-
+    
   } catch (error) {
-    console.error('[API Error]:', error);
-    return res.status(500).json({ 
-      error: 'Internal server error',
-      details: error.message
+    console.error('[SIMPLE ERROR]', error);
+    return res.status(500).json({
+      error: 'Simple API error',
+      message: error.message
     });
   }
 }; 
