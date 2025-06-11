@@ -526,7 +526,7 @@ module.exports = async (req, res) => {
         await ensureUserExists(user);
         
         const { data: bots, error } = await supabase
-          .from('bot_connections')
+          .from('bots')
           .select('*')
           .eq('user_id', user.id);
 
@@ -557,34 +557,43 @@ module.exports = async (req, res) => {
       try {
         await ensureUserExists(user);
         
-        const { name, token, description } = req.body || {};
+        const { name, token, description, platformType, botName, clientId, personalityContext } = req.body || {};
         
-        if (!name || !token) {
-          await logToDatabase('warn', 'BOTS', 'Missing required fields', { hasName: !!name, hasToken: !!token });
+        // Support both new format (name, token) and old format (botName, platformType, etc.)
+        const botData = {
+          user_id: user.id,
+          bot_name: botName || name,
+          platform_type: platformType || 'discord',
+          token: token,
+          client_id: clientId || null,
+          personality_context: personalityContext || description || null,
+          is_connected: false,
+          created_at: new Date().toISOString()
+        };
+
+        if (!botData.bot_name || !botData.token) {
+          await logToDatabase('warn', 'BOTS', 'Missing required fields', { 
+            hasBotName: !!botData.bot_name, 
+            hasToken: !!botData.token 
+          });
           return res.status(400).json({
             error: 'Missing required fields',
-            message: 'Name and token are required',
+            message: 'Bot name and token are required',
             code: 'MISSING_FIELDS'
           });
         }
 
-        const botData = {
-          user_id: user.id,
-          name,
-          token,
-          description: description || '',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
-
         const { data: newBot, error } = await supabase
-          .from('bot_connections')
+          .from('bots')
           .insert(botData)
           .select()
           .single();
 
         if (error) {
-          await logToDatabase('error', 'BOTS', 'Failed to create bot', { error: error.message, botData: { name, hasToken: !!token } });
+          await logToDatabase('error', 'BOTS', 'Failed to create bot', { 
+            error: error.message, 
+            botData: { bot_name: botData.bot_name, hasToken: !!botData.token } 
+          });
           return res.status(500).json({
             error: 'Failed to create bot',
             message: error.message,
@@ -592,7 +601,10 @@ module.exports = async (req, res) => {
           });
         }
 
-        await logToDatabase('info', 'BOTS', 'Bot created successfully', { botId: newBot.id, name: newBot.name });
+        await logToDatabase('info', 'BOTS', 'Bot created successfully', { 
+          botId: newBot.id, 
+          botName: newBot.bot_name 
+        });
         return res.status(201).json(newBot);
       } catch (error) {
         await logToDatabase('error', 'BOTS', 'Error in POST /bots', { error: error.message, userId: user.id });
@@ -637,6 +649,73 @@ module.exports = async (req, res) => {
       }
     }
 
+    if (url === '/api/commands' && method === 'POST') {
+      await logToDatabase('info', 'COMMANDS', 'Creating new command mapping', { userId: user.id });
+      
+      try {
+        await ensureUserExists(user);
+        
+        const { botId, name, naturalLanguagePattern, commandOutput } = req.body || {};
+        
+        if (!botId || !name || !naturalLanguagePattern || !commandOutput) {
+          await logToDatabase('warn', 'COMMANDS', 'Missing required fields for command creation', { 
+            hasBotId: !!botId,
+            hasName: !!name,
+            hasPattern: !!naturalLanguagePattern,
+            hasOutput: !!commandOutput
+          });
+          return res.status(400).json({
+            error: 'Missing required fields',
+            message: 'botId, name, naturalLanguagePattern, and commandOutput are required',
+            code: 'MISSING_FIELDS'
+          });
+        }
+
+        const commandData = {
+          user_id: user.id,
+          bot_id: botId,
+          name,
+          natural_language_pattern: naturalLanguagePattern,
+          command_output: commandOutput,
+          status: 'active',
+          usage_count: 0,
+          created_at: new Date().toISOString()
+        };
+
+        const { data: newCommand, error } = await supabase
+          .from('command_mappings')
+          .insert(commandData)
+          .select()
+          .single();
+
+        if (error) {
+          await logToDatabase('error', 'COMMANDS', 'Failed to create command', { 
+            error: error.message, 
+            commandData: { name, botId, hasPattern: !!naturalLanguagePattern } 
+          });
+          return res.status(500).json({
+            error: 'Failed to create command',
+            message: error.message,
+            code: 'DB_INSERT_ERROR'
+          });
+        }
+
+        await logToDatabase('info', 'COMMANDS', 'Command created successfully', { 
+          commandId: newCommand.id, 
+          name: newCommand.name,
+          botId: newCommand.bot_id
+        });
+        return res.status(201).json(newCommand);
+      } catch (error) {
+        await logToDatabase('error', 'COMMANDS', 'Error in POST /commands', { error: error.message, userId: user.id });
+        return res.status(500).json({
+          error: 'Internal server error',
+          message: error.message,
+          code: 'INTERNAL_ERROR'
+        });
+      }
+    }
+
     // Bot connect endpoint
     if (url.match(/^\/api\/bots\/[^\/]+\/connect$/) && method === 'POST') {
       const botId = url.split('/')[3]; // Extract bot ID from URL
@@ -647,7 +726,7 @@ module.exports = async (req, res) => {
         
         // Get the bot first to verify ownership
         const { data: bot, error: fetchError } = await supabase
-          .from('bot_connections')
+          .from('bots')
           .select('*')
           .eq('id', botId)
           .eq('user_id', user.id)
@@ -664,7 +743,7 @@ module.exports = async (req, res) => {
 
         // Update bot connection status
         const { data: updatedBot, error: updateError } = await supabase
-          .from('bot_connections')
+          .from('bots')
           .update({ 
             is_connected: true,
             updated_at: new Date().toISOString()
@@ -689,7 +768,7 @@ module.exports = async (req, res) => {
 
         await logToDatabase('info', 'BOTS', 'Bot connected successfully', { 
           botId, 
-          botName: bot.name, 
+          botName: bot.bot_name, 
           userId: user.id 
         });
 
@@ -718,7 +797,7 @@ module.exports = async (req, res) => {
         
         // Get the bot first to verify ownership
         const { data: bot, error: fetchError } = await supabase
-          .from('bot_connections')
+          .from('bots')
           .select('*')
           .eq('id', botId)
           .eq('user_id', user.id)
@@ -735,7 +814,7 @@ module.exports = async (req, res) => {
 
         // Update bot connection status
         const { data: updatedBot, error: updateError } = await supabase
-          .from('bot_connections')
+          .from('bots')
           .update({ 
             is_connected: false,
             updated_at: new Date().toISOString()
@@ -760,7 +839,7 @@ module.exports = async (req, res) => {
 
         await logToDatabase('info', 'BOTS', 'Bot disconnected successfully', { 
           botId, 
-          botName: bot.name, 
+          botName: bot.bot_name, 
           userId: user.id 
         });
 

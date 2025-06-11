@@ -86,7 +86,10 @@ export default function CommandMappingBuilder({ bots }: CommandMappingBuilderPro
   // Create command mapping mutation
   const createMappingMutation = useMutation({
     mutationFn: async (data: z.infer<typeof formSchema>) => {
-      await apiRequest("POST", "/api/mappings", data);
+      await apiRequest("/api/commands", {
+        method: "POST",
+        body: JSON.stringify(data)
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/mappings"] });
