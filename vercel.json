@@ -1,7 +1,6 @@
 {
   "name": "commandless-app-frontend",
   "version": 2,
-  // Forcing a fresh build to ensure all settings are applied.
   "builds": [
     {
       "src": "package.json",
