@@ -1,6 +1,6 @@
 {
   "name": "rest-express",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "The best app for conversational AI bots.",
   "type": "module",
   "license": "MIT",
