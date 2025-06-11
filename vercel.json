@@ -37,6 +37,7 @@
     "USE_SUPABASE": "true",
     "SKIP_SAMPLE_DATA": "true",
     "VITE_API_URL": "https://www.commandless.app",
+    "VITE_CLERK_PUBLISHABLE_KEY": "$VITE_CLERK_PUBLISHABLE_KEY",
     "VERIFY_DISCORD_SIGNATURE": "false",
     "USE_AI_INTENT_PROCESSING": "true"
   }
