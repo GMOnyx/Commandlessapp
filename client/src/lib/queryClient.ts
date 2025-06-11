@@ -32,42 +32,12 @@ function logDetailed(category: string, message: string, data?: any) {
 
 // API request function that includes authentication
 export async function apiRequest(endpoint: string, options: RequestInit = {}) {
-  // Determine base URL based on environment - hardcode production URL
-  let baseUrl: string;
-  
-  if (typeof window !== 'undefined') {
-    const hostname = window.location.hostname;
-    logDetailed('URL_DETECTION', 'Detecting environment', {
-      hostname,
-      href: window.location.href,
-      origin: window.location.origin,
-      protocol: window.location.protocol
-    });
-    
-    if (hostname === 'localhost' || hostname === '127.0.0.1') {
-      baseUrl = 'http://localhost:5001';
-      logDetailed('URL_DETECTION', 'Using localhost backend', { baseUrl });
-    } else if (hostname === 'www.commandless.app' || hostname === 'commandless.app') {
-      baseUrl = 'https://commandlessapp-production.up.railway.app';
-      logDetailed('URL_DETECTION', 'Using Railway backend for production (hardcoded)', { baseUrl, hostname });
-    } else if (hostname.includes('commandless')) {
-      // Force correct domain for any commandless-related hostname
-      baseUrl = 'https://commandlessapp-production.up.railway.app';
-      logDetailed('URL_DETECTION', 'Forcing Railway backend for commandless hostname (hardcoded)', { baseUrl, hostname });
-    } else {
-      // For any other domain, use the current origin
-      baseUrl = window.location.origin;
-      logDetailed('URL_DETECTION', 'Using current origin as fallback', { baseUrl, hostname });
-    }
-  } else {
-    // Fallback for server-side rendering
-    baseUrl = 'http://localhost:5001';
-    logDetailed('URL_DETECTION', 'Using SSR fallback', { baseUrl });
-  }
+  // FORCE Railway API for ALL environments - NO MORE VERCEL
+  const baseUrl = 'https://commandlessapp-production.up.railway.app';
   
   const url = `${baseUrl}${endpoint}`;
   
-  logDetailed('API_REQUEST', 'Starting API request', {
+  logDetailed('API_REQUEST', 'Starting API request (FORCED RAILWAY)', {
     endpoint,
     baseUrl,
     fullUrl: url,
@@ -183,23 +153,8 @@ export function setAuthTokenGetter(getter: () => Promise<string | null>) {
 
 // Alternative API request for use outside React components
 export async function apiRequestWithToken(endpoint: string, token: string | null, options: RequestInit = {}) {
-  // Use the same logic as apiRequest for consistent behavior - hardcode production URL
-  let baseUrl: string;
-  
-  if (typeof window !== 'undefined') {
-    const hostname = window.location.hostname;
-    if (hostname === 'localhost' || hostname === '127.0.0.1') {
-      baseUrl = 'http://localhost:5001';
-    } else if (hostname === 'www.commandless.app' || hostname === 'commandless.app') {
-      baseUrl = 'https://commandlessapp-production.up.railway.app';
-    } else {
-      // For any other domain (like vercel preview URLs), use the current origin
-      baseUrl = window.location.origin;
-    }
-  } else {
-    // Fallback for server-side rendering
-    baseUrl = 'http://localhost:5001';
-  }
+  // FORCE Railway API for ALL environments
+  const baseUrl = 'https://commandlessapp-production.up.railway.app';
   
   const url = `${baseUrl}${endpoint}`;
 
