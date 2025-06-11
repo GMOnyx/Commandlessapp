@@ -75,32 +75,39 @@ app.post('/api/client-logs', (req, res) => {
   res.json({ status: 'logged' });
 });
 
-// Token validation endpoint  
-app.post('/api/discord/validate-token', (req, res) => {
+// Token validation endpoint
+app.post('/api/discord/validate-token', async (req, res) => {
   console.log('🔍 Discord Token validation requested');
-  const { token, platform } = req.body;
-  
+  const { token } = req.body;
+
   if (!token) {
-    return res.status(400).json({ 
-      valid: false, 
-      error: 'Token is required' 
-    });
+    return res.status(400).json({ valid: false, error: 'Token is required' });
   }
-  
-  // For now, just do basic validation
-  if (token.length < 50) {
-    return res.status(400).json({ 
-      valid: false, 
-      error: 'Token appears to be too short' 
+
+  try {
+    const discordResponse = await fetch('https://discord.com/api/v10/users/@me', {
+      headers: {
+        Authorization: `Bot ${token}`,
+      },
     });
+
+    if (discordResponse.ok) {
+      const botData = await discordResponse.json();
+      console.log('✅ Token is valid for bot:', botData.username);
+      return res.json({
+        valid: true,
+        botName: botData.username,
+        botId: botData.id,
+      });
+    } else {
+      const errorData = await discordResponse.text();
+      console.log('❌ Token is invalid, Discord API responded with:', discordResponse.status, errorData);
+      return res.status(401).json({ valid: false, error: 'Invalid Discord Bot Token' });
+    }
+  } catch (error) {
+    console.error('🚨 Error during token validation fetch:', error);
+    return res.status(500).json({ valid: false, error: 'Failed to contact Discord API' });
   }
-  
-  // TODO: Add real Discord/Telegram token validation
-  res.json({ 
-    valid: true, 
-    botName: 'Bot Name Placeholder',
-    botId: '123456789'
-  });
 });
 
 // Bot connection endpoints
