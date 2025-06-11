@@ -1,10 +1,5 @@
 {
   "version": 2,
-  "functions": {
-    "api/index.js": {
-      "runtime": "@vercel/node@20"
-    }
-  },
   "builds": [
     {
       "src": "package.json",
@@ -16,42 +11,11 @@
   ],
   "routes": [
     {
-      "src": "/api/hello",
-      "dest": "/api/hello.js"
-    },
-    {
-      "src": "/api/simple(.*)",
-      "dest": "/api/simple.js"
-    },
-    {
-      "src": "/api/test",
-      "dest": "/api/test.js"
-    },
-    {
-      "src": "/api/(.*)",
-      "dest": "/api/index.js"
-    },
-    {
-      "src": "/(.*\\.(png|jpg|jpeg|gif|svg|css|js|ico))",
-      "headers": { 
-        "cache-control": "s-maxage=31536000,immutable"
-      }
-    },
-    {
       "handle": "filesystem"
     },
     {
       "src": "/(.*)",
       "dest": "/index.html"
     }
-  ],
-  "env": {
-    "NODE_ENV": "production",
-    "USE_SUPABASE": "true",
-    "SKIP_SAMPLE_DATA": "true",
-    "VERIFY_DISCORD_SIGNATURE": "false",
-    "USE_AI_INTENT_PROCESSING": "true",
-    "VITE_API_URL": "https://www.commandless.app",
-    "VITE_CLERK_PUBLISHABLE_KEY": "$VITE_CLERK_PUBLISHABLE_KEY"
-  }
+  ]
 } 
