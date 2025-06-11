@@ -1,1 +1,25 @@
-{} 
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "dist/public"
+      }
+    }
+  ],
+  "routes": [
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
+    }
+  ],
+  "env": {
+    "VITE_API_URL": "https://commandlessapp-production.up.railway.app",
+    "VITE_CLERK_PUBLISHABLE_KEY": "$VITE_CLERK_PUBLISHABLE_KEY"
+  }
+} 
