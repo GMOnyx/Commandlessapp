@@ -411,6 +411,143 @@ module.exports = async function handler(req, res) {
       }
     }
 
+    if (req.url === '/api/bots' && req.method === 'POST') {
+      if (!user || !user.id) {
+        return res.status(401).json({ 
+          error: 'Unauthorized',
+          message: 'Valid authorization token required',
+          hint: 'Please log in with Clerk to access this resource'
+        });
+      }
+
+      try {
+        // Ensure user exists in database
+        await ensureUserExists(user);
+
+        const { botName, platformType, token, clientId, personalityContext } = req.body;
+
+        // Basic validation
+        if (!botName || !platformType || !token) {
+          return res.status(400).json({
+            error: 'Validation failed',
+            message: 'botName, platformType, and token are required'
+          });
+        }
+
+        // Create bot in database
+        const { data: newBot, error: createError } = await supabase
+          .from('bots')
+          .insert({
+            user_id: user.id,
+            platform_type: platformType,
+            bot_name: botName,
+            token: token, // In production, encrypt this
+            client_id: clientId || null,
+            personality_context: personalityContext || null,
+            is_connected: false
+          })
+          .select()
+          .single();
+
+        if (createError) {
+          console.error('Database error creating bot:', createError);
+          return res.status(500).json({
+            error: 'Database error',
+            message: 'Could not create bot in database',
+            details: createError.message
+          });
+        }
+
+        // Create activity
+        await supabase
+          .from('activities')
+          .insert({
+            user_id: user.id,
+            activity_type: 'bot_created',
+            description: `Bot ${botName} was created`,
+            metadata: { botId: newBot.id, platformType: platformType }
+          });
+
+        console.log(`[API] Created new bot: ${newBot.id} for user ${user.id}`);
+
+        // Transform response for frontend
+        const transformedBot = {
+          id: newBot.id,
+          userId: newBot.user_id,
+          platformType: newBot.platform_type,
+          botName: newBot.bot_name,
+          token: '[HIDDEN]', // Don't expose token
+          clientId: newBot.client_id,
+          personalityContext: newBot.personality_context,
+          isConnected: newBot.is_connected,
+          createdAt: newBot.created_at
+        };
+
+        return res.status(201).json(transformedBot);
+      } catch (error) {
+        console.error('Unexpected error creating bot:', error);
+        return res.status(500).json({
+          error: 'Unexpected error',
+          message: error.message,
+          code: 'INTERNAL_ERROR'
+        });
+      }
+    }
+
+    // Discord bot token validation endpoint
+    if (req.url === '/api/discord/validate-token' && req.method === 'POST') {
+      try {
+        const { botToken } = req.body;
+        
+        if (!botToken) {
+          return res.status(400).json({ 
+            valid: false,
+            message: "Bot token is required" 
+          });
+        }
+
+        // Simple Discord API validation
+        const cleanToken = botToken.trim().replace(/^Bot\s+/i, '');
+        
+        // Basic format validation
+        if (cleanToken.length < 50 || !/^[A-Za-z0-9._-]+$/.test(cleanToken)) {
+          return res.status(200).json({
+            valid: false,
+            message: "❌ Token format appears invalid"
+          });
+        }
+
+        // Try Discord API call
+        const discordResponse = await fetch('https://discord.com/api/v10/oauth2/applications/@me', {
+          headers: {
+            'Authorization': `Bot ${cleanToken}`,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (discordResponse.ok) {
+          const appData = await discordResponse.json();
+          return res.status(200).json({
+            valid: true,
+            applicationId: appData.id,
+            botName: appData.name,
+            message: "✅ Discord bot token is valid!"
+          });
+        } else {
+          return res.status(200).json({
+            valid: false,
+            message: "❌ Invalid Discord bot token. Please check your token and try again."
+          });
+        }
+      } catch (error) {
+        console.error('Token validation error:', error);
+        return res.status(200).json({
+          valid: false,
+          message: "❌ Error validating token. Please try again."
+        });
+      }
+    }
+
     // Default response for unknown endpoints
     return res.status(404).json({
       error: 'Endpoint not found',
