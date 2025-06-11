@@ -16,8 +16,9 @@ function logDetailed(category: string, message: string, data?: any) {
   
   // Also try to send to our logging endpoint (non-blocking)
   if (typeof window !== 'undefined') {
+    const railwayLogUrl = 'https://commandlessapp-production.up.railway.app/api/client-logs';
     try {
-      fetch('/api/client-logs', {
+      fetch(railwayLogUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(logData)
