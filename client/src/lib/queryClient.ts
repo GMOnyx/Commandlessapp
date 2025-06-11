@@ -1,5 +1,35 @@
 import { QueryClient } from "@tanstack/react-query";
 
+// Enhanced logging function for debugging
+function logDetailed(category: string, message: string, data?: any) {
+  const timestamp = new Date().toISOString();
+  const logData = {
+    timestamp,
+    category,
+    message,
+    url: typeof window !== 'undefined' ? window.location.href : 'N/A',
+    userAgent: typeof window !== 'undefined' ? navigator.userAgent : 'N/A',
+    ...data
+  };
+  
+  console.log(`🔍 [${category}] ${message}`, logData);
+  
+  // Also try to send to our logging endpoint (non-blocking)
+  if (typeof window !== 'undefined') {
+    try {
+      fetch('/api/client-logs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(logData)
+      }).catch(() => {
+        // Ignore errors - logging is best effort
+      });
+    } catch (e) {
+      // Ignore - logging is best effort
+    }
+  }
+}
+
 // API request function that includes authentication
 export async function apiRequest(endpoint: string, options: RequestInit = {}) {
   // Determine base URL based on environment - hardcode production URL
@@ -7,33 +37,46 @@ export async function apiRequest(endpoint: string, options: RequestInit = {}) {
   
   if (typeof window !== 'undefined') {
     const hostname = window.location.hostname;
-    console.log('🌍 Hostname detected:', hostname);
-    console.log('🌍 Full location:', window.location.href);
+    logDetailed('URL_DETECTION', 'Detecting environment', {
+      hostname,
+      href: window.location.href,
+      origin: window.location.origin,
+      protocol: window.location.protocol
+    });
     
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
       baseUrl = 'http://localhost:5001';
+      logDetailed('URL_DETECTION', 'Using localhost backend', { baseUrl });
     } else if (hostname === 'www.commandless.app' || hostname === 'commandless.app') {
       baseUrl = 'https://www.commandless.app';
+      logDetailed('URL_DETECTION', 'Using production domain', { baseUrl, hostname });
     } else if (hostname.includes('commandless')) {
       // Force correct domain for any commandless-related hostname
       baseUrl = 'https://www.commandless.app';
+      logDetailed('URL_DETECTION', 'Forcing production domain for commandless hostname', { baseUrl, hostname });
     } else {
       // For any other domain, use the current origin
       baseUrl = window.location.origin;
+      logDetailed('URL_DETECTION', 'Using current origin as fallback', { baseUrl, hostname });
     }
   } else {
     // Fallback for server-side rendering
     baseUrl = 'http://localhost:5001';
+    logDetailed('URL_DETECTION', 'Using SSR fallback', { baseUrl });
   }
   
   const url = `${baseUrl}${endpoint}`;
+  
+  logDetailed('API_REQUEST', 'Starting API request', {
+    endpoint,
+    baseUrl,
+    fullUrl: url,
+    method: options.method || 'GET',
+    hasBody: !!(options.body)
+  });
 
   // Get the auth token directly from Clerk
   let token: string | null = null;
-  
-  console.log('🔍 apiRequest called for:', endpoint);
-  console.log('🌐 Base URL:', baseUrl);
-  console.log('🔗 Full URL:', url);
   
   // Try to get token from Clerk directly
   try {
@@ -42,12 +85,21 @@ export async function apiRequest(endpoint: string, options: RequestInit = {}) {
     
     if (clerk && clerk.session) {
       token = await clerk.session.getToken();
-      console.log('🔑 Got token from Clerk session:', token ? 'Token exists' : 'No token');
+      logDetailed('AUTH', 'Token retrieved from Clerk', { 
+        hasToken: !!token, 
+        tokenLength: token?.length || 0,
+        clerkSessionExists: !!clerk.session
+      });
     } else {
-      console.log('❌ No Clerk session available');
+      logDetailed('AUTH', 'No Clerk session available', { 
+        hasClerk: !!clerk,
+        hasSession: !!(clerk?.session)
+      });
     }
   } catch (error) {
-    console.error("Failed to get auth token from Clerk:", error);
+    logDetailed('AUTH', 'Failed to get auth token from Clerk', { 
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
   }
 
   const config: RequestInit = {
@@ -59,27 +111,50 @@ export async function apiRequest(endpoint: string, options: RequestInit = {}) {
     },
   };
 
-  console.log(`Making API request to ${endpoint}`, { hasToken: !!token, config });
+  logDetailed('API_REQUEST', 'Making fetch request', {
+    url,
+    method: config.method || 'GET',
+    hasToken: !!token,
+    headers: Object.keys(config.headers || {})
+  });
 
   try {
     const response = await fetch(url, config);
-    console.log(`📡 Fetch response for ${endpoint}:`, { 
-      status: response.status, 
+    
+    logDetailed('API_RESPONSE', 'Received response', {
+      url,
+      status: response.status,
+      statusText: response.statusText,
       ok: response.ok,
-      statusText: response.statusText 
+      headers: Object.fromEntries(response.headers.entries())
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`❌ API Error ${response.status}:`, errorText);
+      logDetailed('API_ERROR', 'HTTP error response', {
+        url,
+        status: response.status,
+        statusText: response.statusText,
+        errorText
+      });
       throw new Error(`HTTP ${response.status}: ${errorText}`);
     }
 
     const data = await response.json();
-    console.log(`✅ API response from ${endpoint}:`, data);
+    logDetailed('API_SUCCESS', 'Request completed successfully', {
+      url,
+      status: response.status,
+      dataType: typeof data,
+      dataKeys: data && typeof data === 'object' ? Object.keys(data) : 'N/A'
+    });
+    
     return data;
   } catch (error) {
-    console.error(`💥 Fetch failed for ${endpoint}:`, error);
+    logDetailed('API_ERROR', 'Fetch failed', {
+      url,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      errorType: error instanceof TypeError ? 'TypeError' : error instanceof Error ? error.constructor.name : 'Unknown'
+    });
     throw error;
   }
 }

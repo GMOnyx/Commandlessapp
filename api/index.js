@@ -13,6 +13,38 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+// Comprehensive logging system
+async function logToDatabase(level, category, message, metadata = {}) {
+  try {
+    const timestamp = new Date().toISOString();
+    const logEntry = {
+      timestamp,
+      level,
+      category,
+      message,
+      metadata: JSON.stringify(metadata),
+      created_at: timestamp
+    };
+    
+    // Try to insert into logs table, create table if it doesn't exist
+    const { error } = await supabase
+      .from('debug_logs')
+      .insert(logEntry);
+    
+    if (error && error.code === '42P01') {
+      // Table doesn't exist, create it
+      console.log('[LOG] Creating debug_logs table...');
+      // We'll create it manually since we can't execute DDL from here
+    }
+    
+    // Always log to console as backup
+    console.log(`[${level.toUpperCase()}] [${category}] ${message}`, metadata);
+  } catch (error) {
+    console.error('[LOG ERROR]', error);
+    console.log(`[${level.toUpperCase()}] [${category}] ${message}`, metadata);
+  }
+}
+
 // Convert Clerk user ID to UUID format for database compatibility
 function clerkUserIdToUuid(clerkUserId) {
   // Create a deterministic UUID from the Clerk user ID using SHA-256
@@ -27,32 +59,35 @@ function clerkUserIdToUuid(clerkUserId) {
     hash.slice(20, 32)
   ].join('-');
   
-  console.log(`[UUID] Converted Clerk ID ${clerkUserId} to UUID ${uuid}`);
+  logToDatabase('info', 'AUTH', `Converted Clerk ID to UUID`, { clerkUserId, uuid });
   return uuid;
 }
 
 // Helper function to get user from any token (simplified for demo)
 async function getUserFromToken(authHeader) {
-  console.log('[AUTH] Processing auth header:', authHeader ? `Bearer ${authHeader.substring(7, 20)}...` : 'none');
+  logToDatabase('info', 'AUTH', 'Processing auth header', { 
+    hasAuthHeader: !!authHeader,
+    authHeaderPreview: authHeader ? `Bearer ${authHeader.substring(7, 20)}...` : 'none'
+  });
   
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    console.log('[AUTH] No Bearer token found');
+    logToDatabase('warn', 'AUTH', 'No Bearer token found');
     return null;
   }
 
   try {
     const token = authHeader.replace('Bearer ', '');
-    console.log('[AUTH] Token length:', token.length);
+    logToDatabase('info', 'AUTH', 'Token extracted', { tokenLength: token.length });
     
     // For demo purposes, extract user ID from JWT-like token
     if (token.includes('.')) {
-      console.log('[AUTH] JWT-like token detected, parsing...');
+      logToDatabase('info', 'AUTH', 'JWT-like token detected, parsing...');
       // It's a JWT-like token, extract payload
       const parts = token.split('.');
       if (parts.length >= 2) {
         try {
           const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
-          console.log('[AUTH] JWT payload parsed:', { 
+          logToDatabase('info', 'AUTH', 'JWT payload parsed', { 
             sub: payload.sub, 
             exp: payload.exp ? new Date(payload.exp * 1000) : 'no exp',
             iss: payload.iss 
@@ -61,26 +96,28 @@ async function getUserFromToken(authHeader) {
           if (payload.sub) {
             // Convert Clerk user ID to UUID for database
             const dbUserId = clerkUserIdToUuid(payload.sub);
-            return { 
+            const user = { 
               id: dbUserId, // UUID for database
               clerkId: payload.sub // Original Clerk ID for reference
             };
+            logToDatabase('info', 'AUTH', 'User authentication successful', user);
+            return user;
           } else {
-            console.log('[AUTH] No sub claim in JWT');
+            logToDatabase('warn', 'AUTH', 'No sub claim in JWT');
             return null;
           }
         } catch (e) {
-          console.log('[AUTH] JWT parsing failed:', e.message);
+          logToDatabase('error', 'AUTH', 'JWT parsing failed', { error: e.message });
           return null;
         }
       }
     }
     
     // For any other token, return null (unauthorized)
-    console.log('[AUTH] Not a valid JWT format');
+    logToDatabase('warn', 'AUTH', 'Not a valid JWT format');
     return null;
   } catch (error) {
-    console.error('[AUTH] Error decoding token:', error);
+    logToDatabase('error', 'AUTH', 'Error decoding token', { error: error.message });
     return null;
   }
 }
@@ -189,397 +226,467 @@ async function ensureUserExists(user) {
   }
 }
 
-module.exports = async function handler(req, res) {
-  // Set CORS headers
+// Main handler function
+module.exports = async (req, res) => {
+  const { method, url } = req;
+  const startTime = Date.now();
+  
+  // Enable CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+
+  if (method === 'OPTIONS') {
+    res.status(200).end();
+    return;
   }
 
-  console.log(`[API] ${req.method} ${req.url}`);
-  console.log(`[API] Headers:`, {
-    authorization: req.headers.authorization ? `Bearer ${req.headers.authorization.substring(7, 20)}...` : 'none',
-    contentType: req.headers['content-type'],
-    origin: req.headers.origin
+  // Log all incoming requests
+  await logToDatabase('info', 'REQUEST', `${method} ${url}`, {
+    method,
+    url,
+    headers: req.headers,
+    query: req.query,
+    userAgent: req.headers['user-agent'],
+    ip: req.headers['x-forwarded-for'] || req.connection.remoteAddress
   });
 
-  // Ensure database is configured
-  if (!supabaseUrl || !supabaseKey) {
-    return res.status(500).json({
-      error: 'Server configuration error',
-      message: 'Database connection not configured. Missing SUPABASE_URL or SUPABASE_ANON_KEY environment variables.',
-      code: 'MISSING_ENV_VARS'
-    });
-  }
-
   try {
-    // Check database setup
-    const dbSetup = await checkDatabaseSetup();
+    // Logs viewer endpoint
+    if (method === 'GET' && url === '/api/logs') {
+      await logToDatabase('info', 'LOGS', 'Logs viewer accessed');
+      
+      try {
+        // Get recent logs
+        const { data: logs, error } = await supabase
+          .from('debug_logs')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(500);
+
+        if (error) {
+          await logToDatabase('error', 'LOGS', 'Failed to fetch logs', { error: error.message });
+          
+          // Return HTML page even if DB fails
+          return res.status(200).send(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+              <title>Commandless Debug Logs</title>
+              <style>
+                body { font-family: monospace; padding: 20px; background: #1a1a1a; color: #fff; }
+                .error { color: #ff6b6b; }
+                .warn { color: #ffd93d; }
+                .info { color: #74c0fc; }
+                .debug { color: #b197fc; }
+                .log-entry { margin: 10px 0; padding: 10px; border-left: 3px solid #555; background: #2a2a2a; }
+                .timestamp { color: #888; }
+                .category { font-weight: bold; }
+                pre { background: #333; padding: 10px; overflow-x: auto; }
+              </style>
+            </head>
+            <body>
+              <h1>Commandless Debug Logs</h1>
+              <div class="error">Failed to load logs from database: ${error.message}</div>
+              <p>Check console logs or database directly.</p>
+            </body>
+            </html>
+          `);
+        }
+
+        // Create HTML page with logs
+        const logsHtml = logs?.map(log => {
+          const metadata = log.metadata ? JSON.parse(log.metadata) : {};
+          return `
+            <div class="log-entry ${log.level}">
+              <span class="timestamp">${log.timestamp}</span>
+              <span class="category">[${log.category}]</span>
+              <span class="level">[${log.level.toUpperCase()}]</span>
+              <span class="message">${log.message}</span>
+              ${Object.keys(metadata).length > 0 ? `<pre>${JSON.stringify(metadata, null, 2)}</pre>` : ''}
+            </div>
+          `;
+        }).join('') || '<p>No logs found</p>';
+
+        return res.status(200).send(`
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Commandless Debug Logs</title>
+            <style>
+              body { font-family: monospace; padding: 20px; background: #1a1a1a; color: #fff; }
+              .error { color: #ff6b6b; }
+              .warn { color: #ffd93d; }
+              .info { color: #74c0fc; }
+              .debug { color: #b197fc; }
+              .log-entry { margin: 10px 0; padding: 10px; border-left: 3px solid #555; background: #2a2a2a; }
+              .timestamp { color: #888; }
+              .category { font-weight: bold; }
+              .message { margin-left: 10px; }
+              pre { background: #333; padding: 10px; overflow-x: auto; margin-top: 10px; }
+              .controls { margin: 20px 0; }
+              button { background: #4c6ef5; color: white; border: none; padding: 10px 20px; cursor: pointer; margin-right: 10px; }
+              button:hover { background: #364fc7; }
+            </style>
+            <script>
+              function refreshLogs() {
+                window.location.reload();
+              }
+              function clearLogs() {
+                if (confirm('Clear all logs?')) {
+                  fetch('/api/logs', { method: 'DELETE' })
+                    .then(() => window.location.reload());
+                }
+              }
+            </script>
+          </head>
+          <body>
+            <h1>Commandless Debug Logs</h1>
+            <div class="controls">
+              <button onclick="refreshLogs()">Refresh</button>
+              <button onclick="clearLogs()">Clear Logs</button>
+              <span style="margin-left: 20px;">Total logs: ${logs?.length || 0}</span>
+            </div>
+            ${logsHtml}
+          </body>
+          </html>
+        `);
+      } catch (error) {
+        await logToDatabase('error', 'LOGS', 'Logs viewer error', { error: error.message });
+        return res.status(500).json({ error: 'Failed to load logs' });
+      }
+    }
+
+    // Clear logs endpoint
+    if (method === 'DELETE' && url === '/api/logs') {
+      await logToDatabase('info', 'LOGS', 'Clearing logs');
+      
+      try {
+        const { error } = await supabase
+          .from('debug_logs')
+          .delete()
+          .neq('id', 'impossible'); // Delete all
+          
+        if (error) {
+          await logToDatabase('error', 'LOGS', 'Failed to clear logs', { error: error.message });
+          return res.status(500).json({ error: 'Failed to clear logs' });
+        }
+        
+        await logToDatabase('info', 'LOGS', 'Logs cleared successfully');
+        return res.status(200).json({ message: 'Logs cleared' });
+      } catch (error) {
+        await logToDatabase('error', 'LOGS', 'Error clearing logs', { error: error.message });
+        return res.status(500).json({ error: 'Failed to clear logs' });
+      }
+    }
+
+    // Client logs endpoint (for frontend logging)
+    if (url === '/api/client-logs' && method === 'POST') {
+      try {
+        const logData = req.body;
+        await logToDatabase('client', logData.category || 'FRONTEND', logData.message || 'Client log', {
+          frontend_data: logData,
+          timestamp: logData.timestamp,
+          client_url: logData.url,
+          user_agent: logData.userAgent
+        });
+        return res.status(200).json({ logged: true });
+      } catch (error) {
+        // Don't fail on logging errors
+        return res.status(200).json({ logged: false, error: error.message });
+      }
+    }
+
+    // Ensure debug_logs table exists
+    async function ensureDebugLogsTable() {
+      try {
+        // Try to insert a test log to check if table exists
+        const { error } = await supabase
+          .from('debug_logs')
+          .select('id')
+          .limit(1);
+        
+        if (error && error.code === '42P01') {
+          // Table doesn't exist, log this issue
+          console.log('[INIT] debug_logs table does not exist - manual creation required');
+          await logToDatabase('error', 'INIT', 'debug_logs table missing - requires manual creation in Supabase');
+          return false;
+        }
+        
+        await logToDatabase('info', 'INIT', 'debug_logs table is available');
+        return true;
+      } catch (error) {
+        console.log('[INIT] Error checking debug_logs table:', error);
+        return false;
+      }
+    }
+
+    // Initialize logging table check
+    await ensureDebugLogsTable();
+
+    // Get user info from auth header
+    const user = await getUserFromToken(req.headers.authorization);
     
-    if (!dbSetup.allTablesExist) {
-      return res.status(500).json({
-        error: 'Database not set up',
-        message: 'Database tables are missing. Please create the required tables in your Supabase database.',
-        details: 'Run the SQL from setup-database.sql in your Supabase SQL Editor',
-        tableStatus: dbSetup.tableStatus,
-        code: 'DB_TABLES_MISSING'
+    if (!user) {
+      await logToDatabase('warn', 'AUTH', 'Unauthorized request', { url, method });
+    } else {
+      await logToDatabase('info', 'AUTH', 'Authenticated request', { userId: user.id, clerkId: user.clerkId, url, method });
+    }
+
+    // Health check endpoint
+    if (method === 'GET' && url === '/api/health') {
+      await logToDatabase('info', 'HEALTH', 'Health check requested');
+      return res.status(200).json({ 
+        status: 'ok', 
+        timestamp: new Date().toISOString(),
+        environment: process.env.NODE_ENV || 'development',
+        version: '1.0.0'
       });
     }
 
-    // Get authenticated user for protected endpoints
-    const user = await getUserFromToken(req.headers.authorization);
-    
     // API Status endpoint for debugging
-    if (req.url === '/api/status' && req.method === 'GET') {
-      return res.status(200).json({
+    if (url === '/api/status' && method === 'GET') {
+      await logToDatabase('info', 'STATUS', 'Status endpoint accessed');
+      
+      const dbSetup = await checkDatabaseSetup();
+      const statusData = {
         status: 'API is working',
         database: dbSetup,
         authentication: {
           hasAuthHeader: !!req.headers.authorization,
-          userAuthenticated: !!user,
-          userId: user?.id || null
+          user: user ? { id: user.id, clerkId: user.clerkId } : null
         },
         environment: {
+          nodeEnv: process.env.NODE_ENV,
           hasSupabaseUrl: !!process.env.SUPABASE_URL,
-          hasSupabaseKey: !!process.env.SUPABASE_ANON_KEY,
-          hasClerkSecret: !!process.env.CLERK_SECRET_KEY,
-          hasGeminiKey: !!process.env.GEMINI_API_KEY
+          hasSupabaseKey: !!process.env.SUPABASE_ANON_KEY
         },
         timestamp: new Date().toISOString()
-      });
+      };
+      
+      await logToDatabase('info', 'STATUS', 'Status response', statusData);
+      return res.status(200).json(statusData);
     }
-    
-    // Endpoints that require authentication
-    if (req.url === '/api/bots' && req.method === 'GET') {
-      if (!user || !user.id) {
+
+    // Protected endpoints that require authentication
+    if (!user) {
+      const protectedPaths = ['/api/bots', '/api/commands', '/api/activities'];
+      const isProtectedPath = protectedPaths.some(path => url.startsWith(path));
+      
+      if (isProtectedPath) {
+        await logToDatabase('warn', 'AUTH', 'Unauthorized access to protected endpoint', { url, method });
         return res.status(401).json({ 
           error: 'Unauthorized',
-          message: 'Valid authorization token required',
-          hint: 'Please log in with Clerk to access this resource',
-          debug: {
-            hasAuthHeader: !!req.headers.authorization,
-            authHeaderFormat: req.headers.authorization ? 'Bearer token' : 'none',
-            tokenParsed: !!user
-          }
+          message: 'Valid authentication token required',
+          code: 'AUTH_REQUIRED'
         });
       }
+    }
 
+    // Discord token validation endpoint
+    if (url === '/api/discord/validate-token' && method === 'POST') {
+      await logToDatabase('info', 'DISCORD', 'Token validation requested', { userId: user?.id });
+      
       try {
-        // Ensure user exists in database
+        const { token } = req.body || {};
+        
+        if (!token) {
+          await logToDatabase('warn', 'DISCORD', 'No token provided for validation');
+          return res.status(400).json({ 
+            error: 'Token required',
+            message: 'Discord bot token is required',
+            code: 'TOKEN_MISSING'
+          });
+        }
+
+        // Simple validation - just check if it looks like a Discord token
+        const isValid = typeof token === 'string' && token.length > 50;
+        const response = { 
+          valid: isValid, 
+          message: isValid ? 'Token format is valid' : 'Invalid token format' 
+        };
+        
+        await logToDatabase('info', 'DISCORD', 'Token validation result', { valid: isValid, tokenLength: token.length });
+        return res.status(200).json(response);
+      } catch (error) {
+        await logToDatabase('error', 'DISCORD', 'Token validation error', { error: error.message });
+        return res.status(500).json({ 
+          error: 'Validation failed',
+          message: error.message,
+          code: 'VALIDATION_ERROR'
+        });
+      }
+    }
+
+    // Bot connections endpoints
+    if (url === '/api/bots' && method === 'GET') {
+      await logToDatabase('info', 'BOTS', 'Fetching bot connections', { userId: user.id });
+      
+      try {
         await ensureUserExists(user);
         
         const { data: bots, error } = await supabase
-          .from('bots')
+          .from('bot_connections')
           .select('*')
           .eq('user_id', user.id);
 
         if (error) {
-          console.error('Database error:', error);
-          return res.status(500).json({
-            error: 'Database query failed',
-            message: 'Could not fetch bots from database',
-            details: error.message,
-            code: 'DB_QUERY_ERROR'
+          await logToDatabase('error', 'BOTS', 'Failed to fetch bots', { error: error.message, userId: user.id });
+          return res.status(500).json({ 
+            error: 'Failed to fetch bots',
+            message: error.message,
+            code: 'DB_FETCH_ERROR'
           });
         }
 
-        console.log(`[API] Found ${bots.length} bots for user ${user.id}`);
-
-        // Transform snake_case to camelCase for frontend
-        const transformedBots = (bots || []).map(bot => ({
-          id: bot.id,
-          userId: bot.user_id,
-          platformType: bot.platform_type,
-          botName: bot.bot_name,
-          token: bot.token ? '[HIDDEN]' : null, // Don't expose tokens
-          clientId: bot.client_id,
-          personalityContext: bot.personality_context,
-          isConnected: bot.is_connected,
-          createdAt: bot.created_at
-        }));
-
-        return res.status(200).json(transformedBots);
+        await logToDatabase('info', 'BOTS', 'Bots fetched successfully', { count: bots?.length || 0, userId: user.id });
+        return res.status(200).json(bots || []);
       } catch (error) {
-        console.error('Unexpected error:', error);
-        return res.status(500).json({
-          error: 'Unexpected error',
+        await logToDatabase('error', 'BOTS', 'Error in GET /bots', { error: error.message, userId: user.id });
+        return res.status(500).json({ 
+          error: 'Internal server error',
           message: error.message,
           code: 'INTERNAL_ERROR'
         });
       }
     }
 
-    if (req.url === '/api/mappings' && req.method === 'GET') {
-      if (!user || !user.id) {
-        return res.status(401).json({ 
-          error: 'Unauthorized',
-          message: 'Valid authorization token required',
-          hint: 'Please log in with Clerk to access this resource',
-          debug: {
-            hasAuthHeader: !!req.headers.authorization,
-            authHeaderFormat: req.headers.authorization ? 'Bearer token' : 'none',
-            tokenParsed: !!user
-          }
+    if (url === '/api/bots' && method === 'POST') {
+      await logToDatabase('info', 'BOTS', 'Creating new bot connection', { userId: user.id });
+      
+      try {
+        await ensureUserExists(user);
+        
+        const { name, token, description } = req.body || {};
+        
+        if (!name || !token) {
+          await logToDatabase('warn', 'BOTS', 'Missing required fields', { hasName: !!name, hasToken: !!token });
+          return res.status(400).json({
+            error: 'Missing required fields',
+            message: 'Name and token are required',
+            code: 'MISSING_FIELDS'
+          });
+        }
+
+        const botData = {
+          user_id: user.id,
+          name,
+          token,
+          description: description || '',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+
+        const { data: newBot, error } = await supabase
+          .from('bot_connections')
+          .insert(botData)
+          .select()
+          .single();
+
+        if (error) {
+          await logToDatabase('error', 'BOTS', 'Failed to create bot', { error: error.message, botData: { name, hasToken: !!token } });
+          return res.status(500).json({
+            error: 'Failed to create bot',
+            message: error.message,
+            code: 'DB_INSERT_ERROR'
+          });
+        }
+
+        await logToDatabase('info', 'BOTS', 'Bot created successfully', { botId: newBot.id, name: newBot.name });
+        return res.status(201).json(newBot);
+      } catch (error) {
+        await logToDatabase('error', 'BOTS', 'Error in POST /bots', { error: error.message, userId: user.id });
+        return res.status(500).json({
+          error: 'Internal server error',
+          message: error.message,
+          code: 'INTERNAL_ERROR'
         });
       }
+    }
 
+    // Command mappings endpoints
+    if (url === '/api/commands' && method === 'GET') {
+      await logToDatabase('info', 'COMMANDS', 'Fetching command mappings', { userId: user.id });
+      
       try {
-        // Ensure user exists in database
         await ensureUserExists(user);
-
-        const { data: mappings, error } = await supabase
+        
+        const { data: commands, error } = await supabase
           .from('command_mappings')
           .select('*')
           .eq('user_id', user.id);
 
         if (error) {
-          console.error('Database error:', error);
+          await logToDatabase('error', 'COMMANDS', 'Failed to fetch commands', { error: error.message, userId: user.id });
           return res.status(500).json({
-            error: 'Database query failed',
-            message: 'Could not fetch command mappings from database',
-            details: error.message,
-            code: 'DB_QUERY_ERROR'
+            error: 'Failed to fetch commands',
+            message: error.message,
+            code: 'DB_FETCH_ERROR'
           });
         }
 
-        console.log(`[API] Found ${mappings.length} command mappings for user ${user.id}`);
-
-        // Transform snake_case to camelCase
-        const transformedMappings = (mappings || []).map(mapping => ({
-          id: mapping.id,
-          userId: mapping.user_id,
-          botId: mapping.bot_id,
-          name: mapping.name,
-          naturalLanguagePattern: mapping.natural_language_pattern,
-          commandOutput: mapping.command_output,
-          status: mapping.status,
-          usageCount: mapping.usage_count,
-          createdAt: mapping.created_at
-        }));
-
-        return res.status(200).json(transformedMappings);
+        await logToDatabase('info', 'COMMANDS', 'Commands fetched successfully', { count: commands?.length || 0, userId: user.id });
+        return res.status(200).json(commands || []);
       } catch (error) {
-        console.error('Unexpected error:', error);
+        await logToDatabase('error', 'COMMANDS', 'Error in GET /commands', { error: error.message, userId: user.id });
         return res.status(500).json({
-          error: 'Unexpected error',
+          error: 'Internal server error',
           message: error.message,
           code: 'INTERNAL_ERROR'
         });
       }
     }
 
-    if (req.url === '/api/activities' && req.method === 'GET') {
-      if (!user || !user.id) {
-        return res.status(401).json({ 
-          error: 'Unauthorized',
-          message: 'Valid authorization token required',
-          hint: 'Please log in with Clerk to access this resource',
-          debug: {
-            hasAuthHeader: !!req.headers.authorization,
-            authHeaderFormat: req.headers.authorization ? 'Bearer token' : 'none',
-            tokenParsed: !!user
-          }
-        });
-      }
-
+    // Activity data endpoint
+    if (url === '/api/activities' && method === 'GET') {
+      await logToDatabase('info', 'ACTIVITIES', 'Fetching activity data', { userId: user.id });
+      
       try {
-        // Ensure user exists in database
         await ensureUserExists(user);
+        
+        // Mock activity data for now
+        const mockActivities = [
+          { date: '2024-01-15', count: 12 },
+          { date: '2024-01-16', count: 8 },
+          { date: '2024-01-17', count: 15 },
+          { date: '2024-01-18', count: 6 },
+          { date: '2024-01-19', count: 22 }
+        ];
 
-        const limit = req.query.limit ? parseInt(req.query.limit) : 10;
-
-        const { data: activities, error } = await supabase
-          .from('activities')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false })
-          .limit(limit);
-
-        if (error) {
-          console.error('Database error:', error);
-          return res.status(500).json({
-            error: 'Database query failed',
-            message: 'Could not fetch activities from database',
-            details: error.message,
-            code: 'DB_QUERY_ERROR'
-          });
-        }
-
-        console.log(`[API] Found ${activities.length} activities for user ${user.id}`);
-
-        const transformedActivities = (activities || []).map(activity => ({
-          id: activity.id,
-          userId: activity.user_id,
-          activityType: activity.activity_type,
-          description: activity.description,
-          metadata: activity.metadata,
-          createdAt: activity.created_at
-        }));
-
-        return res.status(200).json(transformedActivities);
+        await logToDatabase('info', 'ACTIVITIES', 'Activity data returned (mock)', { count: mockActivities.length, userId: user.id });
+        return res.status(200).json(mockActivities);
       } catch (error) {
-        console.error('Unexpected error:', error);
+        await logToDatabase('error', 'ACTIVITIES', 'Error in GET /activities', { error: error.message, userId: user.id });
         return res.status(500).json({
-          error: 'Unexpected error',
+          error: 'Internal server error',
           message: error.message,
           code: 'INTERNAL_ERROR'
         });
       }
     }
 
-    if (req.url === '/api/bots' && req.method === 'POST') {
-      if (!user || !user.id) {
-        return res.status(401).json({ 
-          error: 'Unauthorized',
-          message: 'Valid authorization token required',
-          hint: 'Please log in with Clerk to access this resource'
-        });
-      }
-
-      try {
-        // Ensure user exists in database
-        await ensureUserExists(user);
-
-        const { botName, platformType, token, clientId, personalityContext } = req.body;
-
-        // Basic validation
-        if (!botName || !platformType || !token) {
-          return res.status(400).json({
-            error: 'Validation failed',
-            message: 'botName, platformType, and token are required'
-          });
-        }
-
-        // Create bot in database
-        const { data: newBot, error: createError } = await supabase
-          .from('bots')
-          .insert({
-            user_id: user.id,
-            platform_type: platformType,
-            bot_name: botName,
-            token: token, // In production, encrypt this
-            client_id: clientId || null,
-            personality_context: personalityContext || null,
-            is_connected: false
-          })
-          .select()
-          .single();
-
-        if (createError) {
-          console.error('Database error creating bot:', createError);
-          return res.status(500).json({
-            error: 'Database error',
-            message: 'Could not create bot in database',
-            details: createError.message
-          });
-        }
-
-        // Create activity
-        await supabase
-          .from('activities')
-          .insert({
-            user_id: user.id,
-            activity_type: 'bot_created',
-            description: `Bot ${botName} was created`,
-            metadata: { botId: newBot.id, platformType: platformType }
-          });
-
-        console.log(`[API] Created new bot: ${newBot.id} for user ${user.id}`);
-
-        // Transform response for frontend
-        const transformedBot = {
-          id: newBot.id,
-          userId: newBot.user_id,
-          platformType: newBot.platform_type,
-          botName: newBot.bot_name,
-          token: '[HIDDEN]', // Don't expose token
-          clientId: newBot.client_id,
-          personalityContext: newBot.personality_context,
-          isConnected: newBot.is_connected,
-          createdAt: newBot.created_at
-        };
-
-        return res.status(201).json(transformedBot);
-      } catch (error) {
-        console.error('Unexpected error creating bot:', error);
-        return res.status(500).json({
-          error: 'Unexpected error',
-          message: error.message,
-          code: 'INTERNAL_ERROR'
-        });
-      }
-    }
-
-    // Discord bot token validation endpoint
-    if (req.url === '/api/discord/validate-token' && req.method === 'POST') {
-      try {
-        const { botToken } = req.body;
-        
-        if (!botToken) {
-          return res.status(400).json({ 
-            valid: false,
-            message: "Bot token is required" 
-          });
-        }
-
-        // Simple Discord API validation
-        const cleanToken = botToken.trim().replace(/^Bot\s+/i, '');
-        
-        // Basic format validation
-        if (cleanToken.length < 50 || !/^[A-Za-z0-9._-]+$/.test(cleanToken)) {
-          return res.status(200).json({
-            valid: false,
-            message: "❌ Token format appears invalid"
-          });
-        }
-
-        // Try Discord API call
-        const discordResponse = await fetch('https://discord.com/api/v10/oauth2/applications/@me', {
-          headers: {
-            'Authorization': `Bot ${cleanToken}`,
-            'Content-Type': 'application/json',
-          },
-        });
-
-        if (discordResponse.ok) {
-          const appData = await discordResponse.json();
-          return res.status(200).json({
-            valid: true,
-            applicationId: appData.id,
-            botName: appData.name,
-            message: "✅ Discord bot token is valid!"
-          });
-        } else {
-          return res.status(200).json({
-            valid: false,
-            message: "❌ Invalid Discord bot token. Please check your token and try again."
-          });
-        }
-      } catch (error) {
-        console.error('Token validation error:', error);
-        return res.status(200).json({
-          valid: false,
-          message: "❌ Error validating token. Please try again."
-        });
-      }
-    }
-
-    // Default response for unknown endpoints
+    // Default 404 response
+    await logToDatabase('warn', 'REQUEST', 'Endpoint not found', { url, method });
     return res.status(404).json({
-      error: 'Endpoint not found',
-      url: req.url,
-      method: req.method,
-      availableEndpoints: ['/api/status', '/api/bots', '/api/mappings', '/api/activities']
+      error: 'Not Found',
+      message: `Endpoint ${method} ${url} not found`,
+      code: 'ENDPOINT_NOT_FOUND'
     });
 
   } catch (error) {
-    console.error('[API Error]:', error);
-    return res.status(500).json({ 
-      error: 'Internal server error',
-      details: error.message
+    const duration = Date.now() - startTime;
+    await logToDatabase('error', 'REQUEST', 'Unhandled error in request handler', { 
+      error: error.message, 
+      stack: error.stack,
+      url, 
+      method, 
+      duration 
+    });
+    
+    return res.status(500).json({
+      error: 'Internal Server Error',
+      message: 'An unexpected error occurred',
+      code: 'INTERNAL_ERROR'
     });
   }
 }; 
