@@ -1,4 +1,5 @@
 const { createClient } = require('@supabase/supabase-js');
+const crypto = require('crypto');
 
 require('dotenv/config');
 
@@ -11,6 +12,24 @@ if (!supabaseUrl || !supabaseKey) {
 }
 
 const supabase = createClient(supabaseUrl, supabaseKey);
+
+// Convert Clerk user ID to UUID format for database compatibility
+function clerkUserIdToUuid(clerkUserId) {
+  // Create a deterministic UUID from the Clerk user ID using SHA-256
+  const hash = crypto.createHash('sha256').update(clerkUserId).digest('hex');
+  
+  // Format as UUID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+  const uuid = [
+    hash.slice(0, 8),
+    hash.slice(8, 12),
+    hash.slice(12, 16),
+    hash.slice(16, 20),
+    hash.slice(20, 32)
+  ].join('-');
+  
+  console.log(`[UUID] Converted Clerk ID ${clerkUserId} to UUID ${uuid}`);
+  return uuid;
+}
 
 // Helper function to get user from any token (simplified for demo)
 async function getUserFromToken(authHeader) {
@@ -40,9 +59,11 @@ async function getUserFromToken(authHeader) {
           });
           
           if (payload.sub) {
+            // Convert Clerk user ID to UUID for database
+            const dbUserId = clerkUserIdToUuid(payload.sub);
             return { 
-              id: payload.sub, 
-              clerkId: payload.sub 
+              id: dbUserId, // UUID for database
+              clerkId: payload.sub // Original Clerk ID for reference
             };
           } else {
             console.log('[AUTH] No sub claim in JWT');
@@ -105,17 +126,17 @@ async function checkDatabaseSetup() {
 }
 
 // Helper to find or create user
-async function ensureUserExists(userId) {
-  if (!userId) {
+async function ensureUserExists(user) {
+  if (!user || !user.id) {
     throw new Error('No user ID provided');
   }
 
   try {
-    // Try to find existing user
+    // Try to find existing user using UUID
     const { data: existingUser, error: findError } = await supabase
       .from('users')
       .select('*')
-      .eq('id', userId)
+      .eq('id', user.id)
       .single();
 
     if (existingUser) {
@@ -123,13 +144,13 @@ async function ensureUserExists(userId) {
       return existingUser;
     }
 
-    console.log('[USER] User not found, creating new user for ID:', userId);
+    console.log('[USER] User not found, creating new user for UUID:', user.id, 'Clerk ID:', user.clerkId);
     // If user doesn't exist, create them
     const { data: newUser, error: createError } = await supabase
       .from('users')
       .insert({
-        id: userId,
-        username: `user_${userId.slice(-8)}`, // Last 8 chars of ID
+        id: user.id, // UUID format
+        username: user.clerkId || `user_${user.id.slice(-8)}`, // Store original Clerk ID or fallback
         password: 'clerk_managed',
         name: 'User',
         role: 'user'
@@ -229,7 +250,7 @@ module.exports = async function handler(req, res) {
 
       try {
         // Ensure user exists in database
-        await ensureUserExists(user.id);
+        await ensureUserExists(user);
         
         const { data: bots, error } = await supabase
           .from('bots')
@@ -288,7 +309,7 @@ module.exports = async function handler(req, res) {
 
       try {
         // Ensure user exists in database
-        await ensureUserExists(user.id);
+        await ensureUserExists(user);
 
         const { data: mappings, error } = await supabase
           .from('command_mappings')
@@ -347,7 +368,7 @@ module.exports = async function handler(req, res) {
 
       try {
         // Ensure user exists in database
-        await ensureUserExists(user.id);
+        await ensureUserExists(user);
 
         const limit = req.query.limit ? parseInt(req.query.limit) : 10;
 
