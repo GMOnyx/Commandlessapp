@@ -2,7 +2,19 @@ import { QueryClient } from "@tanstack/react-query";
 
 // API request function that includes authentication
 export async function apiRequest(endpoint: string, options: RequestInit = {}) {
-  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+  // In production, default to the current domain if VITE_API_URL is not set
+  let baseUrl = import.meta.env.VITE_API_URL;
+  
+  if (!baseUrl) {
+    // If we're in a browser environment, use the current domain
+    if (typeof window !== 'undefined') {
+      baseUrl = window.location.origin;
+    } else {
+      // Fallback for localhost development
+      baseUrl = 'http://localhost:5001';
+    }
+  }
+  
   const url = `${baseUrl}${endpoint}`;
 
   // Get the auth token directly from Clerk
@@ -85,7 +97,19 @@ export function setAuthTokenGetter(getter: () => Promise<string | null>) {
 
 // Alternative API request for use outside React components
 export async function apiRequestWithToken(endpoint: string, token: string | null, options: RequestInit = {}) {
-  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+  // Use the same logic as apiRequest for consistent behavior
+  let baseUrl = import.meta.env.VITE_API_URL;
+  
+  if (!baseUrl) {
+    // If we're in a browser environment, use the current domain
+    if (typeof window !== 'undefined') {
+      baseUrl = window.location.origin;
+    } else {
+      // Fallback for localhost development
+      baseUrl = 'http://localhost:5001';
+    }
+  }
+  
   const url = `${baseUrl}${endpoint}`;
 
   const config: RequestInit = {

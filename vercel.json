@@ -6,6 +6,9 @@
       "use": "@vercel/static-build",
       "config": {
         "distDir": "dist/public"
+      },
+      "env": {
+        "VITE_API_URL": "https://www.commandless.app"
       }
     },
     {
@@ -36,7 +39,6 @@
     "NODE_ENV": "production",
     "USE_SUPABASE": "true",
     "SKIP_SAMPLE_DATA": "true",
-    "VITE_API_URL": "https://www.commandless.app",
     "VERIFY_DISCORD_SIGNATURE": "false",
     "USE_AI_INTENT_PROCESSING": "true"
   }
