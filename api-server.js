@@ -69,6 +69,60 @@ app.get('/api/activities', (req, res) => {
   res.json([]);
 });
 
+// Client logs endpoint (for frontend debugging)
+app.post('/api/client-logs', (req, res) => {
+  console.log('📝 Client log received:', req.body);
+  res.json({ status: 'logged' });
+});
+
+// Token validation endpoint  
+app.post('/api/validate-token', (req, res) => {
+  console.log('🔍 Token validation requested');
+  const { token, platform } = req.body;
+  
+  if (!token) {
+    return res.status(400).json({ 
+      valid: false, 
+      error: 'Token is required' 
+    });
+  }
+  
+  // For now, just do basic validation
+  if (token.length < 50) {
+    return res.status(400).json({ 
+      valid: false, 
+      error: 'Token appears to be too short' 
+    });
+  }
+  
+  // TODO: Add real Discord/Telegram token validation
+  res.json({ 
+    valid: true, 
+    botName: 'Bot Name Placeholder',
+    botId: '123456789'
+  });
+});
+
+// Bot connection endpoints
+app.post('/api/bots', (req, res) => {
+  console.log('🤖 Create bot requested:', req.body);
+  const { name, platform, token, clientId, personality } = req.body;
+  
+  // TODO: Save to database
+  const newBot = {
+    id: Date.now().toString(),
+    name,
+    platform,
+    token: '***hidden***',
+    clientId,
+    personality,
+    status: 'connected',
+    createdAt: new Date().toISOString()
+  };
+  
+  res.json(newBot);
+});
+
 // Legacy endpoints without /api prefix (for backward compatibility)
 app.get('/status', (req, res) => {
   console.log('📊 Legacy Status requested');
@@ -97,7 +151,15 @@ app.use('*', (req, res) => {
     error: 'Endpoint not found',
     url: req.originalUrl,
     method: req.method,
-    availableEndpoints: ['/health', '/api/status', '/api/bots', '/api/mappings', '/api/activities']
+    availableEndpoints: [
+      '/health', 
+      '/api/status', 
+      '/api/bots', 
+      '/api/mappings', 
+      '/api/activities',
+      '/api/client-logs',
+      '/api/validate-token'
+    ]
   });
 });
 
