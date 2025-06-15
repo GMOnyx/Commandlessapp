@@ -1,3 +1,28 @@
+# Exclude everything by default
+*
+
+# Include only what we need for backend
+!package.json
+!package-lock.json
+!server/
+!shared/
+
+# Make sure these are excluded
+client/
+dist/
+node_modules/
+.git/
+.env
+.env.*
+*.md
+test-*.js
+vite.config.ts
+postcss.config.js
+tailwind.config.ts
+components.json
+tsconfig.json
+drizzle.config.ts
+
 # Dependencies
 node_modules
 npm-debug.log*

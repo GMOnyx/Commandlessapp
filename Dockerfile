@@ -2,16 +2,16 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
-RUN npm ci --prefer-offline
-
-# Copy only server and shared code (exclude client)
+# Copy main package.json for build tools and backend code
+COPY package.json package-lock.json ./
 COPY server ./server
 COPY shared ./shared
 
-# Build the backend only
-RUN npm run build:backend
+# Install dependencies for build
+RUN npm ci --prefer-offline
+
+# Build backend with esbuild directly
+RUN npx esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist
 
 # Production stage
 FROM node:20-alpine
@@ -21,13 +21,13 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=5001
 
-# Copy built application
-COPY --from=build /app/dist ./dist
-COPY --from=build /app/package*.json ./
-COPY --from=build /app/shared ./shared
+# Copy backend-only package.json for production
+COPY package.backend.json package.json
+RUN npm install --only=production --prefer-offline
 
-# Install only production dependencies
-RUN npm ci --only=production --prefer-offline
+# Copy built application and shared code
+COPY --from=build /app/dist ./dist
+COPY --from=build /app/shared ./shared
 
 # Expose port
 EXPOSE 5001
