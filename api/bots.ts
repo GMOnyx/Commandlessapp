@@ -161,6 +161,34 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (req.method === 'POST') {
+      // Ensure the user exists in our DB (same logic as GET)
+      const { data: existingUser, error: userLookupError } = await supabase
+        .from('users')
+        .select('id')
+        .eq('id', user.id)
+        .maybeSingle();
+
+      if (userLookupError) {
+        console.error('❌ User lookup error:', userLookupError);
+        return res.status(500).json({ error: 'User verification failed' });
+      }
+
+      if (!existingUser) {
+        console.log('Creating user (POST) for:', user.id);
+        const { error: createUserErr } = await supabase
+          .from('users')
+          .insert({
+            id: user.id,
+            username: user.id,
+            name: user.id,
+            role: 'user'
+          });
+        if (createUserErr) {
+          console.error('❌ Could not create user:', createUserErr);
+          return res.status(500).json({ error: 'Failed to create user record' });
+        }
+      }
+
       // Handle new bot connection
       const { name, type, token: botToken, clientId, personalityContext } = req.body;
       
