@@ -6,10 +6,11 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --prefer-offline
 
-# Copy source code
-COPY . .
+# Copy only server and shared code (exclude client)
+COPY server ./server
+COPY shared ./shared
 
-# Build the backend
+# Build the backend only
 RUN npm run build:backend
 
 # Production stage

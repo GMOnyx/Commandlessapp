@@ -16,8 +16,14 @@ dist
 .git
 .gitignore
 
+# Frontend/Client files (only backend goes to Sevalla)
+client/
+vite.config.ts
+postcss.config.js
+tailwind.config.ts
+components.json
+
 # Development files
-client
 test-*.js
 *.md
 .DS_Store
