@@ -169,42 +169,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(400).json({ error: 'Missing required fields: name, type, and token' });
       }
 
-      // Validate bot token by making a test API call
-      // If the validation request itself fails (network/DNS), we log but still allow saving the bot with isConnected = false.
+      // Validate bot token – non-blocking. We still save the record; we just mark isConnected accordingly.
       let isConnected = false;
       try {
         if (type === 'discord') {
-          const response = await fetch('https://discord.com/api/v10/users/@me', {
+          const resp = await fetch('https://discord.com/api/v10/users/@me', {
             headers: {
-              'Authorization': `Bot ${botToken}`,
+              Authorization: `Bot ${botToken}`,
               'User-Agent': 'commandless/1.0 (+https://commandless.app)'
-            },
+            }
           });
-
-          if (response.ok) {
+          if (resp.ok) {
             isConnected = true;
           } else {
-            const body = await response.text();
-            console.warn('Discord token rejected', response.status, body);
-            return res.status(400).json({ error: 'Invalid Discord bot token', status: response.status });
+            console.warn('Discord token validation failed – status', resp.status);
           }
         } else if (type === 'telegram') {
-          const response = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
-          const data = await response.json();
-
+          const resp = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
+          const data = await resp.json();
           if (data.ok) {
             isConnected = true;
           } else {
-            console.warn('Telegram token rejected', data);
-            return res.status(400).json({ error: 'Invalid Telegram bot token' });
+            console.warn('Telegram token validation failed', data);
           }
-        } else {
-          return res.status(400).json({ error: 'Unsupported bot type' });
         }
-      } catch (error) {
-        console.error('Bot token validation network error:', error);
-        // Proceed to save the bot but mark as disconnected so user can fix later
-        isConnected = false;
+      } catch (err) {
+        console.warn('Token validation network error (ignored):', err);
       }
 
       // Insert new bot connection into database
