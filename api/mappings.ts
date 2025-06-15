@@ -62,10 +62,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .from('users')
         .select('id')
         .eq('id', user.id)
-        .single();
-      
-      if (userError && userError.code === 'PGRST116') {
-        // User doesn't exist, create them
+        .maybeSingle();
+
+      if (userError) {
+        console.error('User check error:', userError);
+        return res.status(500).json({ error: 'User verification failed' });
+      }
+
+      if (!existingUser) {
         console.log('Creating new user record for:', user.id);
         const { error: createError } = await supabase
           .from('users')
@@ -75,7 +79,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             name: user.id,
             role: 'user'
           });
-        
         if (createError) {
           console.error('Failed to create user:', createError);
           return res.status(500).json({ error: 'Failed to create user record' });

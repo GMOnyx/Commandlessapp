@@ -31,6 +31,14 @@ async function getUserFromToken(token: string) {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  console.log('🚀 Bots API handler called');
+  console.log('Method:', req.method);
+  console.log('Headers:', JSON.stringify(req.headers, null, 2));
+  console.log('Environment check:');
+  console.log('- CLERK_SECRET_KEY exists:', !!process.env.CLERK_SECRET_KEY);
+  console.log('- SUPABASE_URL exists:', !!process.env.SUPABASE_URL);
+  console.log('- SUPABASE_ANON_KEY exists:', !!process.env.SUPABASE_ANON_KEY);
+
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -41,48 +49,81 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
+    console.log('Starting authentication...');
+    
     // Get user from auth token
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith('Bearer ')) {
+      console.log('❌ Missing or invalid authorization header');
       return res.status(401).json({ error: 'Missing or invalid authorization header' });
     }
 
     const token = authHeader.substring(7);
+    console.log('Token extracted, length:', token.length);
+    
     const user = await getUserFromToken(token);
+    console.log('User from token:', user);
     
     if (!user) {
+      console.log('❌ Invalid token or user verification failed');
       return res.status(401).json({ error: 'Invalid token' });
     }
 
+    console.log('✅ User authenticated:', user.id);
+
     if (req.method === 'GET') {
-      console.log('Getting bots for user:', user.id);
+      console.log('📝 Processing GET request for user:', user.id);
+      
+      // Test Supabase connection first
+      console.log('Testing Supabase connection...');
+      try {
+        const { data: testData, error: testError } = await supabase
+          .from('users')
+          .select('count')
+          .limit(1);
+        
+        if (testError) {
+          console.error('❌ Supabase connection test failed:', testError);
+          return res.status(500).json({ error: 'Database connection failed', details: testError.message });
+        }
+        console.log('✅ Supabase connection successful');
+      } catch (err) {
+        console.error('❌ Supabase connection exception:', err);
+        return res.status(500).json({ error: 'Database connection exception', details: err.message });
+      }
       
       // First, ensure the user exists in our database
+      console.log('Checking if user exists in database...');
       const { data: existingUser, error: userError } = await supabase
         .from('users')
         .select('id')
         .eq('id', user.id)
-        .single();
-      
-      if (userError && userError.code === 'PGRST116') {
-        // User doesn't exist, create them
+        .maybeSingle();
+
+      if (userError) {
+        console.error('❌ User check error:', userError);
+        return res.status(500).json({ error: 'User verification failed', details: userError.message });
+      }
+
+      if (!existingUser) {
         console.log('Creating new user record for:', user.id);
         const { error: createError } = await supabase
           .from('users')
           .insert({
             id: user.id,
-            username: user.id, // Use Clerk ID as username for now
-            name: user.id, // Use Clerk ID as name for now
+            username: user.id,
+            name: user.id,
             role: 'user'
           });
-        
         if (createError) {
-          console.error('Failed to create user:', createError);
-          return res.status(500).json({ error: 'Failed to create user record' });
+          console.error('❌ Failed to create user:', createError);
+          return res.status(500).json({ error: 'Failed to create user record', details: createError.message });
         }
+        console.log('✅ User created successfully');
       }
 
       // Get real bot connections from Supabase
+      console.log('Fetching bots from database...');
       const { data: bots, error } = await supabase
         .from('bots')
         .select(`
@@ -98,11 +139,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .order('created_at', { ascending: false });
 
       if (error) {
-        console.error('Database error:', error);
-        return res.status(500).json({ error: 'Failed to fetch bot connections' });
+        console.error('❌ Database error:', error);
+        return res.status(500).json({ error: 'Failed to fetch bot connections', details: error.message });
       }
 
-      console.log('Found bots:', bots?.length || 0);
+      console.log('✅ Found bots:', bots?.length || 0);
 
       // Transform to match frontend expectations
       const connections = bots?.map(bot => ({
@@ -115,6 +156,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         createdAt: bot.created_at
       })) || [];
       
+      console.log('✅ Returning connections:', connections.length);
       return res.status(200).json(connections);
     }
 
@@ -128,37 +170,41 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       // Validate bot token by making a test API call
+      // If the validation request itself fails (network/DNS), we log but still allow saving the bot with isConnected = false.
       let isConnected = false;
       try {
         if (type === 'discord') {
-          // Test Discord bot token
           const response = await fetch('https://discord.com/api/v10/users/@me', {
             headers: {
               'Authorization': `Bot ${botToken}`,
+              'User-Agent': 'commandless/1.0 (+https://commandless.app)'
             },
           });
-          
+
           if (response.ok) {
             isConnected = true;
           } else {
-            return res.status(400).json({ error: 'Invalid Discord bot token' });
+            const body = await response.text();
+            console.warn('Discord token rejected', response.status, body);
+            return res.status(400).json({ error: 'Invalid Discord bot token', status: response.status });
           }
         } else if (type === 'telegram') {
-          // Test Telegram bot token
           const response = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
           const data = await response.json();
-          
+
           if (data.ok) {
             isConnected = true;
           } else {
+            console.warn('Telegram token rejected', data);
             return res.status(400).json({ error: 'Invalid Telegram bot token' });
           }
         } else {
           return res.status(400).json({ error: 'Unsupported bot type' });
         }
       } catch (error) {
-        console.error('Bot token validation error:', error);
-        return res.status(400).json({ error: 'Failed to validate bot token' });
+        console.error('Bot token validation network error:', error);
+        // Proceed to save the bot but mark as disconnected so user can fix later
+        isConnected = false;
       }
 
       // Insert new bot connection into database
@@ -207,7 +253,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (error) {
-    console.error('Bot connections API error:', error);
-    return res.status(500).json({ error: 'Internal server error' });
+    console.error('❌ Bot connections API error:', error);
+    console.error('Error stack:', error.stack);
+    console.error('Error message:', error.message);
+    console.error('Error details:', JSON.stringify(error, null, 2));
+    return res.status(500).json({ 
+      error: 'Internal server error',
+      message: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 } 
