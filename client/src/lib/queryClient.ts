@@ -16,22 +16,6 @@ function logDetailed(category: string, message: string, data?: any) {
   };
   
   console.log(`🔍 [${category}] ${message}`, logData);
-  
-  // Also try to send to our logging endpoint (non-blocking)
-  if (typeof window !== 'undefined') {
-    const railwayLogUrl = 'https://commandlessapp-production.up.railway.app/api/client-logs';
-    try {
-      fetch(railwayLogUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(logData)
-      }).catch(() => {
-        // Ignore errors - logging is best effort
-      });
-    } catch (e) {
-      // Ignore - logging is best effort
-    }
-  }
 }
 
 // API request function that includes authentication
@@ -49,7 +33,8 @@ export async function apiRequest(endpoint: string, options: RequestInit = {}) {
     baseUrl,
     fullUrl: url,
     method: options.method || 'GET',
-    hasBody: !!(options.body)
+    hasBody: !!(options.body),
+    hasGlobalTokenGetter: !!globalTokenGetter
   });
 
   // Get the auth token using the global token getter
@@ -57,17 +42,20 @@ export async function apiRequest(endpoint: string, options: RequestInit = {}) {
   
   try {
     if (globalTokenGetter) {
+      logDetailed('AUTH', 'Calling global token getter...');
       token = await globalTokenGetter();
       logDetailed('AUTH', 'Token retrieved from global getter', { 
         hasToken: !!token, 
-        tokenLength: token?.length || 0
+        tokenLength: token?.length || 0,
+        tokenPreview: token ? `${token.substring(0, 10)}...${token.substring(token.length - 10)}` : 'null'
       });
     } else {
-      logDetailed('AUTH', 'No global token getter available');
+      logDetailed('AUTH', 'No global token getter available - this is the problem!');
     }
   } catch (error) {
     logDetailed('AUTH', 'Failed to get auth token', { 
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error instanceof Error ? error.message : 'Unknown error',
+      errorStack: error instanceof Error ? error.stack : 'N/A'
     });
   }
 
@@ -84,7 +72,8 @@ export async function apiRequest(endpoint: string, options: RequestInit = {}) {
     url,
     method: config.method || 'GET',
     hasToken: !!token,
-    headers: Object.keys(config.headers || {})
+    headers: Object.keys(config.headers || {}),
+    authHeaderPresent: !!(config.headers as any)?.Authorization
   });
 
   try {
@@ -147,8 +136,22 @@ export const queryClient = new QueryClient({
 
 // Function to set auth token getter - called by App component
 export function setAuthTokenGetter(getter: () => Promise<string | null>) {
-  console.log('🔧 setAuthTokenGetter called');
+  console.log('🔧 setAuthTokenGetter called - token getter is now available!');
   globalTokenGetter = getter;
+  
+  // Test the token getter immediately
+  setTimeout(async () => {
+    try {
+      console.log('🧪 Testing token getter...');
+      const testToken = await getter();
+      console.log('🧪 Token getter test result:', {
+        hasToken: !!testToken,
+        tokenLength: testToken?.length || 0
+      });
+    } catch (error) {
+      console.error('🧪 Token getter test failed:', error);
+    }
+  }, 1000);
 }
 
 // Alternative API request for use outside React components
