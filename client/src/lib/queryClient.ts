@@ -1,5 +1,8 @@
 import { QueryClient } from "@tanstack/react-query";
 
+// Global token getter - will be set by the App component
+let globalTokenGetter: (() => Promise<string | null>) | null = null;
+
 // Enhanced logging function for debugging
 function logDetailed(category: string, message: string, data?: any) {
   const timestamp = new Date().toISOString();
@@ -39,7 +42,7 @@ export async function apiRequest(endpoint: string, options: RequestInit = {}) {
     window.location.hostname === 'localhost' ? 'http://localhost:5001' : ''
   );
   
-  const url = baseUrl ? `${baseUrl}${endpoint}` : `/api${endpoint}`;
+  const url = baseUrl ? `${baseUrl}${endpoint}` : endpoint;
   
   logDetailed('API_REQUEST', 'Starting API request', {
     endpoint,
@@ -49,29 +52,21 @@ export async function apiRequest(endpoint: string, options: RequestInit = {}) {
     hasBody: !!(options.body)
   });
 
-  // Get the auth token directly from Clerk
+  // Get the auth token using the global token getter
   let token: string | null = null;
   
-  // Try to get token from Clerk directly
   try {
-    // Check if Clerk is available on window (it should be after Clerk loads)
-    const clerk = (window as any)?.Clerk;
-    
-    if (clerk && clerk.session) {
-      token = await clerk.session.getToken();
-      logDetailed('AUTH', 'Token retrieved from Clerk', { 
+    if (globalTokenGetter) {
+      token = await globalTokenGetter();
+      logDetailed('AUTH', 'Token retrieved from global getter', { 
         hasToken: !!token, 
-        tokenLength: token?.length || 0,
-        clerkSessionExists: !!clerk.session
+        tokenLength: token?.length || 0
       });
     } else {
-      logDetailed('AUTH', 'No Clerk session available', { 
-        hasClerk: !!clerk,
-        hasSession: !!(clerk?.session)
-      });
+      logDetailed('AUTH', 'No global token getter available');
     }
   } catch (error) {
-    logDetailed('AUTH', 'Failed to get auth token from Clerk', { 
+    logDetailed('AUTH', 'Failed to get auth token', { 
       error: error instanceof Error ? error.message : 'Unknown error'
     });
   }
@@ -150,9 +145,10 @@ export const queryClient = new QueryClient({
   },
 });
 
-// Legacy function to set auth token getter (now unused but kept for compatibility)
+// Function to set auth token getter - called by App component
 export function setAuthTokenGetter(getter: () => Promise<string | null>) {
-  console.log('🔧 setAuthTokenGetter called (legacy - now using Clerk directly)');
+  console.log('🔧 setAuthTokenGetter called');
+  globalTokenGetter = getter;
 }
 
 // Alternative API request for use outside React components
@@ -163,7 +159,7 @@ export async function apiRequestWithToken(endpoint: string, token: string | null
     typeof window !== 'undefined' && window.location.hostname === 'localhost' ? 'http://localhost:5001' : ''
   );
   
-  const url = baseUrl ? `${baseUrl}${endpoint}` : `/api${endpoint}`;
+  const url = baseUrl ? `${baseUrl}${endpoint}` : endpoint;
 
   const config: RequestInit = {
     ...options,
