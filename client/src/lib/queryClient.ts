@@ -33,12 +33,12 @@ function logDetailed(category: string, message: string, data?: any) {
 
 // API request function that includes authentication
 export async function apiRequest(endpoint: string, options: RequestInit = {}) {
-  // FORCE Railway API for ALL environments - NO MORE VERCEL
-  const baseUrl = 'https://commandlessapp-production.up.railway.app';
+  // Use environment variable for API URL, fallback to localhost for development
+  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
   
   const url = `${baseUrl}${endpoint}`;
   
-  logDetailed('API_REQUEST', 'Starting API request (FORCED RAILWAY)', {
+  logDetailed('API_REQUEST', 'Starting API request', {
     endpoint,
     baseUrl,
     fullUrl: url,
@@ -154,8 +154,8 @@ export function setAuthTokenGetter(getter: () => Promise<string | null>) {
 
 // Alternative API request for use outside React components
 export async function apiRequestWithToken(endpoint: string, token: string | null, options: RequestInit = {}) {
-  // FORCE Railway API for ALL environments
-  const baseUrl = 'https://commandlessapp-production.up.railway.app';
+  // Use environment variable for API URL, fallback to localhost for development
+  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
   
   const url = `${baseUrl}${endpoint}`;
 

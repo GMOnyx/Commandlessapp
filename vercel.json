@@ -1,5 +1,5 @@
 {
-  "name": "commandless-app-frontend",
+  "name": "commandless-frontend",
   "version": 2,
   "builds": [
     {
@@ -18,9 +18,5 @@
       "src": "/(.*)",
       "dest": "/index.html"
     }
-  ],
-  "env": {
-    "VITE_API_URL": "https://commandlessapp-production.up.railway.app",
-    "VITE_CLERK_PUBLISHABLE_KEY": "$VITE_CLERK_PUBLISHABLE_KEY"
-  }
+  ]
 } 

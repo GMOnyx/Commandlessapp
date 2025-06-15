@@ -1,0 +1,31 @@
+# Dependencies
+node_modules
+npm-debug.log*
+
+# Build artifacts
+dist
+.next
+.vercel
+
+# Environment files
+.env
+.env.*
+!.env.sample
+
+# Git
+.git
+.gitignore
+
+# Development files
+client
+test-*.js
+*.md
+.DS_Store
+
+# IDE
+.vscode
+.idea
+
+# Logs
+logs
+*.log 

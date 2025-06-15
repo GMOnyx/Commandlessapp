@@ -11,12 +11,12 @@ import { validateGeminiConfig } from "./gemini/client";
 
 const app = express();
 
-// CORS Configuration - This is the fix.
-// It allows your Vercel frontend to make requests to this Railway backend.
-const allowedOrigins = ['https://www.commandless.app', 'https://commandless.app'];
-if (process.env.NODE_ENV === 'development') {
-  allowedOrigins.push('http://localhost:5173');
-}
+// CORS Configuration - Use environment variable for allowed origins
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173')
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean);
+
 app.use(cors({
   origin: allowedOrigins,
   credentials: true,
