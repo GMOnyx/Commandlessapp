@@ -1,6 +1,11 @@
 {
-  "name": "commandless-frontend",
+  "name": "commandless-app",
   "version": 2,
+  "functions": {
+    "api/**/*.ts": {
+      "runtime": "@vercel/node"
+    }
+  },
   "builds": [
     {
       "src": "package.json",
@@ -11,6 +16,10 @@
     }
   ],
   "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/$1"
+    },
     {
       "handle": "filesystem"
     },

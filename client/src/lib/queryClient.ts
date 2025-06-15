@@ -33,10 +33,13 @@ function logDetailed(category: string, message: string, data?: any) {
 
 // API request function that includes authentication
 export async function apiRequest(endpoint: string, options: RequestInit = {}) {
-  // Use environment variable for API URL, fallback to localhost for development
-  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+  // For Vercel deployment, API routes are at /api/* 
+  // For local development, use localhost
+  const baseUrl = import.meta.env.VITE_API_URL || (
+    window.location.hostname === 'localhost' ? 'http://localhost:5001' : ''
+  );
   
-  const url = `${baseUrl}${endpoint}`;
+  const url = baseUrl ? `${baseUrl}${endpoint}` : `/api${endpoint}`;
   
   logDetailed('API_REQUEST', 'Starting API request', {
     endpoint,
@@ -154,10 +157,13 @@ export function setAuthTokenGetter(getter: () => Promise<string | null>) {
 
 // Alternative API request for use outside React components
 export async function apiRequestWithToken(endpoint: string, token: string | null, options: RequestInit = {}) {
-  // Use environment variable for API URL, fallback to localhost for development
-  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+  // For Vercel deployment, API routes are at /api/* 
+  // For local development, use localhost
+  const baseUrl = import.meta.env.VITE_API_URL || (
+    typeof window !== 'undefined' && window.location.hostname === 'localhost' ? 'http://localhost:5001' : ''
+  );
   
-  const url = `${baseUrl}${endpoint}`;
+  const url = baseUrl ? `${baseUrl}${endpoint}` : `/api${endpoint}`;
 
   const config: RequestInit = {
     ...options,

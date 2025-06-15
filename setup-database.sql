@@ -10,7 +10,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- Users table (stores Clerk user data)
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,  -- Clerk user ID
-    username TEXT UNIQUE NOT NULL,
+  username TEXT UNIQUE NOT NULL,
     password TEXT DEFAULT 'clerk_managed',
     name TEXT NOT NULL,
     role TEXT DEFAULT 'user',
@@ -22,11 +22,11 @@ CREATE TABLE IF NOT EXISTS bots (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     platform_type TEXT DEFAULT 'discord',
-    bot_name TEXT NOT NULL,
+  bot_name TEXT NOT NULL,
     token TEXT, -- Encrypted bot token
-    client_id TEXT,
+  client_id TEXT,
     personality_context TEXT DEFAULT 'A helpful Discord bot that responds conversationally.',
-    is_connected BOOLEAN DEFAULT FALSE,
+  is_connected BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -35,11 +35,11 @@ CREATE TABLE IF NOT EXISTS command_mappings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     bot_id UUID REFERENCES bots(id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
+  name TEXT NOT NULL,
     natural_language_pattern TEXT NOT NULL, -- e.g., "ban that user for being toxic"
     command_output TEXT NOT NULL, -- e.g., "/ban @user being toxic"
-    status TEXT DEFAULT 'active',
-    usage_count INTEGER DEFAULT 0,
+  status TEXT DEFAULT 'active',
+  usage_count INTEGER DEFAULT 0,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS activities (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     activity_type TEXT NOT NULL, -- 'command_used', 'bot_connected', etc.
-    description TEXT NOT NULL,
+  description TEXT NOT NULL,
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
