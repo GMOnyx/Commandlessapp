@@ -55,6 +55,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (req.method === 'GET') {
+      console.log('Getting mappings for user:', user.id);
+      
+      // First, ensure the user exists in our database
+      const { data: existingUser, error: userError } = await supabase
+        .from('users')
+        .select('id')
+        .eq('id', user.id)
+        .single();
+      
+      if (userError && userError.code === 'PGRST116') {
+        // User doesn't exist, create them
+        console.log('Creating new user record for:', user.id);
+        const { error: createError } = await supabase
+          .from('users')
+          .insert({
+            id: user.id,
+            username: user.id,
+            name: user.id,
+            role: 'user'
+          });
+        
+        if (createError) {
+          console.error('Failed to create user:', createError);
+          return res.status(500).json({ error: 'Failed to create user record' });
+        }
+      }
+
       // Get real command mappings from Supabase
       const { data: mappings, error } = await supabase
         .from('command_mappings')
@@ -75,6 +102,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         console.error('Database error:', error);
         return res.status(500).json({ error: 'Failed to fetch command mappings' });
       }
+
+      console.log('Found mappings:', mappings?.length || 0);
 
       // Get bot information for each mapping
       const commandMappings: any[] = [];

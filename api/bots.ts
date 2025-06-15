@@ -55,6 +55,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (req.method === 'GET') {
+      console.log('Getting bots for user:', user.id);
+      
+      // First, ensure the user exists in our database
+      const { data: existingUser, error: userError } = await supabase
+        .from('users')
+        .select('id')
+        .eq('id', user.id)
+        .single();
+      
+      if (userError && userError.code === 'PGRST116') {
+        // User doesn't exist, create them
+        console.log('Creating new user record for:', user.id);
+        const { error: createError } = await supabase
+          .from('users')
+          .insert({
+            id: user.id,
+            username: user.id, // Use Clerk ID as username for now
+            name: user.id, // Use Clerk ID as name for now
+            role: 'user'
+          });
+        
+        if (createError) {
+          console.error('Failed to create user:', createError);
+          return res.status(500).json({ error: 'Failed to create user record' });
+        }
+      }
+
       // Get real bot connections from Supabase
       const { data: bots, error } = await supabase
         .from('bots')
@@ -74,6 +101,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         console.error('Database error:', error);
         return res.status(500).json({ error: 'Failed to fetch bot connections' });
       }
+
+      console.log('Found bots:', bots?.length || 0);
 
       // Transform to match frontend expectations
       const connections = bots?.map(bot => ({
