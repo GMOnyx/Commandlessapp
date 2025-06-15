@@ -1,5 +1,11 @@
 import { type VercelRequest, type VercelResponse } from '@vercel/node';
 import { verifyToken } from '@clerk/backend';
+import { createClient } from '@supabase/supabase-js';
+
+// Initialize Supabase client
+const supabaseUrl = process.env.SUPABASE_URL!;
+const supabaseKey = process.env.SUPABASE_ANON_KEY!;
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function getUserFromToken(token: string) {
   try {
@@ -49,50 +55,194 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (req.method === 'GET') {
-      // Return mock command mappings
-      const mappings = [
-        {
-          id: '1',
-          botId: '1',
-          intent: 'ban_user',
-          command: '/ban',
-          description: 'Ban a user from the server',
-          parameters: ['user', 'reason'],
-          createdAt: new Date().toISOString()
-        },
-        {
-          id: '2',
-          botId: '1',
-          intent: 'kick_user',
-          command: '/kick',
-          description: 'Kick a user from the server',
-          parameters: ['user', 'reason'],
-          createdAt: new Date().toISOString()
+      // Get real command mappings from Supabase
+      const { data: mappings, error } = await supabase
+        .from('command_mappings')
+        .select(`
+          id,
+          bot_id,
+          name,
+          natural_language_pattern,
+          command_output,
+          status,
+          usage_count,
+          created_at
+        `)
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Database error:', error);
+        return res.status(500).json({ error: 'Failed to fetch command mappings' });
+      }
+
+      // Get bot information for each mapping
+      const commandMappings: any[] = [];
+      if (mappings && mappings.length > 0) {
+        const botIds = [...new Set(mappings.map(m => m.bot_id))];
+        const { data: bots } = await supabase
+          .from('bots')
+          .select('id, bot_name, platform_type')
+          .in('id', botIds);
+
+        const botMap = new Map(bots?.map(bot => [bot.id, bot]) || []);
+
+        for (const mapping of mappings) {
+          const bot = botMap.get(mapping.bot_id);
+          commandMappings.push({
+            id: mapping.id,
+            botId: mapping.bot_id,
+            name: mapping.name,
+            naturalLanguagePattern: mapping.natural_language_pattern,
+            commandOutput: mapping.command_output,
+            status: mapping.status,
+            usageCount: mapping.usage_count,
+            createdAt: mapping.created_at,
+            bot: bot ? {
+              id: bot.id,
+              name: bot.bot_name,
+              type: bot.platform_type
+            } : null
+          });
         }
-      ];
+      }
       
-      return res.status(200).json(mappings);
+      return res.status(200).json(commandMappings);
     }
 
     if (req.method === 'POST') {
       // Handle new command mapping
-      const { botId, intent, command, description, parameters } = req.body;
+      const { botId, name, naturalLanguagePattern, commandOutput } = req.body;
       
-      if (!botId || !intent || !command) {
-        return res.status(400).json({ error: 'Missing required fields' });
+      // Basic validation
+      if (!botId || !name || !naturalLanguagePattern || !commandOutput) {
+        return res.status(400).json({ 
+          error: 'Missing required fields: botId, name, naturalLanguagePattern, and commandOutput' 
+        });
       }
 
-      const newMapping = {
-        id: Date.now().toString(),
-        botId,
-        intent,
-        command,
-        description: description || '',
-        parameters: parameters || [],
-        createdAt: new Date().toISOString()
+      // Verify the bot belongs to the user
+      const { data: bot, error: botError } = await supabase
+        .from('bots')
+        .select('id, bot_name, platform_type')
+        .eq('id', botId)
+        .eq('user_id', user.id)
+        .single();
+
+      if (botError || !bot) {
+        return res.status(400).json({ error: 'Invalid bot ID or bot does not belong to user' });
+      }
+
+      // Insert new command mapping into database
+      const { data: newMapping, error: insertError } = await supabase
+        .from('command_mappings')
+        .insert({
+          user_id: user.id,
+          bot_id: botId,
+          name,
+          natural_language_pattern: naturalLanguagePattern,
+          command_output: commandOutput,
+          status: 'active',
+          usage_count: 0,
+        })
+        .select()
+        .single();
+
+      if (insertError) {
+        console.error('Database insert error:', insertError);
+        return res.status(500).json({ error: 'Failed to save command mapping' });
+      }
+
+      // Log activity
+      await supabase
+        .from('activities')
+        .insert({
+          user_id: user.id,
+          activity_type: 'command_created',
+          description: `Created command mapping: ${name}`,
+          metadata: { 
+            mappingId: newMapping.id, 
+            botId: botId,
+            botName: bot.bot_name 
+          }
+        });
+
+      // Return the created mapping with bot info
+      const responseMapping = {
+        id: newMapping.id,
+        botId: newMapping.bot_id,
+        name: newMapping.name,
+        naturalLanguagePattern: newMapping.natural_language_pattern,
+        commandOutput: newMapping.command_output,
+        status: newMapping.status,
+        usageCount: newMapping.usage_count,
+        createdAt: newMapping.created_at,
+        bot: {
+          id: bot.id,
+          name: bot.bot_name,
+          type: bot.platform_type
+        }
       };
 
-      return res.status(201).json(newMapping);
+      return res.status(201).json(responseMapping);
+    }
+
+    if (req.method === 'PUT') {
+      // Handle updating command mapping
+      const { id } = req.query;
+      const { name, naturalLanguagePattern, commandOutput, status } = req.body;
+
+      if (!id) {
+        return res.status(400).json({ error: 'Missing mapping ID' });
+      }
+
+      // Update the mapping (only if it belongs to the user)
+      const { data: updatedMapping, error: updateError } = await supabase
+        .from('command_mappings')
+        .update({
+          ...(name && { name }),
+          ...(naturalLanguagePattern && { natural_language_pattern: naturalLanguagePattern }),
+          ...(commandOutput && { command_output: commandOutput }),
+          ...(status && { status }),
+        })
+        .eq('id', id)
+        .eq('user_id', user.id)
+        .select()
+        .single();
+
+      if (updateError) {
+        console.error('Database update error:', updateError);
+        return res.status(500).json({ error: 'Failed to update command mapping' });
+      }
+
+      if (!updatedMapping) {
+        return res.status(404).json({ error: 'Command mapping not found' });
+      }
+
+      return res.status(200).json(updatedMapping);
+    }
+
+    if (req.method === 'DELETE') {
+      // Handle deleting command mapping
+      const { id } = req.query;
+
+      if (!id) {
+        return res.status(400).json({ error: 'Missing mapping ID' });
+      }
+
+      // Delete the mapping (only if it belongs to the user)
+      const { error: deleteError } = await supabase
+        .from('command_mappings')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', user.id);
+
+      if (deleteError) {
+        console.error('Database delete error:', deleteError);
+        return res.status(500).json({ error: 'Failed to delete command mapping' });
+      }
+
+      return res.status(204).end();
     }
 
     return res.status(405).json({ error: 'Method not allowed' });

@@ -1,5 +1,11 @@
 import { type VercelRequest, type VercelResponse } from '@vercel/node';
 import { verifyToken } from '@clerk/backend';
+import { createClient } from '@supabase/supabase-js';
+
+// Initialize Supabase client
+const supabaseUrl = process.env.SUPABASE_URL!;
+const supabaseKey = process.env.SUPABASE_ANON_KEY!;
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function getUserFromToken(token: string) {
   try {
@@ -49,40 +55,80 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (req.method === 'GET') {
-      // Return mock activity data
-      const activity = [
-        {
-          id: '1',
-          botId: '1',
-          type: 'command_execution',
-          message: 'User banned @spammer for spam',
-          timestamp: new Date(Date.now() - 1000 * 60 * 30).toISOString(), // 30 min ago
-          success: true
-        },
-        {
-          id: '2',
-          botId: '1',
-          type: 'message_processed',
-          message: 'Processed natural language command: "ban the spammer"',
-          timestamp: new Date(Date.now() - 1000 * 60 * 60).toISOString(), // 1 hour ago
-          success: true
-        },
-        {
-          id: '3',
-          botId: '1',
-          type: 'intent_recognized',
-          message: 'Intent: ban_user, Confidence: 95%',
-          timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(), // 2 hours ago
-          success: true
-        }
-      ];
+      // Get real activities from Supabase
+      const { data: activities, error } = await supabase
+        .from('activities')
+        .select(`
+          id,
+          activity_type,
+          description,
+          metadata,
+          created_at
+        `)
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(50); // Limit to most recent 50 activities
+
+      if (error) {
+        console.error('Database error:', error);
+        return res.status(500).json({ error: 'Failed to fetch activities' });
+      }
+
+      // Transform to match frontend expectations
+      const activityFeed = activities?.map(activity => ({
+        id: activity.id,
+        activityType: activity.activity_type,
+        description: activity.description,
+        metadata: activity.metadata,
+        createdAt: activity.created_at
+      })) || [];
       
-      return res.status(200).json(activity);
+      return res.status(200).json(activityFeed);
+    }
+
+    if (req.method === 'POST') {
+      // Handle new activity log
+      const { activityType, description, metadata } = req.body;
+      
+      // Basic validation
+      if (!activityType || !description) {
+        return res.status(400).json({ 
+          error: 'Missing required fields: activityType and description' 
+        });
+      }
+
+      // Insert new activity into database
+      const { data: newActivity, error: insertError } = await supabase
+        .from('activities')
+        .insert({
+          user_id: user.id,
+          activity_type: activityType,
+          description,
+          metadata: metadata || null,
+        })
+        .select()
+        .single();
+
+      if (insertError) {
+        console.error('Database insert error:', insertError);
+        return res.status(500).json({ error: 'Failed to save activity' });
+      }
+
+      // Return the created activity
+      const responseActivity = {
+        id: newActivity.id,
+        activityType: newActivity.activity_type,
+        description: newActivity.description,
+        metadata: newActivity.metadata,
+        createdAt: newActivity.created_at
+      };
+
+      return res.status(201).json(responseActivity);
     }
 
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (error) {
-    console.error('Activity API error:', error);
+    console.error('Activities API error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 } 

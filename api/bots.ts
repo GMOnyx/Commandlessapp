@@ -1,5 +1,11 @@
 import { type VercelRequest, type VercelResponse } from '@vercel/node';
 import { verifyToken } from '@clerk/backend';
+import { createClient } from '@supabase/supabase-js';
+
+// Initialize Supabase client
+const supabaseUrl = process.env.SUPABASE_URL!;
+const supabaseKey = process.env.SUPABASE_ANON_KEY!;
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function getUserFromToken(token: string) {
   try {
@@ -49,39 +55,125 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (req.method === 'GET') {
-      // Return mock data for now - replace with real data later
-      const connections = [
-        {
-          id: '1',
-          name: 'My Discord Bot',
-          type: 'discord',
-          status: 'connected',
-          createdAt: new Date().toISOString()
-        }
-      ];
+      // Get real bot connections from Supabase
+      const { data: bots, error } = await supabase
+        .from('bots')
+        .select(`
+          id,
+          platform_type,
+          bot_name,
+          client_id,
+          personality_context,
+          is_connected,
+          created_at
+        `)
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Database error:', error);
+        return res.status(500).json({ error: 'Failed to fetch bot connections' });
+      }
+
+      // Transform to match frontend expectations
+      const connections = bots?.map(bot => ({
+        id: bot.id,
+        name: bot.bot_name,
+        type: bot.platform_type,
+        isConnected: bot.is_connected,
+        clientId: bot.client_id,
+        personalityContext: bot.personality_context,
+        createdAt: bot.created_at
+      })) || [];
       
       return res.status(200).json(connections);
     }
 
     if (req.method === 'POST') {
       // Handle new bot connection
-      const { name, type, token: botToken } = req.body;
+      const { name, type, token: botToken, clientId, personalityContext } = req.body;
       
       // Basic validation
       if (!name || !type || !botToken) {
-        return res.status(400).json({ error: 'Missing required fields' });
+        return res.status(400).json({ error: 'Missing required fields: name, type, and token' });
       }
 
-      // Create new connection (mock for now)
-      const newConnection = {
-        id: Date.now().toString(),
-        name,
-        type,
-        status: 'connected',
-        createdAt: new Date().toISOString()
+      // Validate bot token by making a test API call
+      let isConnected = false;
+      try {
+        if (type === 'discord') {
+          // Test Discord bot token
+          const response = await fetch('https://discord.com/api/v10/users/@me', {
+            headers: {
+              'Authorization': `Bot ${botToken}`,
+            },
+          });
+          
+          if (response.ok) {
+            isConnected = true;
+          } else {
+            return res.status(400).json({ error: 'Invalid Discord bot token' });
+          }
+        } else if (type === 'telegram') {
+          // Test Telegram bot token
+          const response = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
+          const data = await response.json();
+          
+          if (data.ok) {
+            isConnected = true;
+          } else {
+            return res.status(400).json({ error: 'Invalid Telegram bot token' });
+          }
+        } else {
+          return res.status(400).json({ error: 'Unsupported bot type' });
+        }
+      } catch (error) {
+        console.error('Bot token validation error:', error);
+        return res.status(400).json({ error: 'Failed to validate bot token' });
+      }
+
+      // Insert new bot connection into database
+      const { data: newBot, error: insertError } = await supabase
+        .from('bots')
+        .insert({
+          user_id: user.id,
+          platform_type: type,
+          bot_name: name,
+          token: botToken, // Store encrypted in production
+          client_id: clientId,
+          personality_context: personalityContext,
+          is_connected: isConnected,
+        })
+        .select()
+        .single();
+
+      if (insertError) {
+        console.error('Database insert error:', insertError);
+        return res.status(500).json({ error: 'Failed to save bot connection' });
+      }
+
+      // Log activity
+      await supabase
+        .from('activities')
+        .insert({
+          user_id: user.id,
+          activity_type: 'bot_connected',
+          description: `Connected ${type} bot: ${name}`,
+          metadata: { botId: newBot.id, botType: type }
+        });
+
+      // Return the created bot
+      const responseBot = {
+        id: newBot.id,
+        name: newBot.bot_name,
+        type: newBot.platform_type,
+        isConnected: newBot.is_connected,
+        clientId: newBot.client_id,
+        personalityContext: newBot.personality_context,
+        createdAt: newBot.created_at
       };
 
-      return res.status(201).json(newConnection);
+      return res.status(201).json(responseBot);
     }
 
     return res.status(405).json({ error: 'Method not allowed' });
