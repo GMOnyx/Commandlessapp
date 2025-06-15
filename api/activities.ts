@@ -55,6 +55,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (req.method === 'GET') {
+      console.log('Getting activities for user:', user.id);
+      
+      // First, ensure the user exists in our database
+      const { data: existingUser, error: userError } = await supabase
+        .from('users')
+        .select('id')
+        .eq('id', user.id)
+        .single();
+      
+      if (userError && userError.code === 'PGRST116') {
+        // User doesn't exist, create them
+        console.log('Creating new user record for:', user.id);
+        const { error: createError } = await supabase
+          .from('users')
+          .insert({
+            id: user.id,
+            username: user.id,
+            name: user.id,
+            role: 'user'
+          });
+        
+        if (createError) {
+          console.error('Failed to create user:', createError);
+          return res.status(500).json({ error: 'Failed to create user record' });
+        }
+      }
+
       // Get real activities from Supabase
       const { data: activities, error } = await supabase
         .from('activities')
@@ -73,6 +100,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         console.error('Database error:', error);
         return res.status(500).json({ error: 'Failed to fetch activities' });
       }
+
+      console.log('Found activities:', activities?.length || 0);
 
       // Transform to match frontend expectations
       const activityFeed = activities?.map(activity => ({
