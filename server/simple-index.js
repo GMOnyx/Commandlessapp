@@ -927,20 +927,54 @@ class DiscordBotManager {
             message.reference.messageId && 
             (await message.channel.messages.fetch(message.reference.messageId))?.author.id === client.user.id;
 
-          if (!botMentioned && !isReplyToBot) return;
+          console.log(`📨 Message received from ${message.author.username}:`);
+          console.log(`   Content: "${message.content}"`);
+          console.log(`   Bot mentioned: ${botMentioned}`);
+          console.log(`   Is reply to bot: ${isReplyToBot}`);
+          console.log(`   Message ID: ${message.id}`);
+          console.log(`   Channel ID: ${message.channel.id}`);
+          console.log(`   Guild ID: ${message.guild?.id || 'DM'}`);
+
+          if (!botMentioned && !isReplyToBot) {
+            console.log(`⏭️ Ignoring message - bot not mentioned and not a reply to bot`);
+            return;
+          }
 
           console.log(`📨 Processing: "${message.content}" from ${message.author.username}`);
 
           // Process message with AI and command mappings
           const result = await processMessageWithAI(message, userId);
           
+          let replyOptions = {
+            allowedMentions: { repliedUser: false } // Don't ping the user when replying
+          };
+          
           if (result.success && result.response) {
-            await message.reply(result.response);
+            try {
+              await message.reply({ content: result.response, ...replyOptions });
+              console.log(`✅ Replied to ${message.author.username}: ${result.response}`);
+            } catch (replyError) {
+              console.error('❌ Reply failed, trying regular send:', replyError);
+              await message.channel.send(`${message.author}, ${result.response}`);
+            }
           } else if (result.needsClarification && result.clarificationQuestion) {
-            await message.reply(result.clarificationQuestion);
+            try {
+              await message.reply({ content: result.clarificationQuestion, ...replyOptions });
+              console.log(`✅ Sent clarification to ${message.author.username}: ${result.clarificationQuestion}`);
+            } catch (replyError) {
+              console.error('❌ Reply failed, trying regular send:', replyError);
+              await message.channel.send(`${message.author}, ${result.clarificationQuestion}`);
+            }
           } else {
             // Fallback response
-            await message.reply("I'm here and ready to help! Try asking me to help with moderation commands or just chat.");
+            const fallbackMsg = "I'm here and ready to help! Try asking me to help with moderation commands or just chat.";
+            try {
+              await message.reply({ content: fallbackMsg, ...replyOptions });
+              console.log(`✅ Sent fallback reply to ${message.author.username}`);
+            } catch (replyError) {
+              console.error('❌ Reply failed, trying regular send:', replyError);
+              await message.channel.send(`${message.author}, ${fallbackMsg}`);
+            }
           }
 
         } catch (error) {
