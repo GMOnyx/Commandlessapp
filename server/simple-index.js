@@ -30,11 +30,28 @@ const supabase = createClient(
 // Store active Discord bots
 const activeBots = new Map();
 
+// Store bot message IDs for reply tracking
+const botMessageIds = new Set();
+
 // AI Message Processing Function
 async function processMessageWithAI(message, userId) {
   try {
     // Clean the message content (remove bot mentions)
     let cleanMessage = message.content.replace(/<@!?\d+>/g, '').trim();
+    
+    // Check if this is a reply to the bot for conversation context
+    let conversationContext = '';
+    if (message.reference && message.reference.messageId && botMessageIds.has(message.reference.messageId)) {
+      try {
+        const referencedMessage = await message.channel.messages.fetch(message.reference.messageId);
+        if (referencedMessage && referencedMessage.author.bot) {
+          conversationContext = `Previous bot message: "${referencedMessage.content}"`;
+          console.log(`🧠 Adding conversation context: ${conversationContext}`);
+        }
+      } catch (error) {
+        console.error('Error fetching conversation context:', error);
+      }
+    }
     
     if (!cleanMessage) {
       return {
@@ -67,7 +84,7 @@ async function processMessageWithAI(message, userId) {
 
     // Use AI if available, otherwise fall back to simple matching
     if (genAI) {
-      return await processWithAI(cleanMessage, commandMappings, message, userId);
+      return await processWithAI(cleanMessage, commandMappings, message, userId, conversationContext);
     } else {
       return await processWithSimpleMatching(cleanMessage, commandMappings, message, userId);
     }
@@ -473,7 +490,7 @@ function extractParametersFallback(message, commandPattern) {
 }
 
 // Advanced AI Processing
-async function processWithAI(cleanMessage, commandMappings, message, userId) {
+async function processWithAI(cleanMessage, commandMappings, message, userId, conversationContext) {
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     
@@ -487,9 +504,21 @@ async function processWithAI(cleanMessage, commandMappings, message, userId) {
 1. **Determine if the user wants to execute a command OR have casual conversation**
 2. **Extract parameters aggressively and intelligently from natural language**
 3. **Be decisive - execute commands when intent is clear, even with informal language**
+4. **Maintain conversational flow when user is replying to previous bot messages**
 
 AVAILABLE COMMANDS:
 ${commandList}
+
+${conversationContext ? `
+🗣️ **CONVERSATION CONTEXT:**
+${conversationContext}
+
+**CONVERSATION HANDLING:**
+- If user is replying to a previous bot message, consider the conversation flow
+- Maintain context and provide relevant follow-up responses
+- If the reply seems to be continuing a conversation rather than issuing a command, respond conversationally
+- Look for conversational cues like "thanks", "ok", "got it", "what about", "also", "and", etc.
+` : ''}
 
 🎯 **PARAMETER EXTRACTION MASTERY:**
 
@@ -545,6 +574,8 @@ ${commandList}
 - ❌ Pure greetings ("hi", "hello", "how are you")
 - ❌ Questions about the bot's capabilities
 - ❌ General chat without action words
+- ❌ Conversational replies to previous bot messages ("thanks", "ok", "cool", "got it")
+- ❌ Follow-up questions about previous responses
 
 **CONFIDENCE SCORING:**
 - 90-100: Perfect match with all parameters extracted
@@ -555,7 +586,7 @@ ${commandList}
 
 USER MESSAGE: "${cleanMessage}"
 
-CONTEXT: User mentioned me in Discord. Extract any mentioned users, numbers, or quoted text.
+CONTEXT: ${conversationContext || 'User mentioned me in Discord. Extract any mentioned users, numbers, or quoted text.'}
 
 🚀 **RESPOND WITH JSON:**
 
@@ -580,9 +611,16 @@ CONTEXT: User mentioned me in Discord. Extract any mentioned users, numbers, or 
 \`\`\`json
 {
   "isCommand": false,
-  "conversationalResponse": "friendly, helpful response matching bot personality"
+  "conversationalResponse": "friendly, helpful response that maintains conversation flow and references previous context when appropriate"
 }
 \`\`\`
+
+**EXAMPLES OF CONVERSATION FLOW:**
+- Reply to "wassup?" → "Hey! Not much, just chillin' and ready to help out. What's going on with you? 😎"
+- Reply to "thanks" after command execution → "You're welcome! Happy to help. Anything else you need?"
+- Reply to "ok" after explanation → "Great! Let me know if you have any other questions."
+- Reply to "what about X?" → Reference previous context and answer about X
+- Reply to "also can you..." → Handle the additional request while acknowledging the continuation
 
 **EXAMPLES OF AGGRESSIVE EXTRACTION:**
 - "nothing much, just ban <@560079402013032448> for spam" → EXECUTE ban immediately
@@ -923,9 +961,29 @@ class DiscordBotManager {
           if (message.author.bot) return;
 
           const botMentioned = message.mentions.users.has(client.user.id);
-          const isReplyToBot = message.reference && 
-            message.reference.messageId && 
-            (await message.channel.messages.fetch(message.reference.messageId))?.author.id === client.user.id;
+          
+          // Enhanced reply detection - check if replying to any of our bot's messages
+          let isReplyToBot = false;
+          if (message.reference && message.reference.messageId) {
+            try {
+              // Check if the referenced message ID is in our bot's message tracking
+              if (botMessageIds.has(message.reference.messageId)) {
+                isReplyToBot = true;
+                console.log(`✅ Reply detected to bot message: ${message.reference.messageId}`);
+              } else {
+                // Fallback: fetch the message to check if it's from our bot
+                const referencedMessage = await message.channel.messages.fetch(message.reference.messageId);
+                if (referencedMessage && referencedMessage.author.id === client.user.id) {
+                  isReplyToBot = true;
+                  // Add to our tracking set for future reference
+                  botMessageIds.add(message.reference.messageId);
+                  console.log(`✅ Reply detected to bot message (fallback): ${message.reference.messageId}`);
+                }
+              }
+            } catch (fetchError) {
+              console.error('❌ Error fetching referenced message:', fetchError);
+            }
+          }
 
           console.log(`📨 Message received from ${message.author.username}:`);
           console.log(`   Content: "${message.content}"`);
@@ -934,6 +992,7 @@ class DiscordBotManager {
           console.log(`   Message ID: ${message.id}`);
           console.log(`   Channel ID: ${message.channel.id}`);
           console.log(`   Guild ID: ${message.guild?.id || 'DM'}`);
+          console.log(`   Referenced message ID: ${message.reference?.messageId || 'None'}`);
 
           if (!botMentioned && !isReplyToBot) {
             console.log(`⏭️ Ignoring message - bot not mentioned and not a reply to bot`);
@@ -949,38 +1008,55 @@ class DiscordBotManager {
             allowedMentions: { repliedUser: false } // Don't ping the user when replying
           };
           
+          let botMessage = null;
+          
           if (result.success && result.response) {
             try {
-              await message.reply({ content: result.response, ...replyOptions });
+              botMessage = await message.reply({ content: result.response, ...replyOptions });
               console.log(`✅ Replied to ${message.author.username}: ${result.response}`);
             } catch (replyError) {
               console.error('❌ Reply failed, trying regular send:', replyError);
-              await message.channel.send(`${message.author}, ${result.response}`);
+              botMessage = await message.channel.send(`${message.author}, ${result.response}`);
             }
           } else if (result.needsClarification && result.clarificationQuestion) {
             try {
-              await message.reply({ content: result.clarificationQuestion, ...replyOptions });
+              botMessage = await message.reply({ content: result.clarificationQuestion, ...replyOptions });
               console.log(`✅ Sent clarification to ${message.author.username}: ${result.clarificationQuestion}`);
             } catch (replyError) {
               console.error('❌ Reply failed, trying regular send:', replyError);
-              await message.channel.send(`${message.author}, ${result.clarificationQuestion}`);
+              botMessage = await message.channel.send(`${message.author}, ${result.clarificationQuestion}`);
             }
           } else {
             // Fallback response
             const fallbackMsg = "I'm here and ready to help! Try asking me to help with moderation commands or just chat.";
             try {
-              await message.reply({ content: fallbackMsg, ...replyOptions });
+              botMessage = await message.reply({ content: fallbackMsg, ...replyOptions });
               console.log(`✅ Sent fallback reply to ${message.author.username}`);
             } catch (replyError) {
               console.error('❌ Reply failed, trying regular send:', replyError);
-              await message.channel.send(`${message.author}, ${fallbackMsg}`);
+              botMessage = await message.channel.send(`${message.author}, ${fallbackMsg}`);
+            }
+          }
+
+          // Track the bot's message ID for future reply detection
+          if (botMessage) {
+            botMessageIds.add(botMessage.id);
+            console.log(`📝 Tracking bot message ID: ${botMessage.id} for future replies`);
+            
+            // Clean up old message IDs to prevent memory leaks (keep last 1000)
+            if (botMessageIds.size > 1000) {
+              const oldestIds = Array.from(botMessageIds).slice(0, botMessageIds.size - 1000);
+              oldestIds.forEach(id => botMessageIds.delete(id));
             }
           }
 
         } catch (error) {
           console.error('❌ Error processing message:', error);
           try {
-            await message.reply('Sorry, I encountered an error. Please try again.');
+            const errorMessage = await message.reply('Sorry, I encountered an error. Please try again.');
+            if (errorMessage) {
+              botMessageIds.add(errorMessage.id);
+            }
           } catch (replyError) {
             console.error('❌ Failed to send error reply:', replyError);
           }
