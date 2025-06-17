@@ -1721,6 +1721,11 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Test endpoint
+app.get('/api/test', (req, res) => {
+  res.json({ message: 'Test endpoint working', timestamp: new Date().toISOString() });
+});
+
 // Discord token validation endpoint - v2
 app.post('/api/discord', async (req, res) => {
   try {
