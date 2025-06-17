@@ -1568,6 +1568,75 @@ app.post('/api/bots', async (req, res) => {
       return res.status(400).json({ error: 'Bot name, platform type, and token are required' });
     }
 
+    // Validate Discord token if it's a Discord bot
+    if (platformType === 'discord') {
+      try {
+        // Clean the token
+        const cleanToken = botToken.trim().replace(/^Bot\s+/i, '');
+
+        // Basic format validation
+        if (cleanToken.length < 50) {
+          return res.status(400).json({ 
+            error: 'Invalid Discord bot token',
+            details: 'Token appears too short. Discord bot tokens are typically 59+ characters.',
+            suggestion: 'Please copy the complete token from the Discord Developer Portal.'
+          });
+        }
+
+        if (!/^[A-Za-z0-9._-]+$/.test(cleanToken)) {
+          return res.status(400).json({ 
+            error: 'Invalid Discord bot token',
+            details: 'Token contains invalid characters. Only letters, numbers, dots, underscores, and hyphens are allowed.',
+            suggestion: 'Please ensure you copied the token correctly without extra spaces or characters.'
+          });
+        }
+
+        // Try to validate with Discord API
+        const response = await fetch('https://discord.com/api/v10/applications/@me', {
+          headers: {
+            'Authorization': `Bot ${cleanToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('Discord API validation failed:', response.status, errorText);
+          
+          let errorMessage = 'Invalid Discord bot token';
+          let suggestion = 'Please check that you copied the token correctly from the Discord Developer Portal.';
+          
+          if (response.status === 401) {
+            errorMessage = 'Invalid Discord bot token';
+            suggestion = 'Please verify the token is correct and hasn\'t been regenerated.';
+          } else if (response.status === 403) {
+            errorMessage = 'Discord bot token lacks required permissions';
+            suggestion = 'Ensure the bot has "bot" and "applications.commands" scopes in the Discord Developer Portal.';
+          } else if (response.status === 429) {
+            errorMessage = 'Too many requests to Discord API';
+            suggestion = 'Please wait a moment and try again.';
+          }
+          
+          return res.status(400).json({ 
+            error: errorMessage,
+            details: 'Unable to validate the Discord bot token with Discord\'s API.',
+            suggestion
+          });
+        }
+
+        const application = await response.json();
+        console.log(`✅ Discord token validated for bot: ${application.name}`);
+
+      } catch (fetchError) {
+        console.error('Discord API fetch error:', fetchError);
+        return res.status(400).json({ 
+          error: 'Unable to validate Discord token',
+          details: 'Could not connect to Discord API to validate the token.',
+          suggestion: 'Please check your internet connection and try again.'
+        });
+      }
+    }
+
     // Check if a bot with this token already exists
     const { data: existingBot, error: checkError } = await supabase
       .from('bots')
