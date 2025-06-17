@@ -346,6 +346,132 @@ async function findBestCommandMatch(userInput, availableCommands, mentionedUserI
   return bestMatch;
 }
 
+// Extract Discord mentions from message for better AI processing
+function preprocessDiscordMessage(message) {
+  const extractedMentions = {};
+  
+  // Extract user mentions <@123456789> or <@!123456789>
+  const userMentions = message.match(/<@!?(\d+)>/g);
+  if (userMentions) {
+    userMentions.forEach((mention, index) => {
+      const userId = mention.match(/<@!?(\d+)>/)?.[1];
+      if (userId) {
+        extractedMentions[`user_mention_${index}`] = userId;
+      }
+    });
+  }
+  
+  // Extract channel mentions <#123456789>
+  const channelMentions = message.match(/<#(\d+)>/g);
+  if (channelMentions) {
+    channelMentions.forEach((mention, index) => {
+      const channelId = mention.match(/<#(\d+)>/)?.[1];
+      if (channelId) {
+        extractedMentions[`channel_mention_${index}`] = channelId;
+      }
+    });
+  }
+  
+  // Extract role mentions <@&123456789>
+  const roleMentions = message.match(/<@&(\d+)>/g);
+  if (roleMentions) {
+    roleMentions.forEach((mention, index) => {
+      const roleId = mention.match(/<@&(\d+)>/)?.[1];
+      if (roleId) {
+        extractedMentions[`role_mention_${index}`] = roleId;
+      }
+    });
+  }
+  
+  return {
+    cleanMessage: message,
+    extractedMentions
+  };
+}
+
+// Extract parameters from message using fallback method
+function extractParametersFallback(message, commandPattern) {
+  const extractedParams = {};
+  
+  // Extract ALL user mentions and find the target user (not the bot)
+  const allUserMentions = message.match(/<@!?(\d+)>/g);
+  if (allUserMentions && allUserMentions.length > 0) {
+    // Find the target user mention (usually the one that's NOT the bot being mentioned)
+    const userIds = allUserMentions.map(mention => {
+      const match = mention.match(/<@!?(\d+)>/);
+      return match ? match[1] : null;
+    }).filter(id => id !== null);
+    
+    // If we have multiple mentions, try to determine which is the target
+    if (userIds.length > 1) {
+      // Skip the first mention if it looks like a bot mention at the start
+      const messageWords = message.trim().split(/\s+/);
+      if (messageWords[0] && messageWords[0].match(/<@!?\d+>/)) {
+        // First word is a mention (likely bot mention), use the second user mentioned
+        extractedParams.user = userIds[1];
+      } else {
+        // Use the first user mentioned if no bot mention at start
+        extractedParams.user = userIds[0];
+      }
+    } else if (userIds.length === 1) {
+      // Only one mention - could be bot or target, use it
+      extractedParams.user = userIds[0];
+    }
+  }
+  
+  // Extract channel mentions <#123456789> and map to 'channel' parameter  
+  const channelMention = message.match(/<#(\d+)>/);
+  if (channelMention) {
+    const channelId = channelMention[1];
+    extractedParams.channel = channelId;
+  }
+  
+  // Extract role mentions <@&123456789> and map to 'role' parameter
+  const roleMention = message.match(/<@&(\d+)>/);
+  if (roleMention) {
+    const roleId = roleMention[1];
+    extractedParams.role = roleId;
+  }
+  
+  // Extract reason from common patterns
+  const reasonPatterns = [
+    /(?:for|because|reason:?\s*)(.*?)(?:\s*$)/i,
+    /(?:being|they're|he's|she's)\s+(.*?)(?:\s*$)/i
+  ];
+  
+  for (const pattern of reasonPatterns) {
+    const reasonMatch = message.match(pattern);
+    if (reasonMatch && reasonMatch[1] && reasonMatch[1].trim()) {
+      extractedParams.reason = reasonMatch[1].trim();
+      break;
+    }
+  }
+  
+  // Extract numbers for amounts/duration
+  const numberMatch = message.match(/(\d+)/);
+  if (numberMatch) {
+    const number = numberMatch[1];
+    // Check if command pattern contains amount or duration
+    if (commandPattern.includes('{amount}')) {
+      extractedParams.amount = number;
+    }
+    if (commandPattern.includes('{duration}')) {
+      extractedParams.duration = number + 'm'; // Default to minutes
+    }
+  }
+  
+  // Extract message content for say command
+  if (commandPattern.includes('{message}')) {
+    // Extract everything after "say" command
+    const sayMatch = message.match(/say\s+(.*)/i);
+    if (sayMatch) {
+      extractedParams.message = sayMatch[1];
+    }
+  }
+  
+  return extractedParams;
+}
+
 // Advanced AI Processing
 async function processWithAI(cleanMessage, commandMappings, message, userId) {
   try {
