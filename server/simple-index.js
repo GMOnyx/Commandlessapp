@@ -2,10 +2,20 @@ const express = require('express');
 const cors = require('cors');
 const { Client, GatewayIntentBits, Events } = require('discord.js');
 const { createClient } = require('@supabase/supabase-js');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Initialize Gemini AI
+let genAI = null;
+if (process.env.GEMINI_API_KEY) {
+  genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+  console.log('🤖 Gemini AI initialized');
+} else {
+  console.warn('⚠️ GEMINI_API_KEY not found - AI features will be limited');
+}
 
 // Middleware
 app.use(cors());
@@ -19,6 +29,719 @@ const supabase = createClient(
 
 // Store active Discord bots
 const activeBots = new Map();
+
+// AI Message Processing Function
+async function processMessageWithAI(message, userId) {
+  try {
+    // Clean the message content (remove bot mentions)
+    let cleanMessage = message.content.replace(/<@!?\d+>/g, '').trim();
+    
+    if (!cleanMessage) {
+      return {
+        success: true,
+        response: "Hello! How can I help you today? I can help with moderation commands or just chat!"
+      };
+    }
+
+    // Get command mappings for this user
+    const { data: commandMappings, error: mappingsError } = await supabase
+      .from('command_mappings')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('status', 'active');
+
+    if (mappingsError) {
+      console.error('Error fetching command mappings:', mappingsError);
+      return {
+        success: true,
+        response: "I'm here to help! I had trouble accessing my commands, but I'm ready to chat."
+      };
+    }
+
+    if (!commandMappings || commandMappings.length === 0) {
+      return {
+        success: true,
+        response: "Hi there! I don't have any commands configured yet, but I'm happy to chat!"
+      };
+    }
+
+    // Use AI if available, otherwise fall back to simple matching
+    if (genAI) {
+      return await processWithAI(cleanMessage, commandMappings, message, userId);
+    } else {
+      return await processWithSimpleMatching(cleanMessage, commandMappings, message, userId);
+    }
+
+  } catch (error) {
+    console.error('Error in processMessageWithAI:', error);
+    return {
+      success: true,
+      response: "Sorry, I encountered an error processing your message. Please try again!"
+    };
+  }
+}
+
+// Advanced AI Processing Functions (from local codebase)
+
+// Calculate semantic similarity between user input and command patterns
+function calculateCommandSimilarity(userInput, command) {
+  const input = userInput.toLowerCase();
+  let score = 0;
+  
+  // Extract command name from command output (e.g., "warn" from "/warn {user} {reason}")
+  const commandName = extractCommandName(command.command_output);
+  
+  // 1. Direct command name match (highest weight)
+  if (input.includes(commandName)) {
+    score += 0.8;
+  }
+  
+  // 2. Phrase-level pattern matching for natural language
+  const phraseScore = calculatePhrasePatternScore(input, commandName);
+  score += phraseScore * 0.7;
+  
+  // 3. Check natural language pattern similarity
+  const pattern = command.natural_language_pattern.toLowerCase();
+  const cleanPattern = pattern.replace(/\{[^}]+\}/g, '').trim();
+  
+  const inputWords = input.split(/\s+/);
+  const patternWords = cleanPattern.split(/\s+/).filter(word => word.length > 2);
+  
+  const commonWords = inputWords.filter(word => 
+    patternWords.some(pWord => 
+      word.includes(pWord) || pWord.includes(word) || calculateSimilarity(word, pWord) > 0.7
+    )
+  );
+  
+  if (patternWords.length > 0) {
+    score += (commonWords.length / patternWords.length) * 0.5;
+  }
+  
+  // 4. Semantic keyword matching based on command type
+  const semanticKeywords = generateSemanticKeywords(commandName);
+  const keywordMatches = semanticKeywords.filter(keyword => input.includes(keyword));
+  
+  if (semanticKeywords.length > 0) {
+    score += (keywordMatches.length / semanticKeywords.length) * 0.4;
+  }
+  
+  return Math.min(score, 1.0);
+}
+
+// Calculate phrase-level pattern matching
+function calculatePhrasePatternScore(input, commandName) {
+  const phrasePatterns = {
+    'ban': ['ban', 'remove', 'kick out', 'get rid of', 'block'],
+    'kick': ['kick', 'remove temporarily', 'boot'],
+    'warn': ['warn', 'warning', 'caution', 'alert'],
+    'mute': ['mute', 'silence', 'quiet'],
+    'purge': ['purge', 'delete', 'clear', 'clean up', 'remove messages'],
+    'say': ['say', 'announce', 'tell everyone', 'broadcast'],
+    'ping': ['ping', 'test', 'check', 'latency', 'speed'],
+    'help': ['help', 'commands', 'what can you do'],
+    'channel': ['channel', 'info', 'details'],
+    'server-info': ['server', 'guild', 'info', 'details']
+  };
+  
+  const patterns = phrasePatterns[commandName] || [commandName];
+  return patterns.some(pattern => input.includes(pattern)) ? 1.0 : 0.0;
+}
+
+// Calculate string similarity using Levenshtein distance
+function calculateSimilarity(str1, str2) {
+  const matrix = [];
+  const len1 = str1.length;
+  const len2 = str2.length;
+  
+  for (let i = 0; i <= len2; i++) {
+    matrix[i] = [i];
+  }
+  
+  for (let j = 0; j <= len1; j++) {
+    matrix[0][j] = j;
+  }
+  
+  for (let i = 1; i <= len2; i++) {
+    for (let j = 1; j <= len1; j++) {
+      if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j] + 1
+        );
+      }
+    }
+  }
+  
+  const maxLen = Math.max(len1, len2);
+  return maxLen === 0 ? 1 : (maxLen - matrix[len2][len1]) / maxLen;
+}
+
+// Generate semantic keywords for command types
+function generateSemanticKeywords(commandName) {
+  const keywordMap = {
+    'ban': ['ban', 'remove', 'kick out', 'block', 'banish', 'exclude'],
+    'kick': ['kick', 'boot', 'eject', 'remove temporarily'],
+    'warn': ['warn', 'warning', 'caution', 'alert', 'notify'],
+    'mute': ['mute', 'silence', 'quiet', 'shush'],
+    'purge': ['purge', 'delete', 'clear', 'clean', 'remove messages', 'bulk delete'],
+    'say': ['say', 'announce', 'broadcast', 'tell', 'message'],
+    'ping': ['ping', 'test', 'check', 'latency', 'response time'],
+    'help': ['help', 'commands', 'assistance', 'guide'],
+    'channel': ['channel', 'room', 'chat'],
+    'server-info': ['server', 'guild', 'info', 'details', 'stats']
+  };
+  
+  return keywordMap[commandName] || [commandName];
+}
+
+// Extract command name from command output
+function extractCommandName(commandOutput) {
+  if (!commandOutput) return '';
+  
+  // Remove leading slash and extract first word
+  const cleaned = commandOutput.replace(/^\//, '');
+  const firstWord = cleaned.split(' ')[0];
+  
+  // Remove any parameter placeholders
+  return firstWord.replace(/\{[^}]+\}/g, '').trim();
+}
+
+// Check if input contains natural language indicators
+function hasNaturalLanguageIndicators(input) {
+  const naturalLanguageIndicators = [
+    'please', 'can you', 'could you', 'would you', 'how', 'what', 'why',
+    'they are', 'user is', 'being', 'getting', 'remove them', 'get rid'
+  ];
+  
+  const lowerInput = input.toLowerCase();
+  return naturalLanguageIndicators.some(indicator => lowerInput.includes(indicator));
+}
+
+// Check for invalid compound inputs
+function isInvalidCompound(input) {
+  const invalidPatterns = [
+    /ban.*kick/i,
+    /kick.*ban/i,
+    /mute.*ban/i,
+    /warn.*kick.*ban/i
+  ];
+  
+  return invalidPatterns.some(pattern => pattern.test(input));
+}
+
+// Check if input is purely conversational
+function isConversationalInput(input) {
+  const conversationalPatterns = [
+    /^(hi|hello|hey)[\s!]*$/i,
+    /^how are you[\s?]*$/i,
+    /^what's up[\s?]*$/i,
+    /^good (morning|afternoon|evening)[\s!]*$/i,
+    /^thank you[\s!]*$/i,
+    /^thanks[\s!]*$/i
+  ];
+  
+  return conversationalPatterns.some(pattern => pattern.test(input.trim()));
+}
+
+// Advanced parameter extraction from user input and pattern
+function extractParametersFromPattern(userInput, naturalLanguagePattern, mentionedUserIds) {
+  const extractedParams = {};
+  
+  // Extract Discord user mentions
+  if (mentionedUserIds && mentionedUserIds.length > 0) {
+    extractedParams.user = mentionedUserIds[0];
+  }
+  
+  // Extract user mentions from text
+  const userMentionMatch = userInput.match(/<@!?(\d+)>/);
+  if (userMentionMatch) {
+    extractedParams.user = userMentionMatch[1];
+  }
+  
+  // Extract username mentions
+  const usernameMatch = userInput.match(/@(\w+)/);
+  if (usernameMatch) {
+    extractedParams.username = usernameMatch[1];
+  }
+  
+  // Extract reason with multiple patterns
+  const reasonPatterns = [
+    /\bfor\s+(.+?)(?:\s+(?:and|but|however|also)|$)/i,
+    /\bbecause\s+(.+?)(?:\s+(?:and|but|however|also)|$)/i,
+    /\breason:?\s*(.+?)(?:\s+(?:and|but|however|also)|$)/i,
+    /\b(?:due to|since)\s+(.+?)(?:\s+(?:and|but|however|also)|$)/i
+  ];
+  
+  for (const pattern of reasonPatterns) {
+    const reasonMatch = userInput.match(pattern);
+    if (reasonMatch && reasonMatch[1] && reasonMatch[1].trim()) {
+      extractedParams.reason = reasonMatch[1].trim();
+      break;
+    }
+  }
+  
+  // Extract numbers for amounts/duration
+  const numberMatch = userInput.match(/(\d+)/);
+  if (numberMatch) {
+    const number = numberMatch[1];
+    if (naturalLanguagePattern.includes('{amount}')) {
+      extractedParams.amount = number;
+    }
+    if (naturalLanguagePattern.includes('{duration}')) {
+      extractedParams.duration = number + 'm';
+    }
+  }
+  
+  // Extract quoted text for messages
+  const quotedMatch = userInput.match(/"([^"]+)"/);
+  if (quotedMatch) {
+    extractedParams.message = quotedMatch[1];
+  }
+  
+  // Extract message content for say command
+  if (naturalLanguagePattern.includes('{message}')) {
+    const sayMatch = userInput.match(/say\s+(.*)/i);
+    if (sayMatch) {
+      extractedParams.message = sayMatch[1];
+    }
+  }
+  
+  return extractedParams;
+}
+
+// Find best command match using advanced algorithms
+async function findBestCommandMatch(userInput, availableCommands, mentionedUserIds) {
+  // Check for invalid compounds first
+  if (isInvalidCompound(userInput)) {
+    return null;
+  }
+  
+  // Check for conversational input that should be rejected
+  if (isConversationalInput(userInput)) {
+    return null;
+  }
+  
+  let bestMatch = null;
+  let highestConfidence = 0;
+  
+  for (const command of availableCommands) {
+    const confidence = calculateCommandSimilarity(userInput, command);
+    
+    if (confidence > highestConfidence) {
+      highestConfidence = confidence;
+      
+      const params = extractParametersFromPattern(userInput, command.natural_language_pattern, mentionedUserIds);
+      
+      bestMatch = {
+        command,
+        confidence,
+        params
+      };
+    }
+  }
+  
+  return bestMatch;
+}
+
+// Advanced AI Processing
+async function processWithAI(cleanMessage, commandMappings, message, userId) {
+  try {
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    
+    // Create a comprehensive prompt for command analysis
+    const commandList = commandMappings.map(cmd => 
+      `- ID: ${cmd.id}, Name: ${cmd.name}, Pattern: "${cmd.natural_language_pattern}" → ${cmd.command_output}`
+    ).join('\n');
+
+    // Enhanced prompt with sophisticated AI analysis
+    const prompt = `You are an advanced natural language processor for Discord bot commands. Your job is to:
+1. **Determine if the user wants to execute a command OR have casual conversation**
+2. **Extract parameters aggressively and intelligently from natural language**
+3. **Be decisive - execute commands when intent is clear, even with informal language**
+
+AVAILABLE COMMANDS:
+${commandList}
+
+🎯 **PARAMETER EXTRACTION MASTERY:**
+
+**Discord Mentions**: Extract user IDs from any mention format:
+- "warn <@560079402013032448> for spamming" → user: "560079402013032448"
+- "please mute <@!123456> because annoying" → user: "123456"
+- "ban that toxic <@999888> user" → user: "999888"
+
+**Natural Language Patterns**: Understand ANY phrasing that indicates command intent:
+- "can you delete like 5 messages please" → purge command, amount: "5"
+- "remove that user from the server" → ban command
+- "give them a warning for being rude" → warn command
+- "tell everyone the meeting is starting" → say command
+- "check how fast you are" → ping command
+- "what server are we in" → server-info command
+
+**Context-Aware Extraction**: Look at the ENTIRE message for parameters:
+- "nothing much just warn <@560079402013032448> for being annoying" 
+  → EXTRACT: user: "560079402013032448", reason: "being annoying"
+- "hey bot, when you have time, could you ban <@123> for trolling everyone"
+  → EXTRACT: user: "123", reason: "trolling everyone"
+- "that user <@999> has been really helpful, make a note about it"
+  → EXTRACT: user: "999", message: "has been really helpful"
+
+**Semantic Understanding**: Map natural language to command actions:
+- "remove/get rid of/kick out" → ban
+- "tell everyone/announce/broadcast" → say
+- "delete/clear/clean up messages" → purge
+- "stick/attach this message" → pin
+- "give warning/issue warning" → warn
+- "check speed/latency/response time" → ping
+- "server details/info/stats" → server-info
+
+**Multi-Parameter Intelligence**: Extract complete information:
+- "warn john for being toxic and breaking rules repeatedly" 
+  → user: "john", reason: "being toxic and breaking rules repeatedly"
+- "please purge about 15 messages to clean this up"
+  → amount: "15"
+- "tell everyone 'meeting moved to 3pm tomorrow'"
+  → message: "meeting moved to 3pm tomorrow"
+
+🔥 **DECISION MAKING RULES:**
+
+**EXECUTE IMMEDIATELY IF:**
+- ✅ Clear command intent (even with casual phrasing)
+- ✅ ANY required parameters can be extracted
+- ✅ User mentions someone with @ symbol for moderation commands
+- ✅ Numbers found for amount-based commands (purge, slowmode)
+- ✅ Message content found for say/note commands
+
+**CASUAL CONVERSATION IF:**
+- ❌ No command-related words or intent
+- ❌ Pure greetings ("hi", "hello", "how are you")
+- ❌ Questions about the bot's capabilities
+- ❌ General chat without action words
+
+**CONFIDENCE SCORING:**
+- 90-100: Perfect match with all parameters extracted
+- 80-89: Clear intent with most important parameters
+- 70-79: Good intent with some parameters (STILL EXECUTE)
+- 60-69: Likely intent but may need minor clarification
+- Below 60: Ask for clarification only if truly ambiguous
+
+USER MESSAGE: "${cleanMessage}"
+
+CONTEXT: User mentioned me in Discord. Extract any mentioned users, numbers, or quoted text.
+
+🚀 **RESPOND WITH JSON:**
+
+**For COMMANDS (action intent detected):**
+\`\`\`json
+{
+  "isCommand": true,
+  "bestMatch": {
+    "commandId": <command_id>,
+    "confidence": <60-100>,
+    "params": {
+      "user": "extracted_user_id",
+      "reason": "complete reason text",
+      "message": "complete message text",
+      "amount": "number_as_string"
+    }
+  }
+}
+\`\`\`
+
+**For CONVERSATION (no command intent):**
+\`\`\`json
+{
+  "isCommand": false,
+  "conversationalResponse": "friendly, helpful response matching bot personality"
+}
+\`\`\`
+
+**EXAMPLES OF AGGRESSIVE EXTRACTION:**
+- "nothing much, just ban <@560079402013032448> for spam" → EXECUTE ban immediately
+- "can you please delete like 10 messages" → EXECUTE purge immediately  
+- "tell everyone the event is cancelled" → EXECUTE say immediately
+- "that user keeps trolling, give them a warning" → EXTRACT context for warn
+- "yo bot, how's your ping?" → EXECUTE ping immediately
+- "remove this toxic user from server" → Need user ID for ban
+- "hi how are you doing?" → CASUAL conversation
+
+⚡ **BE BOLD**: If you can extract ANY meaningful parameters and understand the intent, EXECUTE the command. Don't ask for clarification unless truly necessary!
+
+Respond with valid JSON only:`;
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const aiResponse = response.text().trim();
+    
+    console.log('🤖 AI Response:', aiResponse);
+    
+    // Parse AI response
+    let parsed;
+    try {
+      // Extract JSON from response if it's wrapped in text
+      const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
+      parsed = JSON.parse(jsonMatch ? jsonMatch[0] : aiResponse);
+    } catch (parseError) {
+      console.error('Failed to parse AI response:', parseError);
+      return {
+        success: true,
+        response: "Hey! I'm here and ready to help. What's going on?"
+      };
+    }
+
+    if (parsed.isCommand && parsed.bestMatch && parsed.bestMatch.commandId) {
+      // Find the matching command by ID
+      const matchedCommand = commandMappings.find(cmd => cmd.id === parsed.bestMatch.commandId);
+      
+      if (matchedCommand) {
+        // Also run advanced command matching for additional parameter extraction
+        const mentionedUserIds = [];
+        if (message.mentions && message.mentions.users.size > 0) {
+          message.mentions.users.forEach(user => mentionedUserIds.push(user.id));
+        }
+        
+        const bestMatch = await findBestCommandMatch(cleanMessage, commandMappings, mentionedUserIds);
+        
+        // Merge AI extracted parameters with advanced parameter extraction
+        const aiParams = parsed.bestMatch.params || {};
+        const advancedParams = bestMatch ? bestMatch.params : {};
+        
+        // Combine parameters, prioritizing AI extraction but filling gaps with advanced extraction
+        const finalParams = { ...advancedParams, ...aiParams };
+        
+        // Add Discord-specific parameter extraction
+        if (message.mentions.users.size > 0) {
+          const firstMention = message.mentions.users.first();
+          finalParams.user = finalParams.user || firstMention.id;
+          finalParams.username = finalParams.username || firstMention.username;
+        }
+
+        let commandOutput = matchedCommand.command_output;
+        
+        // Replace parameters in the output
+        for (const [key, value] of Object.entries(finalParams)) {
+          if (value && value.toString().trim()) {
+            commandOutput = commandOutput.replace(new RegExp(`\\{${key}\\}`, 'g'), value);
+          }
+        }
+        
+        // Replace any remaining placeholders with defaults
+        commandOutput = commandOutput.replace(/\{reason\}/g, 'No reason provided');
+        commandOutput = commandOutput.replace(/\{message\}/g, 'No message provided');
+        commandOutput = commandOutput.replace(/\{amount\}/g, '1');
+        commandOutput = commandOutput.replace(/\{duration\}/g, '5m');
+        commandOutput = commandOutput.replace(/\{user\}/g, 'target user');
+
+        // Log the command usage
+        await supabase
+          .from('command_mappings')
+          .update({ 
+            usage_count: (matchedCommand.usage_count || 0) + 1 
+          })
+          .eq('id', matchedCommand.id);
+
+        // Log activity
+        await supabase
+          .from('activities')
+          .insert({
+            user_id: userId,
+            activity_type: 'command_used',
+            description: `Command "${matchedCommand.name}" was triggered by AI processing`,
+            metadata: {
+              commandId: matchedCommand.id,
+              guildId: message.guildId,
+              channelId: message.channelId,
+              discordUserId: message.author.id,
+              input: cleanMessage,
+              output: commandOutput,
+              aiConfidence: parsed.bestMatch.confidence,
+              advancedConfidence: bestMatch ? bestMatch.confidence : 0,
+              finalParams: finalParams
+            }
+          });
+
+        return {
+          success: true,
+          response: `✅ Executing ${matchedCommand.name}: ${commandOutput}`
+        };
+      }
+    }
+
+    // Conversational response with enhanced personality
+    let conversationalResponse = parsed.conversationalResponse;
+    
+    // Add some personality to common responses
+    if (!conversationalResponse) {
+      const lowerMessage = cleanMessage.toLowerCase();
+      
+      if (lowerMessage.includes('wassup') || lowerMessage.includes('what\'s up') || lowerMessage.includes('whats up')) {
+        conversationalResponse = "Hey! Not much, just chillin' and ready to help out. What's going on with you? 😎";
+      } else if (lowerMessage.includes('how') && (lowerMessage.includes('going') || lowerMessage.includes('doing'))) {
+        conversationalResponse = "I'm doing great! Running smooth and ready for action. How about you? Need help with anything? 🚀";
+      } else if (lowerMessage.includes('hello') || lowerMessage.includes('hi')) {
+        conversationalResponse = "Hello! I'm your AI Discord bot. You can give me natural language commands and I'll execute them intelligently.";
+      } else if (lowerMessage.includes('help')) {
+        const commandNames = commandMappings.map(cmd => cmd.name).slice(0, 5);
+        conversationalResponse = `I can help with these commands: ${commandNames.join(', ')}. Try using natural language like "execute ${commandNames[0]}" or just mention the command name!`;
+      } else {
+        conversationalResponse = "Hey! What's up? I'm here and ready to help with whatever you need!";
+      }
+    }
+
+    return {
+      success: true,
+      response: conversationalResponse
+    };
+
+  } catch (aiError) {
+    console.error('AI processing failed:', aiError);
+    // Fall back to simple processing
+    return await processWithSimpleMatching(cleanMessage, commandMappings, message, userId);
+  }
+}
+
+// Simple Pattern Matching (fallback)
+async function processWithSimpleMatching(cleanMessage, commandMappings, message, userId) {
+  const lowerMessage = cleanMessage.toLowerCase();
+  
+  // Check for command matches
+  for (const mapping of commandMappings) {
+    const commandName = mapping.name.toLowerCase();
+    const pattern = mapping.natural_language_pattern.toLowerCase();
+    
+    // Simple matching logic
+    if (lowerMessage.includes(commandName) || 
+        lowerMessage.includes(pattern.replace(/execute|command/g, '').trim()) ||
+        isCommandMatch(lowerMessage, commandName)) {
+      
+      // Extract parameters from the message
+      const params = extractParameters(message, mapping);
+      
+      // Build the command output
+      let commandOutput = mapping.command_output;
+      
+      // Replace parameters in the output
+      for (const [key, value] of Object.entries(params)) {
+        commandOutput = commandOutput.replace(new RegExp(`\\{${key}\\}`, 'g'), value);
+      }
+      
+      // Log the command usage
+      await supabase
+        .from('command_mappings')
+        .update({ 
+          usage_count: (mapping.usage_count || 0) + 1 
+        })
+        .eq('id', mapping.id);
+
+      // Log activity
+      await supabase
+        .from('activities')
+        .insert({
+          user_id: userId,
+          activity_type: 'command_used',
+          description: `Command "${mapping.name}" was triggered by pattern matching`,
+          metadata: {
+            commandId: mapping.id,
+            guildId: message.guildId,
+            channelId: message.channelId,
+            discordUserId: message.author.id,
+            input: cleanMessage,
+            output: commandOutput
+          }
+        });
+
+      return {
+        success: true,
+        response: `✅ Executing ${mapping.name}: ${commandOutput}`
+      };
+    }
+  }
+
+  // Conversational responses for common phrases
+  if (lowerMessage.includes('wassup') || lowerMessage.includes('what\'s up') || lowerMessage.includes('whats up')) {
+    return {
+      success: true,
+      response: "Hey! Not much, just chillin' and ready to help out. What's going on with you? 😎"
+    };
+  }
+
+  if (lowerMessage.includes('how') && (lowerMessage.includes('going') || lowerMessage.includes('doing'))) {
+    return {
+      success: true,
+      response: "I'm doing great! Running smooth and ready for action. How about you? Need help with anything? 🚀"
+    };
+  }
+
+  if (lowerMessage.includes('hello') || lowerMessage.includes('hi')) {
+    return {
+      success: true,
+      response: "Hello! I'm your AI Discord bot. You can give me natural language commands and I'll execute them intelligently."
+    };
+  }
+
+  if (lowerMessage.includes('help')) {
+    const commandNames = commandMappings.map(cmd => cmd.name).slice(0, 5);
+    return {
+      success: true,
+      response: `I can help with these commands: ${commandNames.join(', ')}. Try using natural language like "execute ${commandNames[0]}" or just mention the command name!`
+    };
+  }
+
+  return {
+    success: true,
+    response: "I understand you mentioned me, but I'm not sure what you'd like me to do. Try asking for 'help' to see what I can do!"
+  };
+}
+
+// Helper function to check if message matches a command
+function isCommandMatch(message, commandName) {
+  const commandKeywords = {
+    'ping': ['ping', 'test', 'check', 'speed', 'latency'],
+    'help': ['help', 'commands', 'what can you do'],
+    'say': ['say', 'announce', 'tell everyone', 'broadcast'],
+    'channel': ['channel', 'info', 'details'],
+    'server-info': ['server', 'guild', 'info', 'details']
+  };
+  
+  const keywords = commandKeywords[commandName] || [commandName];
+  return keywords.some(keyword => message.includes(keyword));
+}
+
+// Helper function to extract parameters from Discord message
+function extractParameters(message, mapping) {
+  const params = {};
+  
+  // Extract mentioned users
+  if (message.mentions.users.size > 0) {
+    const firstMention = message.mentions.users.first();
+    params.user = firstMention.id;
+    params.username = firstMention.username;
+  }
+  
+  // Extract reason (text after the command and user)
+  const content = message.content.toLowerCase();
+  const reasonMatch = content.match(/(?:for|because|reason:?)\s+(.+)/);
+  if (reasonMatch) {
+    params.reason = reasonMatch[1];
+  }
+  
+  // Extract numbers (for amount, duration, etc.)
+  const numberMatch = content.match(/(\d+)/);
+  if (numberMatch) {
+    params.amount = numberMatch[1];
+    params.duration = numberMatch[1] + 'm'; // Default to minutes
+  }
+  
+  // Extract quoted text (for messages)
+  const quotedMatch = content.match(/"([^"]+)"/);
+  if (quotedMatch) {
+    params.message = quotedMatch[1];
+  }
+  
+  return params;
+}
 
 // Helper function to decode JWT and extract user ID
 function decodeJWT(token) {
@@ -82,17 +805,17 @@ class DiscordBotManager {
 
           console.log(`📨 Processing: "${message.content}" from ${message.author.username}`);
 
-          // Simple AI response for now
-          const responses = [
-            "I'm your AI Discord bot! I'm now running on Railway and responding to your messages.",
-            "Hello! I'm connected and working perfectly. What can I help you with?",
-            "Your bot is live and responding! The Railway deployment is successful.",
-            "I'm here and ready to help! Your Discord bot is now running in the cloud.",
-            "Great! I can see your message. The bot connection is working perfectly."
-          ];
-
-          const randomResponse = responses[Math.floor(Math.random() * responses.length)];
-          await message.reply(randomResponse);
+          // Process message with AI and command mappings
+          const result = await processMessageWithAI(message, userId);
+          
+          if (result.success && result.response) {
+            await message.reply(result.response);
+          } else if (result.needsClarification && result.clarificationQuestion) {
+            await message.reply(result.clarificationQuestion);
+          } else {
+            // Fallback response
+            await message.reply("I'm here and ready to help! Try asking me to help with moderation commands or just chat.");
+          }
 
         } catch (error) {
           console.error('❌ Error processing message:', error);
