@@ -1721,7 +1721,7 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Discord token validation endpoint
+// Discord token validation endpoint - v2
 app.post('/api/discord', async (req, res) => {
   try {
     const { action } = req.query;
