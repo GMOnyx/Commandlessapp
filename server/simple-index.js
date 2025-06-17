@@ -1721,6 +1721,102 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Discord token validation endpoint
+app.post('/api/discord', async (req, res) => {
+  try {
+    const { action } = req.query;
+    
+    if (action === 'validate-token' && req.method === 'POST') {
+      const { token, botToken } = req.body;
+      const discordToken = token || botToken;
+
+      if (!discordToken) {
+        return res.status(400).json({ 
+          valid: false, 
+          message: 'Token is required' 
+        });
+      }
+
+      // Clean the token
+      const cleanToken = discordToken.trim().replace(/^Bot\s+/i, '');
+
+      // Basic format validation
+      if (cleanToken.length < 50) {
+        return res.status(200).json({ 
+          valid: false, 
+          message: 'Token appears too short. Discord bot tokens are typically 59+ characters.' 
+        });
+      }
+
+      if (!/^[A-Za-z0-9._-]+$/.test(cleanToken)) {
+        return res.status(200).json({ 
+          valid: false, 
+          message: 'Token contains invalid characters. Only letters, numbers, dots, underscores, and hyphens are allowed.' 
+        });
+      }
+
+      // Try to validate with Discord API
+      try {
+        const response = await fetch('https://discord.com/api/v10/applications/@me', {
+          headers: {
+            'Authorization': `Bot ${cleanToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('Discord API validation failed:', response.status, errorText);
+          
+          let message = 'Invalid Discord bot token';
+          if (response.status === 401) {
+            message = 'Invalid Discord bot token. Please check that you copied the token correctly from the Discord Developer Portal.';
+          } else if (response.status === 403) {
+            message = 'Discord bot token lacks required permissions. Ensure the bot has "bot" and "applications.commands" scopes.';
+          } else if (response.status === 429) {
+            message = 'Too many requests to Discord API. Please wait a moment and try again.';
+          }
+          
+          return res.status(200).json({ 
+            valid: false, 
+            message 
+          });
+        }
+
+        const application = await response.json();
+
+        return res.status(200).json({
+          valid: true,
+          message: `✅ Token is valid! Bot: ${application.name}`,
+          botInfo: {
+            id: application.id,
+            name: application.name,
+            description: application.description,
+            avatar: application.icon ? `https://cdn.discordapp.com/app-icons/${application.id}/${application.icon}.png` : null
+          }
+        });
+
+      } catch (fetchError) {
+        console.error('Discord API fetch error:', fetchError);
+        return res.status(200).json({ 
+          valid: false, 
+          message: 'Unable to validate token with Discord API. Please check your internet connection and try again.' 
+        });
+      }
+    }
+
+    // Handle other Discord API actions if needed
+    return res.status(400).json({ error: 'Invalid action or method' });
+
+  } catch (error) {
+    console.error('Discord API error:', error);
+    res.status(500).json({ 
+      error: 'Internal server error',
+      message: 'An error occurred while validating the Discord token.'
+    });
+  }
+});
+
 // Start server
 app.listen(PORT, () => {
   console.log(`🚀 Commandless server running on port ${PORT}`);
