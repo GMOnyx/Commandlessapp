@@ -89,10 +89,56 @@ export default function BotCreationDialog({ open, onOpenChange }: BotCreationDia
       onOpenChange(false);
     },
     onError: (error) => {
+      let errorMessage = "Failed to create bot";
+      let errorDetails = "";
+      let errorSuggestion = "";
+      
+      if (error instanceof Error) {
+        try {
+          // Try to parse the error message as JSON (from our improved backend)
+          const jsonMatch = error.message.match(/\{.*\}/);
+          if (jsonMatch) {
+            const errorData = JSON.parse(jsonMatch[0]);
+            errorMessage = errorData.error || errorMessage;
+            errorDetails = errorData.details || "";
+            errorSuggestion = errorData.suggestion || "";
+          } else if (error.message.includes("409:")) {
+            // Handle 409 Conflict errors specifically
+            const conflictMatch = error.message.match(/409:\s*(.+)/);
+            if (conflictMatch) {
+              try {
+                const conflictData = JSON.parse(conflictMatch[1]);
+                errorMessage = conflictData.error || "Duplicate bot token";
+                errorDetails = conflictData.details || "";
+                errorSuggestion = conflictData.suggestion || "";
+              } catch {
+                errorMessage = "This Discord bot token is already in use";
+                errorDetails = "Each Discord bot can only be connected to one account.";
+                errorSuggestion = "Please create a new Discord bot or use a different token.";
+              }
+            }
+          } else {
+            errorMessage = error.message;
+          }
+        } catch {
+          errorMessage = error.message;
+        }
+      }
+      
+      // Create a comprehensive error message
+      let fullErrorMessage = errorMessage;
+      if (errorDetails) {
+        fullErrorMessage += `\n\n${errorDetails}`;
+      }
+      if (errorSuggestion) {
+        fullErrorMessage += `\n\nSuggestion: ${errorSuggestion}`;
+      }
+      
       toast({
-        title: "Error",
-        description: `Failed to create bot: ${error instanceof Error ? error.message : ''}`,
+        title: "Error Creating Bot",
+        description: fullErrorMessage,
         variant: "destructive",
+        duration: 8000, // Show longer for detailed errors
       });
     },
   });
@@ -107,7 +153,7 @@ export default function BotCreationDialog({ open, onOpenChange }: BotCreationDia
     setTokenValidation({ isValidating: true });
     
     try {
-      const result = await apiRequest("/api/discord/validate-token", {
+      const result = await apiRequest("/api/discord?action=validate-token", {
         method: "POST",
         body: JSON.stringify({ botToken: token })
       });

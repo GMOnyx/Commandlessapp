@@ -16,6 +16,10 @@ import {
   AlertDialogFooter,
   AlertDialogAction
 } from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { CopyIcon, CheckIcon } from "lucide-react";
 import BotCreationDialog from "@/components/BotCreationDialog";
 
 interface ConnectionCardProps {
@@ -28,6 +32,10 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
   const { toast } = useToast();
   const [showErrorDialog, setShowErrorDialog] = useState(false);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [showClientCodeDialog, setShowClientCodeDialog] = useState(false);
+  const [clientCode, setClientCode] = useState("");
+  const [instructions, setInstructions] = useState<string[]>([]);
+  const [copied, setCopied] = useState(false);
   const [errorDetails, setErrorDetails] = useState<{
     message: string;
     troubleshooting?: string[];
@@ -38,16 +46,46 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
     details: ""
   });
   
+  const copyToClipboard = async () => {
+    try {
+      await navigator.clipboard.writeText(clientCode);
+      setCopied(true);
+      toast({
+        title: "Copied!",
+        description: "Discord bot client code copied to clipboard.",
+      });
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      toast({
+        title: "Copy failed",
+        description: "Please manually copy the code.",
+        variant: "destructive",
+      });
+    }
+  };
+  
   const connectMutation = useMutation({
     mutationFn: async () => {
-      await apiRequest(`/api/bots/${bot.id}/connect`, { method: 'POST' });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/bots"] });
-      toast({
-        title: "Success",
-        description: `${bot.botName} has been connected.`,
+      const response = await apiRequest(`/api/bots`, { 
+        method: 'PUT',
+        body: JSON.stringify({ id: bot.id, action: 'connect' })
       });
+      return response;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/bots"] });
+      
+      // Check if this is a Discord bot with client code
+      if (data.clientCode && data.instructions) {
+        setClientCode(data.clientCode);
+        setInstructions(data.instructions);
+        setShowClientCodeDialog(true);
+      } else {
+        toast({
+          title: "Success",
+          description: `${bot.botName} has been connected.`,
+        });
+      }
     },
     onError: (error: any) => {
       // Try to parse the error response for detailed information
@@ -110,7 +148,10 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
   
   const disconnectMutation = useMutation({
     mutationFn: async () => {
-      await apiRequest(`/api/bots/${bot.id}/disconnect`, { method: 'POST' });
+      await apiRequest(`/api/bots`, { 
+        method: 'PUT',
+        body: JSON.stringify({ id: bot.id, action: 'disconnect' })
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/bots"] });
@@ -123,6 +164,31 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
       toast({
         title: "Error",
         description: `Failed to disconnect ${bot.botName}. ${error instanceof Error ? error.message : ''}`,
+        variant: "destructive",
+      });
+    },
+  });
+  
+  const syncCommandsMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest(`/api/bots`, { 
+        method: 'PUT',
+        body: JSON.stringify({ id: bot.id, action: 'sync-commands' })
+      });
+      return response;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/bots"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/mappings"] });
+      toast({
+        title: "Commands Synced",
+        description: `Found ${data.commandsFound} commands, created ${data.commandsCreated} new mappings${data.commandsSkipped > 0 ? `, skipped ${data.commandsSkipped} existing` : ''}.`,
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Sync Failed",
+        description: `Failed to sync commands for ${bot.botName}. ${error instanceof Error ? error.message : ''}`,
         variant: "destructive",
       });
     },
@@ -209,27 +275,108 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
         </div>
       </CardContent>
       <CardFooter className="bg-gray-50 px-5 py-3 border-t border-gray-200">
-        <div className="text-sm">
-          {bot.isConnected ? (
-            <button
-              onClick={() => disconnectMutation.mutate()}
-              disabled={disconnectMutation.isPending}
-              className="font-medium text-primary hover:text-primary-600 focus:outline-none"
-            >
-              {disconnectMutation.isPending ? "Disconnecting..." : "Disconnect bot"}
-            </button>
-          ) : (
-            <button
-              onClick={() => connectMutation.mutate()}
-              disabled={connectMutation.isPending}
-              className="font-medium text-primary hover:text-primary-600 focus:outline-none"
-            >
-              {connectMutation.isPending ? "Connecting..." : "Connect bot"}
-            </button>
+        <div className="flex items-center justify-between w-full">
+          <div className="text-sm">
+            {bot.isConnected ? (
+              <button
+                onClick={() => disconnectMutation.mutate()}
+                disabled={disconnectMutation.isPending}
+                className="font-medium text-primary hover:text-primary-600 focus:outline-none"
+              >
+                {disconnectMutation.isPending ? "Disconnecting..." : "Disconnect bot"}
+              </button>
+            ) : (
+              <button
+                onClick={() => connectMutation.mutate()}
+                disabled={connectMutation.isPending}
+                className="font-medium text-primary hover:text-primary-600 focus:outline-none"
+              >
+                {connectMutation.isPending ? "Connecting..." : "Connect bot"}
+              </button>
+            )}
+          </div>
+          
+          {bot.isConnected && bot.platformType === "discord" && (
+            <div className="text-sm">
+              <button
+                onClick={() => syncCommandsMutation.mutate()}
+                disabled={syncCommandsMutation.isPending}
+                className="font-medium text-blue-600 hover:text-blue-700 focus:outline-none"
+              >
+                {syncCommandsMutation.isPending ? "Syncing..." : "Sync Commands"}
+              </button>
+            </div>
           )}
         </div>
       </CardFooter>
     </Card>
+      
+      {/* Client Code Dialog */}
+      <Dialog open={showClientCodeDialog} onOpenChange={setShowClientCodeDialog}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <SiDiscord className="text-blue-500" />
+              Discord Bot Client Code - {bot.botName}
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+              <h4 className="font-medium text-green-800 mb-2">🎉 Bot Connected Successfully!</h4>
+              <p className="text-green-700 text-sm">
+                Your Discord bot has been validated and is ready to use. Follow the instructions below to start the bot client.
+              </p>
+            </div>
+
+            <div>
+              <h4 className="font-medium mb-2">📋 Instructions:</h4>
+              <ol className="list-decimal list-inside space-y-1 text-sm text-gray-700">
+                {instructions.map((instruction, index) => (
+                  <li key={index}>{instruction}</li>
+                ))}
+              </ol>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="font-medium">🤖 Discord Bot Client Code:</h4>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={copyToClipboard}
+                  className="flex items-center gap-1"
+                >
+                  {copied ? <CheckIcon className="h-3 w-3" /> : <CopyIcon className="h-3 w-3" />}
+                  {copied ? "Copied!" : "Copy Code"}
+                </Button>
+              </div>
+              <Textarea
+                value={clientCode}
+                readOnly
+                className="font-mono text-xs h-96 resize-none"
+                placeholder="Client code will appear here..."
+              />
+            </div>
+
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <h4 className="font-medium text-blue-800 mb-2">💡 Quick Start:</h4>
+              <div className="text-blue-700 text-sm space-y-1">
+                <p>1. Save the code above to a file called <code className="bg-blue-100 px-1 rounded">discord-bot.js</code></p>
+                <p>2. Run: <code className="bg-blue-100 px-1 rounded">npm install discord.js node-fetch</code></p>
+                <p>3. Run: <code className="bg-blue-100 px-1 rounded">node discord-bot.js</code></p>
+                <p>4. Test by mentioning your bot in Discord: <code className="bg-blue-100 px-1 rounded">@{bot.botName} hello</code></p>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button onClick={() => setShowClientCodeDialog(false)}>
+              Got it, let's go!
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       
       <AlertDialog open={showErrorDialog} onOpenChange={setShowErrorDialog}>
         <AlertDialogContent className="max-w-md">

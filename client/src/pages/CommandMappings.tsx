@@ -130,7 +130,7 @@ export default function CommandMappings() {
       ) : (
         <div className="bg-white shadow overflow-hidden sm:rounded-md">
           <div className="px-8 py-8 text-center">
-            <div className="flex flex-col items-center justify-center">
+          <div className="flex flex-col items-center justify-center">
               <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-gradient-to-br from-purple-100 to-blue-100 mb-4">
                 {searchTerm || statusFilter !== "all" ? (
                   <SearchIcon className="h-6 w-6 text-purple-600" />

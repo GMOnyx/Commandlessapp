@@ -11,8 +11,8 @@ import { validateGeminiConfig } from "./gemini/client";
 
 const app = express();
 
-// CORS Configuration - Use environment variable for allowed origins
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173')
+// CORS Configuration - Include both localhost and production domains
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173,https://www.commandless.app,https://commandless.app')
   .split(',')
   .map(o => o.trim())
   .filter(Boolean);
@@ -114,8 +114,8 @@ app.use((req, res, next) => {
     serveStatic(app);
   }
 
-  // Using port 5001 to avoid conflict with port 5000 which is already in use
-  const port = 5001;
+  // Use Railway's PORT environment variable, fallback to 5001 for local development
+  const port = process.env.PORT || 5001;
   server.listen({
     port,
     host: "0.0.0.0",

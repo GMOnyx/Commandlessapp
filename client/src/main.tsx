@@ -15,11 +15,11 @@ if (!PUBLISHABLE_KEY) {
 
 createRoot(document.getElementById("root")!).render(
   <ClerkProvider publishableKey={PUBLISHABLE_KEY} afterSignOutUrl="/">
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <App />
-        <Toaster />
-      </TooltipProvider>
-    </QueryClientProvider>
+  <QueryClientProvider client={queryClient}>
+    <TooltipProvider>
+      <App />
+      <Toaster />
+    </TooltipProvider>
+  </QueryClientProvider>
   </ClerkProvider>
 );

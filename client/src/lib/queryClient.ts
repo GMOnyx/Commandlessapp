@@ -3,6 +3,9 @@ import { QueryClient } from "@tanstack/react-query";
 // Global token getter - will be set by the App component
 let globalTokenGetter: (() => Promise<string | null>) | null = null;
 
+// Use Railway backend URL
+const API_BASE_URL = "https://commandless-app-production.up.railway.app";
+
 // Enhanced logging function for debugging
 function logDetailed(category: string, message: string, data?: any) {
   const timestamp = new Date().toISOString();
@@ -19,44 +22,33 @@ function logDetailed(category: string, message: string, data?: any) {
 }
 
 // API request function that includes authentication
-export async function apiRequest(endpoint: string, options: RequestInit = {}) {
-  // For Vercel deployment, API routes are at /api/* 
-  // For local development, use localhost
-  const baseUrl = import.meta.env.VITE_API_URL || (
-    window.location.hostname === 'localhost' ? 'http://localhost:5001' : ''
-  );
+export async function apiRequest(endpoint: string, options: RequestInit = {}): Promise<any> {
+  // Use Railway backend URL instead of Vercel/localhost
+  const baseUrl = "https://commandless-app-production.up.railway.app";
   
-  const url = baseUrl ? `${baseUrl}${endpoint}` : endpoint;
+  const url = `${baseUrl}${endpoint}`;
   
   logDetailed('API_REQUEST', 'Starting API request', {
     endpoint,
     baseUrl,
     fullUrl: url,
     method: options.method || 'GET',
-    hasBody: !!(options.body),
-    hasGlobalTokenGetter: !!globalTokenGetter
+    hasBody: !!options.body,
+    headers: options.headers
   });
 
-  // Get the auth token using the global token getter
+  // Get authentication token
   let token: string | null = null;
-  
-  try {
-    if (globalTokenGetter) {
-      logDetailed('AUTH', 'Calling global token getter...');
+  if (globalTokenGetter) {
+    try {
       token = await globalTokenGetter();
-      logDetailed('AUTH', 'Token retrieved from global getter', { 
-        hasToken: !!token, 
-        tokenLength: token?.length || 0,
-        tokenPreview: token ? `${token.substring(0, 10)}...${token.substring(token.length - 10)}` : 'null'
+      logDetailed('AUTH_TOKEN', 'Token retrieved', { 
+        hasToken: !!token,
+        tokenLength: token?.length || 0
       });
-    } else {
-      logDetailed('AUTH', 'No global token getter available - this is the problem!');
+    } catch (error) {
+      logDetailed('AUTH_ERROR', 'Failed to get token', { error: error.message });
     }
-  } catch (error) {
-    logDetailed('AUTH', 'Failed to get auth token', { 
-      error: error instanceof Error ? error.message : 'Unknown error',
-      errorStack: error instanceof Error ? error.stack : 'N/A'
-    });
   }
 
   const config: RequestInit = {
@@ -95,18 +87,31 @@ export async function apiRequest(endpoint: string, options: RequestInit = {}) {
         statusText: response.statusText,
         errorText
       });
-      throw new Error(`HTTP ${response.status}: ${errorText}`);
+      let errorMessage = `HTTP ${response.status}`;
+      
+      try {
+        const errorData = JSON.parse(errorText);
+        errorMessage = errorData.message || errorData.error || errorMessage;
+      } catch {
+        errorMessage = errorText || errorMessage;
+      }
+      
+      throw new Error(`${response.status}: ${errorMessage}`);
     }
 
-    const data = await response.json();
-    logDetailed('API_SUCCESS', 'Request completed successfully', {
-      url,
-      status: response.status,
-      dataType: typeof data,
-      dataKeys: data && typeof data === 'object' ? Object.keys(data) : 'N/A'
-    });
+    const contentType = response.headers.get("content-type");
+    if (contentType && contentType.includes("application/json")) {
+      const data = await response.json();
+      logDetailed('API_SUCCESS', 'Request completed successfully', {
+        url,
+        status: response.status,
+        dataType: typeof data,
+        dataKeys: data && typeof data === 'object' ? Object.keys(data) : 'N/A'
+      });
+      return data;
+    }
     
-    return data;
+    return response.text();
   } catch (error) {
     logDetailed('API_ERROR', 'Fetch failed', {
       url,
@@ -156,13 +161,10 @@ export function setAuthTokenGetter(getter: () => Promise<string | null>) {
 
 // Alternative API request for use outside React components
 export async function apiRequestWithToken(endpoint: string, token: string | null, options: RequestInit = {}) {
-  // For Vercel deployment, API routes are at /api/* 
-  // For local development, use localhost
-  const baseUrl = import.meta.env.VITE_API_URL || (
-    typeof window !== 'undefined' && window.location.hostname === 'localhost' ? 'http://localhost:5001' : ''
-  );
+  // Use Railway backend URL
+  const baseUrl = "https://commandless-app-production.up.railway.app";
   
-  const url = baseUrl ? `${baseUrl}${endpoint}` : endpoint;
+  const url = `${baseUrl}${endpoint}`;
 
   const config: RequestInit = {
     ...options,

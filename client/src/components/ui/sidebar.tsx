@@ -5,7 +5,8 @@ import {
   MessageSquareTextIcon, 
   BotIcon, 
   MenuIcon,
-  XIcon
+  XIcon,
+  BookOpenIcon
 } from "lucide-react";
 import { UserButton, useUser } from "@clerk/clerk-react";
 import { User } from "@shared/schema";
@@ -36,6 +37,11 @@ export default function Sidebar({ user, mobileMenuOpen = false, onMobileMenuClos
       href: "/connections", 
       label: "Bot Connections", 
       icon: BotIcon 
+    },
+    { 
+      href: "/setup", 
+      label: "Setup Guide", 
+      icon: BookOpenIcon 
     }
   ];
 
@@ -46,35 +52,35 @@ export default function Sidebar({ user, mobileMenuOpen = false, onMobileMenuClos
   const NavContent = () => (
     <>
       <div className="flex items-center flex-shrink-0 px-4 mb-6">
-        <span className="text-2xl font-bold text-[#5046E4]">Commandless</span>
-      </div>
-      
-      <nav className="flex-1 px-3 space-y-1">
-        {navItems.map((item) => {
-          const isActive = location === item.href;
-          const Icon = item.icon;
+            <span className="text-2xl font-bold text-[#5046E4]">Commandless</span>
+          </div>
           
-          return (
+      <nav className="flex-1 px-3 space-y-1">
+            {navItems.map((item) => {
+              const isActive = location === item.href;
+              const Icon = item.icon;
+              
+              return (
             <Link 
-              key={item.href}
-              href={item.href}
+                  key={item.href} 
+                    href={item.href}
               onClick={closeMobileMenu}
-              className={cn(
+                    className={cn(
                 "group flex items-center px-3 py-3 text-sm font-medium rounded-lg transition-colors",
-                isActive 
-                  ? "bg-indigo-50 text-primary" 
-                  : "text-gray-600 hover:bg-gray-50 hover:text-primary"
-              )}
-            >
-              <Icon className={cn(
-                "mr-3 flex-shrink-0 h-5 w-5",
+                      isActive 
+                        ? "bg-indigo-50 text-primary" 
+                        : "text-gray-600 hover:bg-gray-50 hover:text-primary"
+                    )}
+                  >
+                    <Icon className={cn(
+                      "mr-3 flex-shrink-0 h-5 w-5",
                 isActive ? "text-primary" : "text-gray-500 group-hover:text-primary"
-              )} />
-              {item.label}
-            </Link>
-          );
-        })}
-      </nav>
+                    )} />
+                    {item.label}
+                  </Link>
+              );
+            })}
+          </nav>
     </>
   );
 
@@ -124,9 +130,9 @@ export default function Sidebar({ user, mobileMenuOpen = false, onMobileMenuClos
         <div className="flex flex-col w-64 border-r border-gray-100 bg-white">
           <div className="flex flex-col flex-grow pt-5 pb-4 overflow-y-auto">
             <NavContent />
-          </div>
-          
-          {/* User profile section */}
+        </div>
+        
+        {/* User profile section */}
           {user && clerkUser && (
             <div className="flex-shrink-0 flex items-center border-t border-gray-100 p-4">
               <UserButton 
@@ -142,11 +148,11 @@ export default function Sidebar({ user, mobileMenuOpen = false, onMobileMenuClos
                   {clerkUser.username || clerkUser.firstName || 'User'}
                 </span>
                 <span className="text-xs text-gray-500">User</span>
-              </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
+    </div>
     </>
   );
 }

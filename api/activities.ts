@@ -1,5 +1,4 @@
 import { type VercelRequest, type VercelResponse } from '@vercel/node';
-import { verifyToken } from '@clerk/backend';
 import { createClient } from '@supabase/supabase-js';
 
 // Initialize Supabase client
@@ -7,26 +6,32 @@ const supabaseUrl = process.env.SUPABASE_URL!;
 const supabaseKey = process.env.SUPABASE_ANON_KEY!;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-async function getUserFromToken(token: string) {
+// Helper function to decode JWT and extract user ID
+function decodeJWT(token: string): { userId: string } | null {
   try {
-    if (!process.env.CLERK_SECRET_KEY) {
-      throw new Error('CLERK_SECRET_KEY not configured');
+    // JWT tokens have 3 parts separated by dots
+    const parts = token.split('.');
+    if (parts.length !== 3) {
+      // If it's not a JWT, treat it as a direct user ID (for backward compatibility)
+      return { userId: token };
     }
-
-    const sessionToken = await verifyToken(token, {
-      secretKey: process.env.CLERK_SECRET_KEY,
-    });
     
-    if (sessionToken && sessionToken.sub) {
-      return { 
-        id: sessionToken.sub,
-        clerkUserId: sessionToken.sub 
-      };
+    // Decode the payload (second part)
+    const payload = JSON.parse(atob(parts[1]));
+    
+    // Extract user ID from Clerk JWT payload
+    const userId = payload.sub || payload.user_id || payload.id;
+    
+    if (!userId) {
+      console.error('No user ID found in JWT payload:', payload);
+      return null;
     }
-    return null;
+    
+    return { userId };
   } catch (error) {
-    console.error('Token verification failed:', error);
-    return null;
+    console.error('Error decoding JWT:', error);
+    // Fallback: treat the token as a direct user ID
+    return { userId: token };
   }
 }
 
@@ -40,127 +45,116 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).end();
   }
 
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const token = authHeader.split(' ')[1];
+  const decodedToken = decodeJWT(token);
+  
+  if (!decodedToken) {
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+  
+  const userId = decodedToken.userId;
+
   try {
-    // Get user from auth token
-    const authHeader = req.headers.authorization;
-    if (!authHeader?.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Missing or invalid authorization header' });
+    // Ensure user exists in database (auto-create if needed)
+    const { data: existingUser, error: userError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('id', userId)
+      .maybeSingle();
+
+    if (userError && userError.code !== 'PGRST116') { // PGRST116 = not found
+      console.error('User check error:', userError);
+      return res.status(500).json({ error: 'User verification failed' });
     }
 
-    const token = authHeader.substring(7);
-    const user = await getUserFromToken(token);
-    
-    if (!user) {
-      return res.status(401).json({ error: 'Invalid token' });
+    if (!existingUser) {
+      console.log('Creating new user record for:', userId);
+      const { error: createError } = await supabase
+        .from('users')
+        .insert({
+          id: userId,
+          username: userId,
+          name: userId,
+          role: 'user'
+        });
+      if (createError) {
+        console.error('Failed to create user:', createError);
+        return res.status(500).json({ error: 'Failed to create user record' });
+      }
     }
 
     if (req.method === 'GET') {
-      console.log('Getting activities for user:', user.id);
-      
-      // First, ensure the user exists in our database
-      const { data: existingUser, error: userError } = await supabase
-        .from('users')
-        .select('id')
-        .eq('id', user.id)
-        .maybeSingle();
+      // Get all activities for the user
+      const limit = parseInt(req.query.limit as string) || 50;
+      const offset = parseInt(req.query.offset as string) || 0;
 
-      if (userError) {
-        console.error('User check error:', userError);
-        return res.status(500).json({ error: 'User verification failed' });
-      }
-
-      if (!existingUser) {
-        console.log('Creating new user record for:', user.id);
-        const { error: createError } = await supabase
-          .from('users')
-          .insert({
-            id: user.id,
-            username: user.id,
-            name: user.id,
-            role: 'user'
-          });
-        if (createError) {
-          console.error('Failed to create user:', createError);
-          return res.status(500).json({ error: 'Failed to create user record' });
-        }
-      }
-
-      // Get real activities from Supabase
       const { data: activities, error } = await supabase
         .from('activities')
-        .select(`
-          id,
-          activity_type,
-          description,
-          metadata,
-          created_at
-        `)
-        .eq('user_id', user.id)
+        .select('*')
+        .eq('user_id', userId)
         .order('created_at', { ascending: false })
-        .limit(50); // Limit to most recent 50 activities
+        .range(offset, offset + limit - 1);
 
-      if (error) {
-        console.error('Database error:', error);
-        return res.status(500).json({ error: 'Failed to fetch activities' });
-      }
+      if (error) throw error;
 
-      console.log('Found activities:', activities?.length || 0);
-
-      // Transform to match frontend expectations
-      const activityFeed = activities?.map(activity => ({
+      const formattedActivities = activities.map(activity => ({
         id: activity.id,
+        userId: activity.user_id,
         activityType: activity.activity_type,
         description: activity.description,
         metadata: activity.metadata,
         createdAt: activity.created_at
-      })) || [];
-      
-      return res.status(200).json(activityFeed);
+      }));
+
+      return res.status(200).json(formattedActivities);
     }
 
     if (req.method === 'POST') {
-      // Handle new activity log
+      // Create new activity
       const { activityType, description, metadata } = req.body;
       
-      // Basic validation
       if (!activityType || !description) {
-        return res.status(400).json({ 
-          error: 'Missing required fields: activityType and description' 
-        });
+        return res.status(400).json({ error: 'Missing required fields: activityType, description' });
       }
 
-      // Insert new activity into database
-      const { data: newActivity, error: insertError } = await supabase
+      const { data: newActivity, error } = await supabase
         .from('activities')
         .insert({
-          user_id: user.id,
+          user_id: userId,
           activity_type: activityType,
-          description,
-          metadata: metadata || null,
+          description: description,
+          metadata: metadata || {}
         })
-        .select()
+        .select('*')
         .single();
 
-      if (insertError) {
-        console.error('Database insert error:', insertError);
-        return res.status(500).json({ error: 'Failed to save activity' });
-      }
+      if (error) throw error;
 
-      // Return the created activity
-      const responseActivity = {
+      const formattedActivity = {
         id: newActivity.id,
+        userId: newActivity.user_id,
         activityType: newActivity.activity_type,
         description: newActivity.description,
         metadata: newActivity.metadata,
         createdAt: newActivity.created_at
       };
 
-      return res.status(201).json(responseActivity);
+      return res.status(201).json(formattedActivity);
     }
 
-    return res.status(405).json({ error: 'Method not allowed' });
+    return res.status(400).json({ error: 'Invalid request method' });
+
   } catch (error) {
     console.error('Activities API error:', error);
-    return res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ 
+      error: 'Internal server error',
+      message: error.message
+    });
   }
 } 

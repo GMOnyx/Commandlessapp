@@ -1,0 +1,20 @@
+{
+  "name": "commandless-server",
+  "version": "1.0.0",
+  "description": "Commandless Discord Bot Server",
+  "main": "simple-index.js",
+  "scripts": {
+    "start": "node simple-index.js",
+    "dev": "node simple-index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "discord.js": "^14.14.1",
+    "@supabase/supabase-js": "^2.38.4"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+} 

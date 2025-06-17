@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "wouter";
 import { Bot } from "@shared/schema";
 import ConnectionCard from "@/components/ConnectionCard";
 import BotCreationDialog from "@/components/BotCreationDialog";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { PlusIcon, BotIcon } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { PlusIcon, BotIcon, BookOpenIcon, InfoIcon } from "lucide-react";
 
 export default function BotConnections() {
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -28,6 +30,24 @@ export default function BotConnections() {
           New Bot Connection
         </Button>
       </div>
+      
+      <Alert className="mb-6">
+        <InfoIcon className="h-4 w-4" />
+        <AlertDescription>
+          <div className="flex items-center justify-between">
+            <span>
+              <strong>Need help making your bot functional?</strong> Creating a bot here is just the first step. 
+              You'll need to set up the Discord bot client to connect to our AI processing system.
+            </span>
+            <Link href="/setup">
+              <Button variant="outline" size="sm" className="ml-4">
+                <BookOpenIcon className="h-3 w-3 mr-1" />
+                Setup Guide
+              </Button>
+            </Link>
+          </div>
+        </AlertDescription>
+      </Alert>
       
       <BotCreationDialog 
         open={dialogOpen} 
