@@ -699,6 +699,7 @@ USER MESSAGE: "${cleanMessage}"
 
 CONTEXT: ${conversationContext || 'User mentioned me in Discord. Extract any mentioned users, numbers, or quoted text.'}
 
+` : ''}
 🚀 **RESPOND WITH JSON:**
 
 **For COMMANDS (action intent detected):**
@@ -745,7 +746,6 @@ CONTEXT: ${conversationContext || 'User mentioned me in Discord. Extract any men
 ⚡ **BE BOLD**: If you can extract ANY meaningful parameters and understand the intent, EXECUTE the command. Don't ask for clarification unless truly necessary!
 
 Respond with valid JSON only:`;
-
     const result = await model.generateContent(prompt);
     const response = await result.response;
     const aiResponse = response.text().trim();
