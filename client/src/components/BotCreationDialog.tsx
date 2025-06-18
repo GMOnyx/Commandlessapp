@@ -160,45 +160,12 @@ export default function BotCreationDialog({ open, onOpenChange }: BotCreationDia
     },
   });
   
-  // Token validation function
-  const validateDiscordToken = async (token: string) => {
-    if (!token || token.length < 50) {
-      setTokenValidation({ valid: false, message: "Token appears too short", isValidating: false });
-      return;
-    }
-
-    setTokenValidation({ isValidating: true });
-    
-    try {
-      const result = await apiRequest("/api/discord?action=validate-token", {
-        method: "POST",
-        body: JSON.stringify({ botToken: token })
-      });
-      
-      setTokenValidation({
-        valid: result.valid,
-        message: result.message,
-        isValidating: false
-      });
-    } catch (error) {
-      setTokenValidation({
-        valid: false,
-        message: "Error validating token",
-        isValidating: false
-      });
-    }
-  };
-
-  // Reset validation when token changes
+  // Reset validation when token changes (disabled validation to prevent false errors)
   const handleTokenChange = (value: string) => {
     form.setValue("token", value);
+    // Disable frontend validation since it was causing false errors
+    // Real validation happens on the backend when creating the bot
     setTokenValidation({ isValidating: false });
-    
-    // Auto-validate Discord tokens after user stops typing
-    if (form.getValues("platformType") === "discord" && value.length > 50) {
-      const timeoutId = setTimeout(() => validateDiscordToken(value), 1000);
-      return () => clearTimeout(timeoutId);
-    }
   };
   
   // Handle form submission
