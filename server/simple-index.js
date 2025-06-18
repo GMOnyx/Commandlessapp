@@ -545,8 +545,9 @@ ${conversationContext}
 - If user is replying to a previous bot message, consider the conversation flow
 - Maintain context and provide relevant follow-up responses
 - If the reply seems to be continuing a conversation rather than issuing a command, respond conversationally
+- **IMPORTANT: Replies can also contain commands! Treat reply messages the same as mentioned messages for command detection**
 - Look for conversational cues like "thanks", "ok", "got it", "what about", "also", "and", etc.
-` : ''}
+- But also look for command cues like "ban", "kick", "warn", "purge", "say", etc. even in replies
 
 🎯 **PARAMETER EXTRACTION MASTERY:**
 
@@ -1035,6 +1036,11 @@ class DiscordBotManager {
             console.log(`⏭️ Ignoring message - bot not mentioned and not a reply to bot`);
             return;
           }
+
+          // Enhanced logging for command detection trigger
+          const triggerType = botMentioned ? 'mention' : 'reply';
+          console.log(`🎯 Processing ${triggerType} from ${message.author.username}: "${message.content}"`);
+          console.log(`   📋 Commands can be executed from both mentions AND replies!`);
 
           console.log(`📨 Processing: "${message.content}" from ${message.author.username}`);
 
