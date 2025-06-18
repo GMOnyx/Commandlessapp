@@ -49,7 +49,6 @@ export default function BotCreationDialog({ open, onOpenChange }: BotCreationDia
       required_error: "Please select a platform type",
     }),
     token: z.string().min(5, "Token must be at least 5 characters"),
-    clientId: z.string().optional(),
     personalityContext: z.string().optional(),
   });
   
@@ -60,7 +59,6 @@ export default function BotCreationDialog({ open, onOpenChange }: BotCreationDia
       botName: "",
       platformType: undefined,
       token: "",
-      clientId: "",
       personalityContext: "",
     },
   });
@@ -191,19 +189,18 @@ export default function BotCreationDialog({ open, onOpenChange }: BotCreationDia
     }
   };
   
-  // Handle form submission with data validation
+  // Handle form submission
   const onSubmit = (data: z.infer<typeof formSchema>) => {
-    console.log('Form data being submitted:', data);
-    
-    // Ensure all required fields are present
-    if (!data.botName || !data.platformType || !data.token) {
-      toast({
-        title: "Missing Required Fields",
-        description: "Please fill in bot name, platform, and token.",
-        variant: "destructive",
-      });
-      return;
-    }
+    console.log('🔍 FORM SUBMISSION DEBUG:');
+    console.log('📋 Raw form data:', data);
+    console.log('📊 Field validation:', {
+      botName: !!data.botName,
+      platformType: !!data.platformType,
+      token: !!data.token,
+      tokenLength: data.token?.length,
+      personalityContext: !!data.personalityContext,
+    });
+    console.log('📤 JSON that will be sent:', JSON.stringify(data));
     
     createBotMutation.mutate(data);
   };
@@ -315,25 +312,6 @@ export default function BotCreationDialog({ open, onOpenChange }: BotCreationDia
                   <li>Make sure bot has "bot" and "applications.commands" scopes</li>
                 </ol>
               </div>
-            )}
-            
-            {form.watch("platformType") === "discord" && (
-              <FormField
-                control={form.control}
-                name="clientId"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Client ID (Optional)</FormLabel>
-                    <FormControl>
-                      <Input 
-                        placeholder="Discord Client ID" 
-                        {...field} 
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
             )}
             
             <FormField
