@@ -41,15 +41,32 @@ async function processMessageWithAI(message, userId) {
     
     // Check if this is a reply to the bot for conversation context
     let conversationContext = '';
-    if (message.reference && message.reference.messageId && botMessageIds.has(message.reference.messageId)) {
+    if (message.reference && message.reference.messageId) {
       try {
-        const referencedMessage = await message.channel.messages.fetch(message.reference.messageId);
-        if (referencedMessage && referencedMessage.author.bot) {
-          conversationContext = `Previous bot message: "${referencedMessage.content}"`;
-          console.log(`🧠 Adding conversation context: ${conversationContext}`);
+        // Check if the referenced message ID is in our bot's message tracking
+        if (botMessageIds.has(message.reference.messageId)) {
+          const referencedMessage = await message.channel.messages.fetch(message.reference.messageId);
+          if (referencedMessage && referencedMessage.author.bot) {
+            conversationContext = `Previous bot message: "${referencedMessage.content}"`;
+            console.log(`🧠 Adding conversation context (tracked): ${conversationContext}`);
+          }
+        } else {
+          // Always fetch the message to check if it's from our bot (more reliable)
+          const referencedMessage = await message.channel.messages.fetch(message.reference.messageId);
+          if (referencedMessage && referencedMessage.author.bot) {
+            conversationContext = `Previous bot message: "${referencedMessage.content}"`;
+            // Add to our tracking set for future reference
+            botMessageIds.add(message.reference.messageId);
+            console.log(`🧠 Adding conversation context (fetched): ${conversationContext}`);
+          }
         }
       } catch (error) {
         console.error('Error fetching conversation context:', error);
+        // Even if we can't fetch the message, if there's a reference, assume it's conversational
+        if (message.reference && message.reference.messageId) {
+          conversationContext = 'User is replying to a previous message (context unavailable)';
+          console.log(`🧠 Adding fallback conversation context: ${conversationContext}`);
+        }
       }
     }
     
@@ -255,9 +272,20 @@ function isConversationalInput(input) {
     /^(hi|hello|hey)[\s!]*$/i,
     /^how are you[\s?]*$/i,
     /^what's up[\s?]*$/i,
+    /^whats up[\s?]*$/i,
+    /^wassup[\s?]*$/i,
     /^good (morning|afternoon|evening)[\s!]*$/i,
     /^thank you[\s!]*$/i,
-    /^thanks[\s!]*$/i
+    /^thanks[\s!]*$/i,
+    /^(im great|not much|good|fine)[\s!]*$/i,
+    /^(lol|haha|awesome|nice|wow)[\s!]*$/i,
+    /^(yes|no|sure|maybe|alright)[\s!]*$/i,
+    /^(ok|okay|cool|got it|gotcha)[\s!]*$/i,
+    /^(i'm good|i'm fine|i'm great|i'm okay)[\s!]*$/i,
+    /^(doing good|doing well|doing fine)[\s!]*$/i,
+    /^not much[\s,].*$/i,
+    /^just.*$/i,
+    /^nothing much[\s,].*$/i
   ];
   
   return conversationalPatterns.some(pattern => pattern.test(input.trim()));
@@ -574,8 +602,10 @@ ${conversationContext}
 - ❌ Pure greetings ("hi", "hello", "how are you")
 - ❌ Questions about the bot's capabilities
 - ❌ General chat without action words
-- ❌ Conversational replies to previous bot messages ("thanks", "ok", "cool", "got it")
+- ❌ Conversational replies to previous bot messages ("thanks", "ok", "cool", "got it", "im great", "not much", "good", "fine")
 - ❌ Follow-up questions about previous responses
+- ❌ Emotional responses ("lol", "haha", "awesome", "nice", "wow")
+- ❌ Short acknowledgments ("yes", "no", "sure", "maybe", "alright")
 
 **CONFIDENCE SCORING:**
 - 90-100: Perfect match with all parameters extracted
@@ -971,17 +1001,24 @@ class DiscordBotManager {
                 isReplyToBot = true;
                 console.log(`✅ Reply detected to bot message: ${message.reference.messageId}`);
               } else {
-                // Fallback: fetch the message to check if it's from our bot
+                // Always fetch the message to check if it's from our bot (more reliable)
                 const referencedMessage = await message.channel.messages.fetch(message.reference.messageId);
                 if (referencedMessage && referencedMessage.author.id === client.user.id) {
                   isReplyToBot = true;
                   // Add to our tracking set for future reference
                   botMessageIds.add(message.reference.messageId);
-                  console.log(`✅ Reply detected to bot message (fallback): ${message.reference.messageId}`);
+                  console.log(`✅ Reply detected to bot message (fetched): ${message.reference.messageId}`);
+                  console.log(`🔍 Referenced message was: "${referencedMessage.content}"`);
                 }
               }
             } catch (fetchError) {
               console.error('❌ Error fetching referenced message:', fetchError);
+              // If we can't fetch the message but have a reference, try a different approach
+              // Check if the message is replying by looking at the reference structure
+              if (message.reference && message.reference.messageId) {
+                console.log(`🔄 Assuming reply to bot based on reference structure`);
+                isReplyToBot = true;
+              }
             }
           }
 
