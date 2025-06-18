@@ -4,5 +4,20 @@
     "api/**/*.ts": {
       "runtime": "@vercel/node@5.2.2"
     }
-  }
+  },
+  "buildCommand": "cd client && npm run build",
+  "outputDirectory": "client/dist",
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/$1"
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
+    }
+  ]
 } 
