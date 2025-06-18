@@ -9,18 +9,12 @@ let globalTokenGetter: (() => Promise<string | null>) | null = null;
 function getApiBaseUrl(): string {
   // Check for environment variables (set during build time)
   if (typeof window !== 'undefined') {
-    // Client-side: Use current origin in production, configured URL in development
-    const isProduction = window.location.hostname !== 'localhost';
-    if (isProduction) {
-      return window.location.origin;
-    }
+    // Client-side: Always use current origin which will be Vercel in production
+    return window.location.origin;
   }
   
-  // Development or server-side: Use Railway URL if available, otherwise localhost
-  const railwayUrl = import.meta.env.VITE_RAILWAY_URL || 'https://commandless-app-production.up.railway.app';
-  const localUrl = 'http://localhost:5001';
-  
-  return railwayUrl || localUrl;
+  // Server-side fallback: Use localhost for development
+  return 'http://localhost:5173';
 }
 
 const API_BASE_URL = getApiBaseUrl();
@@ -68,7 +62,9 @@ export async function apiRequest(endpoint: string, options: RequestInit = {}): P
         tokenLength: token?.length || 0
       });
     } catch (error) {
-      logDetailed('AUTH_ERROR', 'Failed to get token', { error: error.message });
+      logDetailed('AUTH_ERROR', 'Failed to get token', { 
+        error: error instanceof Error ? error.message : 'Unknown error' 
+      });
     }
   }
 
