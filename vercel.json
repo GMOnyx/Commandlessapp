@@ -5,8 +5,8 @@
       "runtime": "@vercel/node@5.2.2"
     }
   },
-  "buildCommand": "npm run build:frontend",
-  "outputDirectory": "dist/public",
+  "buildCommand": "cd client && npm install && npm run build",
+  "outputDirectory": "client/dist",
   "routes": [
     {
       "src": "/api/(.*)",
