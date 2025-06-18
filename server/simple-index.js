@@ -33,31 +33,95 @@ const activeBots = new Map();
 // Store bot message IDs for reply tracking
 const botMessageIds = new Set();
 
+// Advanced Message Context Management (migrated from local TypeScript version)
+class MessageContextManager {
+  constructor() {
+    this.contexts = new Map(); // channelId -> messages
+    this.MAX_CONTEXT_MESSAGES = 10;
+    this.CONTEXT_EXPIRY_HOURS = 2;
+  }
+
+  addMessage(channelId, messageId, content, author, isBot) {
+    if (!this.contexts.has(channelId)) {
+      this.contexts.set(channelId, []);
+    }
+
+    const messages = this.contexts.get(channelId);
+    messages.push({
+      messageId,
+      content,
+      author,
+      timestamp: new Date(),
+      isBot
+    });
+
+    // Keep only recent messages
+    if (messages.length > this.MAX_CONTEXT_MESSAGES) {
+      messages.splice(0, messages.length - this.MAX_CONTEXT_MESSAGES);
+    }
+
+    // Clean up old messages
+    this.cleanupOldMessages(channelId);
+  }
+
+  getRecentMessages(channelId, limit = 5) {
+    const messages = this.contexts.get(channelId) || [];
+    return messages.slice(-limit);
+  }
+
+  getMessageById(channelId, messageId) {
+    const messages = this.contexts.get(channelId) || [];
+    return messages.find(msg => msg.messageId === messageId);
+  }
+
+  cleanupOldMessages(channelId) {
+    const messages = this.contexts.get(channelId);
+    if (!messages) return;
+
+    const cutoff = new Date();
+    cutoff.setHours(cutoff.getHours() - this.CONTEXT_EXPIRY_HOURS);
+
+    const validMessages = messages.filter(msg => msg.timestamp > cutoff);
+    this.contexts.set(channelId, validMessages);
+  }
+}
+
+const messageContextManager = new MessageContextManager();
+
 // AI Message Processing Function
 async function processMessageWithAI(message, userId) {
   try {
     // Clean the message content (remove bot mentions)
     let cleanMessage = message.content.replace(/<@!?\d+>/g, '').trim();
     
-    // Check if this is a reply to the bot for conversation context
+    // Enhanced conversation context building using MessageContextManager
     let conversationContext = '';
     if (message.reference && message.reference.messageId) {
       try {
-        // Check if the referenced message ID is in our bot's message tracking
-        if (botMessageIds.has(message.reference.messageId)) {
-          const referencedMessage = await message.channel.messages.fetch(message.reference.messageId);
-          if (referencedMessage && referencedMessage.author.bot) {
-            conversationContext = `Previous bot message: "${referencedMessage.content}"`;
-            console.log(`🧠 Adding conversation context (tracked): ${conversationContext}`);
-          }
+        // First check MessageContextManager for the referenced message
+        const referencedMessage = messageContextManager.getMessageById(
+          message.channelId, 
+          message.reference.messageId
+        );
+        
+        if (referencedMessage) {
+          conversationContext = `Previous message context: ${referencedMessage.author}: "${referencedMessage.content}"`;
+          console.log(`🧠 Adding conversation context from MessageContextManager: ${conversationContext}`);
         } else {
-          // Always fetch the message to check if it's from our bot (more reliable)
-          const referencedMessage = await message.channel.messages.fetch(message.reference.messageId);
-          if (referencedMessage && referencedMessage.author.bot) {
-            conversationContext = `Previous bot message: "${referencedMessage.content}"`;
-            // Add to our tracking set for future reference
-            botMessageIds.add(message.reference.messageId);
-            console.log(`🧠 Adding conversation context (fetched): ${conversationContext}`);
+          // Fallback: fetch from Discord API if not in our cache
+          const fetchedMessage = await message.channel.messages.fetch(message.reference.messageId);
+          if (fetchedMessage && fetchedMessage.author.bot) {
+            conversationContext = `Previous bot message: "${fetchedMessage.content}"`;
+            // Add to our tracking for future reference
+            messageContextManager.addMessage(
+              message.channelId,
+              fetchedMessage.id,
+              fetchedMessage.content,
+              fetchedMessage.author.tag,
+              true
+            );
+            botMessageIds.add(fetchedMessage.id);
+            console.log(`🧠 Adding conversation context (fetched from Discord): ${conversationContext}`);
           }
         }
       } catch (error) {
@@ -67,6 +131,22 @@ async function processMessageWithAI(message, userId) {
           conversationContext = 'User is replying to a previous message (context unavailable)';
           console.log(`🧠 Adding fallback conversation context: ${conversationContext}`);
         }
+      }
+    }
+
+    // Get recent conversation context (last few messages)
+    const recentMessages = messageContextManager.getRecentMessages(message.channelId, 3);
+    if (recentMessages.length > 0) {
+      const contextMessages = recentMessages
+        .filter(msg => msg.messageId !== message.id) // Don't include current message
+        .map(msg => `${msg.author}: "${msg.content}"`)
+        .join('\n');
+      
+      if (contextMessages) {
+        conversationContext = conversationContext 
+          ? `${conversationContext}\n\nRecent conversation:\n${contextMessages}`
+          : `Recent conversation:\n${contextMessages}`;
+        console.log(`💬 Enhanced with recent conversation context`);
       }
     }
     
@@ -991,31 +1071,52 @@ class DiscordBotManager {
         try {
           if (message.author.bot) return;
 
+          // Store this user message for context (like local version)
+          messageContextManager.addMessage(
+            message.channelId,
+            message.id,
+            message.content,
+            message.author.tag,
+            false
+          );
+
           const botMentioned = message.mentions.users.has(client.user.id);
           
           // Enhanced reply detection - check if replying to any of our bot's messages
           let isReplyToBot = false;
           if (message.reference && message.reference.messageId) {
             try {
-              // Check if the referenced message ID is in our bot's message tracking
-              if (botMessageIds.has(message.reference.messageId)) {
+              // Check MessageContextManager first (more reliable)
+              const referencedMessage = messageContextManager.getMessageById(
+                message.channelId, 
+                message.reference.messageId
+              );
+              
+              if (referencedMessage && referencedMessage.isBot) {
                 isReplyToBot = true;
-                console.log(`✅ Reply detected to bot message: ${message.reference.messageId}`);
+                console.log(`✅ Reply detected to bot message (MessageContextManager): ${message.reference.messageId}`);
+                console.log(`🔍 Referenced message was: "${referencedMessage.content}"`);
               } else {
-                // Always fetch the message to check if it's from our bot (more reliable)
-                const referencedMessage = await message.channel.messages.fetch(message.reference.messageId);
-                if (referencedMessage && referencedMessage.author.id === client.user.id) {
+                // Fallback: fetch the message to check if it's from our bot
+                const fetchedMessage = await message.channel.messages.fetch(message.reference.messageId);
+                if (fetchedMessage && fetchedMessage.author.id === client.user.id) {
                   isReplyToBot = true;
-                  // Add to our tracking set for future reference
+                  // Add to our tracking for future reference
+                  messageContextManager.addMessage(
+                    message.channelId,
+                    fetchedMessage.id,
+                    fetchedMessage.content,
+                    fetchedMessage.author.tag,
+                    true
+                  );
                   botMessageIds.add(message.reference.messageId);
                   console.log(`✅ Reply detected to bot message (fetched): ${message.reference.messageId}`);
-                  console.log(`🔍 Referenced message was: "${referencedMessage.content}"`);
+                  console.log(`🔍 Referenced message was: "${fetchedMessage.content}"`);
                 }
               }
             } catch (fetchError) {
               console.error('❌ Error fetching referenced message:', fetchError);
               // If we can't fetch the message but have a reference, try a different approach
-              // Check if the message is replying by looking at the reference structure
               if (message.reference && message.reference.messageId) {
                 console.log(`🔄 Assuming reply to bot based on reference structure`);
                 isReplyToBot = true;
@@ -1085,6 +1186,16 @@ class DiscordBotManager {
           if (botMessage) {
             botMessageIds.add(botMessage.id);
             console.log(`📝 Tracking bot message ID: ${botMessage.id} for future replies`);
+            
+            // Also add to MessageContextManager for better context tracking
+            messageContextManager.addMessage(
+              message.channelId,
+              botMessage.id,
+              result.response,
+              client.user.tag,
+              true
+            );
+            console.log(`💾 Stored bot response in MessageContextManager for conversation context`);
             
             // Clean up old message IDs to prevent memory leaks (keep last 1000)
             if (botMessageIds.size > 1000) {
