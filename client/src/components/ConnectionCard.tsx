@@ -73,8 +73,12 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
     
     setConnectLoading(true);
     try {
-      const response = await apiRequest(`/api/bots/${bot.id}/connect`, {
-        method: 'POST'
+      const response = await apiRequest(`/api/bots`, {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'connect',
+          botId: bot.id
+        })
       });
 
       // Handle different connection scenarios
@@ -140,8 +144,12 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
   
   const disconnectMutation = useMutation({
     mutationFn: async () => {
-      await apiRequest(`/api/bots/${bot.id}/disconnect`, { 
-        method: 'POST'
+      await apiRequest(`/api/bots`, { 
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'disconnect',
+          botId: bot.id
+        })
       });
     },
     onSuccess: () => {
