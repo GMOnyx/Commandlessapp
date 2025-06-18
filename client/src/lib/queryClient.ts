@@ -10,7 +10,9 @@ function getApiBaseUrl(): string {
   // Check for environment variables (set during build time)
   if (typeof window !== 'undefined') {
     // Client-side: Always use current origin which will be Vercel in production
-    return window.location.origin;
+    const origin = window.location.origin;
+    console.log('🔗 API Base URL:', origin);
+    return origin;
   }
   
   // Server-side fallback: Use localhost for development
@@ -38,7 +40,7 @@ function logDetailed(category: string, message: string, data?: any) {
 
 // API request function that includes authentication
 export async function apiRequest(endpoint: string, options: RequestInit = {}): Promise<any> {
-  // Use Railway backend URL instead of Vercel/localhost
+  // Use current origin (Vercel) instead of hardcoded Railway URL
   const baseUrl = API_BASE_URL;
   
   const url = `${baseUrl}${endpoint}`;
@@ -178,7 +180,7 @@ export function setAuthTokenGetter(getter: () => Promise<string | null>) {
 
 // Alternative API request for use outside React components
 export async function apiRequestWithToken(endpoint: string, token: string | null, options: RequestInit = {}) {
-  // Use Railway backend URL
+  // Use current origin (Vercel) instead of hardcoded Railway URL
   const baseUrl = API_BASE_URL;
   
   const url = `${baseUrl}${endpoint}`;
@@ -201,6 +203,8 @@ export async function apiRequestWithToken(endpoint: string, token: string | null
 
   return response.json();
 }
+
+// Version: Fixed API routing to use Vercel endpoints - 2025-01-25
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
