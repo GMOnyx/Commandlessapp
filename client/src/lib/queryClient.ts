@@ -1,10 +1,31 @@
 import { QueryClient } from "@tanstack/react-query";
+import { type ClassValue, clsx } from "clsx";
+import { twMerge } from "tailwind-merge";
 
 // Global token getter - will be set by the App component
 let globalTokenGetter: (() => Promise<string | null>) | null = null;
 
-// Use Railway backend URL
-const API_BASE_URL = "https://commandless-app-production.up.railway.app";
+// Dynamic API base URL configuration
+function getApiBaseUrl(): string {
+  // Check for environment variables (set during build time)
+  if (typeof window !== 'undefined') {
+    // Client-side: Use current origin in production, configured URL in development
+    const isProduction = window.location.hostname !== 'localhost';
+    if (isProduction) {
+      return window.location.origin;
+    }
+  }
+  
+  // Development or server-side: Use Railway URL if available, otherwise localhost
+  const railwayUrl = import.meta.env.VITE_RAILWAY_URL || 'https://commandless-app-production.up.railway.app';
+  const localUrl = 'http://localhost:5001';
+  
+  return railwayUrl || localUrl;
+}
+
+const API_BASE_URL = getApiBaseUrl();
+
+export { API_BASE_URL };
 
 // Enhanced logging function for debugging
 function logDetailed(category: string, message: string, data?: any) {
@@ -24,7 +45,7 @@ function logDetailed(category: string, message: string, data?: any) {
 // API request function that includes authentication
 export async function apiRequest(endpoint: string, options: RequestInit = {}): Promise<any> {
   // Use Railway backend URL instead of Vercel/localhost
-  const baseUrl = "https://commandless-app-production.up.railway.app";
+  const baseUrl = API_BASE_URL;
   
   const url = `${baseUrl}${endpoint}`;
   
@@ -162,7 +183,7 @@ export function setAuthTokenGetter(getter: () => Promise<string | null>) {
 // Alternative API request for use outside React components
 export async function apiRequestWithToken(endpoint: string, token: string | null, options: RequestInit = {}) {
   // Use Railway backend URL
-  const baseUrl = "https://commandless-app-production.up.railway.app";
+  const baseUrl = API_BASE_URL;
   
   const url = `${baseUrl}${endpoint}`;
 
@@ -183,4 +204,8 @@ export async function apiRequestWithToken(endpoint: string, token: string | null
   }
 
   return response.json();
+}
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
 }

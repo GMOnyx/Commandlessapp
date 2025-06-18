@@ -6,7 +6,90 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 require('dotenv').config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5001;
+const NODE_ENV = process.env.NODE_ENV || 'development';
+const USE_SUPABASE = process.env.USE_SUPABASE === 'true';
+
+// Dynamic configuration
+const CONFIG = {
+  server: {
+    port: parseInt(PORT, 10),
+    environment: NODE_ENV,
+    enableDebugLogging: process.env.DEBUG_LOGGING === 'true'
+  },
+  database: {
+    useSupabase: USE_SUPABASE,
+    supabaseUrl: process.env.SUPABASE_URL || '',
+    supabaseKey: process.env.SUPABASE_ANON_KEY || ''
+  },
+  auth: {
+    clerkSecretKey: process.env.CLERK_SECRET_KEY || '',
+    jwtSecret: process.env.JWT_SECRET || 'your-fallback-secret-key'
+  },
+  ai: {
+    geminiApiKey: process.env.GEMINI_API_KEY || ''
+  },
+  security: {
+    encryptionKey: process.env.ENCRYPTION_KEY || ''
+  },
+  features: {
+    skipSampleData: process.env.SKIP_SAMPLE_DATA === 'true',
+    resetData: process.env.RESET_DATA === 'true'
+  }
+};
+
+// Validate critical configuration
+function validateConfig() {
+  const errors = [];
+  
+  if (CONFIG.server.environment === 'production') {
+    if (!CONFIG.ai.geminiApiKey || CONFIG.ai.geminiApiKey.length < 20) {
+      errors.push('GEMINI_API_KEY required in production');
+    }
+    
+    if (!CONFIG.auth.clerkSecretKey || !CONFIG.auth.clerkSecretKey.startsWith('sk_')) {
+      errors.push('Valid CLERK_SECRET_KEY required in production');
+    }
+    
+    if (CONFIG.database.useSupabase && (!CONFIG.database.supabaseUrl || !CONFIG.database.supabaseKey)) {
+      errors.push('SUPABASE_URL and SUPABASE_ANON_KEY required when USE_SUPABASE=true');
+    }
+  }
+  
+  if (errors.length > 0) {
+    console.error('❌ CONFIG VALIDATION FAILED:');
+    errors.forEach(error => console.error(`   - ${error}`));
+    
+    if (CONFIG.server.environment === 'production') {
+      throw new Error('Production configuration invalid. See errors above.');
+    } else {
+      console.warn('⚠️ Config issues detected (development mode continues)');
+    }
+  } else {
+    console.log('✅ Configuration validated successfully');
+  }
+}
+
+// Dynamic user ID extraction (no hardcoding)
+function extractUserIdFromRequest(req) {
+  // Try to extract from Authorization header
+  const authHeader = req.headers.authorization || req.headers.Authorization;
+  if (authHeader) {
+    const token = authHeader.replace(/^Bearer\s+/, '');
+    if (token && token !== 'undefined' && token !== 'null') {
+      return token;
+    }
+  }
+  
+  // Fallback to test user only in development
+  if (CONFIG.server.environment === 'development') {
+    const testUserId = process.env.DEFAULT_TEST_USER_ID || `dev-user-${Date.now()}`;
+    console.warn('⚠️ Using development test user ID:', testUserId);
+    return testUserId;
+  }
+  
+  return null;
+}
 
 // Initialize Gemini AI
 let genAI = null;
@@ -2057,10 +2140,14 @@ app.post('/api/discord', async (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
-  console.log(`🚀 Commandless server running on port ${PORT}`);
-  console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`📡 Supabase URL: ${process.env.SUPABASE_URL ? 'Connected' : 'Not configured'}`);
+validateConfig();
+
+app.listen(CONFIG.server.port, () => {
+  console.log(`🚀 Commandless server running on port ${CONFIG.server.port}`);
+  console.log(`🌍 Environment: ${CONFIG.server.environment}`);
+  console.log(`📡 Database: ${CONFIG.database.useSupabase ? 'Supabase' : 'In-memory'}`);
+  console.log(`🤖 AI: ${CONFIG.ai.geminiApiKey ? 'Gemini Connected' : 'No AI'}`);
+  console.log(`🔒 Security: ${CONFIG.security.encryptionKey ? 'Encrypted' : 'Basic'}`);
 });
 
 // Graceful shutdown

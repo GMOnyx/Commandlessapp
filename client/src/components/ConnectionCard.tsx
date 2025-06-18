@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { CopyIcon, CheckIcon } from "lucide-react";
 import BotCreationDialog from "@/components/BotCreationDialog";
+import { CheckCircle, AlertCircle, XCircle } from "lucide-react";
 
 interface ConnectionCardProps {
   bot: Bot;
@@ -45,6 +46,10 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
     troubleshooting: [],
     details: ""
   });
+  const [loading, setLoading] = useState(false);
+  const [showDialog, setShowDialog] = useState(false);
+  const [dialogTitle, setDialogTitle] = useState('');
+  const [dialogContent, setDialogContent] = useState<React.ReactNode>(null);
   
   const copyToClipboard = async () => {
     try {
@@ -64,87 +69,150 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
     }
   };
   
-  const connectMutation = useMutation({
-    mutationFn: async () => {
-      const response = await apiRequest(`/api/bots`, { 
+  const handleConnect = async () => {
+    if (!bot.id) return;
+    
+    setLoading(true);
+    try {
+      const response = await fetch('/api/bots', {
         method: 'PUT',
-        body: JSON.stringify({ id: bot.id, action: 'connect' })
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+        },
+        body: JSON.stringify({
+          id: bot.id,
+          action: 'connect'
+        })
       });
-      return response;
-    },
-    onSuccess: (data) => {
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to connect bot');
+      }
+
+      const result = await response.json();
+      
+      // Handle different connection scenarios
+      if (result.autoStarted) {
+        // Bot was automatically started
+        setShowDialog(true);
+        setDialogTitle('🎉 Bot Connected & Started!');
+        setDialogContent(
+          <div className="space-y-4">
+            <div className="flex items-center space-x-2 text-green-600">
+              <CheckCircle className="h-5 w-5" />
+              <span>Your Discord bot is now live and responding!</span>
+            </div>
+            <div className="bg-green-50 p-3 rounded-lg">
+              <p className="text-sm text-green-800">
+                <strong>Startup Method:</strong> {result.startupMethod}
+              </p>
+              <p className="text-sm text-green-700 mt-1">
+                {result.message}
+              </p>
+            </div>
+            <div className="bg-blue-50 p-3 rounded-lg">
+              <p className="text-sm text-blue-800 font-medium">Test your bot:</p>
+              <div className="text-sm text-blue-700 mt-1 font-mono">
+                @{bot.botName} hello<br/>
+                @{bot.botName} what can you do?
+              </div>
+            </div>
+          </div>
+        );
+      } else if (result.requiresManualStart && result.clientCode) {
+        // Bot connected but needs manual client code execution
+        setShowDialog(true);
+        setDialogTitle('🤖 Bot Connected - Manual Start Required');
+        setDialogContent(
+          <div className="space-y-4">
+            <div className="flex items-center space-x-2 text-yellow-600">
+              <AlertCircle className="h-5 w-5" />
+              <span>Bot connected! Run the client code to start responding.</span>
+            </div>
+            
+            {result.message && (
+              <div className="bg-yellow-50 p-3 rounded-lg">
+                <p className="text-sm text-yellow-800">{result.message}</p>
+              </div>
+            )}
+
+            <div className="space-y-3">
+              <h4 className="font-medium text-gray-900">Instructions:</h4>
+              <ol className="list-decimal list-inside space-y-1 text-sm text-gray-700">
+                {result.instructions?.map((instruction: string, index: number) => (
+                  <li key={index}>{instruction}</li>
+                ))}
+              </ol>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <h4 className="font-medium text-gray-900">Discord Client Code:</h4>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    navigator.clipboard.writeText(result.clientCode);
+                    // Could add a toast notification here
+                  }}
+                  className="flex items-center space-x-1"
+                >
+                  <CopyIcon className="h-4 w-4" />
+                  <span>Copy</span>
+                </Button>
+              </div>
+              <pre className="bg-gray-100 p-3 rounded-lg text-xs overflow-x-auto max-h-40">
+                <code>{result.clientCode}</code>
+              </pre>
+            </div>
+
+            <div className="bg-blue-50 p-3 rounded-lg">
+              <p className="text-sm text-blue-800 font-medium">After running the code, test your bot:</p>
+              <div className="text-sm text-blue-700 mt-1 font-mono">
+                @{bot.botName} hello<br/>
+                @{bot.botName} what can you do?
+              </div>
+            </div>
+          </div>
+        );
+      } else {
+        // Regular connection (non-Discord or other platforms)
+        setShowDialog(true);
+        setDialogTitle('✅ Bot Connected');
+        setDialogContent(
+          <div className="space-y-4">
+            <div className="flex items-center space-x-2 text-green-600">
+              <CheckCircle className="h-5 w-5" />
+              <span>{result.message || 'Bot connected successfully!'}</span>
+            </div>
+          </div>
+        );
+      }
+
+      // Refresh the bot list to show updated status
       queryClient.invalidateQueries({ queryKey: ["/api/bots"] });
       
-      // Check if this is a Discord bot with client code
-      if (data.clientCode && data.instructions) {
-        setClientCode(data.clientCode);
-        setInstructions(data.instructions);
-        setShowClientCodeDialog(true);
-      } else {
-        toast({
-          title: "Success",
-          description: `${bot.botName} has been connected.`,
-        });
-      }
-    },
-    onError: (error: any) => {
-      // Try to parse the error response for detailed information
-      let errorMessage = `Failed to connect ${bot.botName}`;
-      let troubleshooting: string[] | undefined;
-      let details: string | undefined;
-      
-      if (error instanceof Error) {
-        try {
-          // Check if the error has structured data
-          const errorText = error.message;
-          
-          // Extract JSON from error message if present
-          const jsonMatch = errorText.match(/\{.*\}/);
-          if (jsonMatch) {
-            const errorData = JSON.parse(jsonMatch[0]);
-            errorMessage = errorData.message || errorMessage;
-            troubleshooting = errorData.troubleshooting;
-            details = errorData.details;
-          } else {
-            // Handle cases where the error message contains the structured response
-            if (errorText.includes("500:") || errorText.includes("400:")) {
-              const responseMatch = errorText.match(/(?:500|400):\s*(.+)/);
-              if (responseMatch) {
-                try {
-                  const responseData = JSON.parse(responseMatch[1]);
-                  errorMessage = responseData.message || errorMessage;
-                  troubleshooting = responseData.troubleshooting;
-                  details = responseData.details;
-                } catch {
-                  errorMessage = responseMatch[1];
-                }
-              }
-            } else {
-              errorMessage = errorText;
-            }
-          }
-        } catch {
-          errorMessage = error.message;
-        }
-      }
-      
-      // Show detailed error information if available
-      if (troubleshooting && troubleshooting.length > 0) {
-        setErrorDetails({
-          message: errorMessage,
-          troubleshooting,
-          details
-        });
-        setShowErrorDialog(true);
-      } else {
-      toast({
-        title: "Error",
-          description: errorMessage,
-        variant: "destructive",
-      });
-      }
-    },
-  });
+    } catch (error) {
+      console.error('Connection error:', error);
+      setShowDialog(true);
+      setDialogTitle('❌ Connection Failed');
+      setDialogContent(
+        <div className="space-y-4">
+          <div className="flex items-center space-x-2 text-red-600">
+            <XCircle className="h-5 w-5" />
+            <span>Failed to connect bot</span>
+          </div>
+          <p className="text-sm text-gray-600">
+            {error instanceof Error ? error.message : 'An unexpected error occurred'}
+          </p>
+        </div>
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
   
   const disconnectMutation = useMutation({
     mutationFn: async () => {
@@ -184,6 +252,35 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
         title: "Commands Synced",
         description: `Found ${data.commandsFound} commands, created ${data.commandsCreated} new mappings${data.commandsSkipped > 0 ? `, skipped ${data.commandsSkipped} existing` : ''}.`,
       });
+      
+      // Handle different connection scenarios
+      if (data.autoStarted) {
+        // Bot was automatically started
+        toast({
+          title: "🎉 Bot Connected & Started!",
+          description: `${bot.botName} is now live and responding using ${data.startupMethod}!`,
+        });
+      } else if (data.requiresManualStart && data.clientCode && data.instructions) {
+        // Bot connected but needs manual client code execution
+        setClientCode(data.clientCode);
+        setInstructions(data.instructions);
+        setShowClientCodeDialog(true);
+        toast({
+          title: "Bot Connected",
+          description: `${bot.botName} connected! Please run the client code to start responding.`,
+        });
+      } else if (data.clientCode && data.instructions) {
+        // Legacy Discord bot connection (fallback)
+        setClientCode(data.clientCode);
+        setInstructions(data.instructions);
+        setShowClientCodeDialog(true);
+      } else {
+        // Regular connection (non-Discord or other platforms)
+        toast({
+          title: "Success",
+          description: data.message || `${bot.botName} has been connected.`,
+        });
+      }
     },
     onError: (error) => {
       toast({
@@ -287,11 +384,11 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
               </button>
             ) : (
               <button
-                onClick={() => connectMutation.mutate()}
-                disabled={connectMutation.isPending}
+                onClick={handleConnect}
+                disabled={loading}
                 className="font-medium text-primary hover:text-primary-600 focus:outline-none"
               >
-                {connectMutation.isPending ? "Connecting..." : "Connect bot"}
+                {loading ? "Connecting..." : "Connect bot"}
               </button>
             )}
           </div>
@@ -312,66 +409,20 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
     </Card>
       
       {/* Client Code Dialog */}
-      <Dialog open={showClientCodeDialog} onOpenChange={setShowClientCodeDialog}>
+      <Dialog open={showDialog} onOpenChange={setShowDialog}>
         <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <SiDiscord className="text-blue-500" />
-              Discord Bot Client Code - {bot.botName}
+              {dialogTitle}
             </DialogTitle>
           </DialogHeader>
           
           <div className="space-y-4">
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-              <h4 className="font-medium text-green-800 mb-2">🎉 Bot Connected Successfully!</h4>
-              <p className="text-green-700 text-sm">
-                Your Discord bot has been validated and is ready to use. Follow the instructions below to start the bot client.
-              </p>
-            </div>
-
-            <div>
-              <h4 className="font-medium mb-2">📋 Instructions:</h4>
-              <ol className="list-decimal list-inside space-y-1 text-sm text-gray-700">
-                {instructions.map((instruction, index) => (
-                  <li key={index}>{instruction}</li>
-                ))}
-              </ol>
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <h4 className="font-medium">🤖 Discord Bot Client Code:</h4>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={copyToClipboard}
-                  className="flex items-center gap-1"
-                >
-                  {copied ? <CheckIcon className="h-3 w-3" /> : <CopyIcon className="h-3 w-3" />}
-                  {copied ? "Copied!" : "Copy Code"}
-                </Button>
-              </div>
-              <Textarea
-                value={clientCode}
-                readOnly
-                className="font-mono text-xs h-96 resize-none"
-                placeholder="Client code will appear here..."
-              />
-            </div>
-
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <h4 className="font-medium text-blue-800 mb-2">💡 Quick Start:</h4>
-              <div className="text-blue-700 text-sm space-y-1">
-                <p>1. Save the code above to a file called <code className="bg-blue-100 px-1 rounded">discord-bot.js</code></p>
-                <p>2. Run: <code className="bg-blue-100 px-1 rounded">npm install discord.js node-fetch</code></p>
-                <p>3. Run: <code className="bg-blue-100 px-1 rounded">node discord-bot.js</code></p>
-                <p>4. Test by mentioning your bot in Discord: <code className="bg-blue-100 px-1 rounded">@{bot.botName} hello</code></p>
-              </div>
-            </div>
+            {dialogContent}
           </div>
 
           <DialogFooter>
-            <Button onClick={() => setShowClientCodeDialog(false)}>
+            <Button onClick={() => setShowDialog(false)}>
               Got it, let's go!
             </Button>
           </DialogFooter>
