@@ -357,15 +357,20 @@ function isConversationalInput(input) {
     /^good (morning|afternoon|evening)[\s!]*$/i,
     /^thank you[\s!]*$/i,
     /^thanks[\s!]*$/i,
-    /^(im great|not much|good|fine)[\s!]*$/i,
+    /^(im great|not much|good|fine).*$/i,  // Allow anything after these patterns
     /^(lol|haha|awesome|nice|wow)[\s!]*$/i,
     /^(yes|no|sure|maybe|alright)[\s!]*$/i,
     /^(ok|okay|cool|got it|gotcha)[\s!]*$/i,
-    /^(i'm good|i'm fine|i'm great|i'm okay)[\s!]*$/i,
-    /^(doing good|doing well|doing fine)[\s!]*$/i,
+    /^(i'm good|i'm fine|i'm great|i'm okay).*$/i,  // Allow anything after these patterns
+    /^(doing good|doing well|doing fine).*$/i,  // Allow anything after these patterns
     /^not much[\s,].*$/i,
     /^just.*$/i,
-    /^nothing much[\s,].*$/i
+    /^nothing much[\s,].*$/i,
+    // Add more flexible patterns for common conversational replies
+    /^(great|good|fine|awesome|excellent)\s+(thanks?|thank you)[\s!]*$/i,
+    /^(thanks?|thank you)\s+(for\s+.+)?$/i,
+    /^(sounds?\s+good|sounds?\s+great|sounds?\s+awesome)[\s!]*$/i,
+    /^(that's?\s+)?(cool|nice|great|awesome|perfect)[\s!]*$/i
   ];
   
   return conversationalPatterns.some(pattern => pattern.test(input.trim()));
