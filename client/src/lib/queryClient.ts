@@ -7,16 +7,12 @@ let globalTokenGetter: (() => Promise<string | null>) | null = null;
 
 // Dynamic API base URL configuration
 function getApiBaseUrl(): string {
-  // Check for environment variables (set during build time)
-  if (typeof window !== 'undefined') {
-    // Client-side: Always use current origin which will be Vercel in production
-    const origin = window.location.origin;
-    console.log('🔗 API Base URL:', origin);
-    return origin;
-  }
+  // FORCE: Always use the working Vercel deployment URL with proper API endpoints
+  // This ensures we hit the Vercel serverless functions that support PUT/DELETE
+  const WORKING_VERCEL_URL = 'https://commandlessapp-9z79i99ao-abdarrahmans-projects.vercel.app';
   
-  // Server-side fallback: Use localhost for development
-  return 'http://localhost:5173';
+  console.log('🔗 API Base URL (FORCED TO VERCEL):', WORKING_VERCEL_URL);
+  return WORKING_VERCEL_URL;
 }
 
 const API_BASE_URL = getApiBaseUrl();
