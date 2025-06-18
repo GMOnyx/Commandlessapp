@@ -160,12 +160,20 @@ export default function BotCreationDialog({ open, onOpenChange }: BotCreationDia
     },
   });
   
-  // Reset validation when token changes (disabled validation to prevent false errors)
+  // Reset validation when token changes (DISABLED to fix bot creation)
   const handleTokenChange = (value: string) => {
     form.setValue("token", value);
-    // Disable frontend validation since it was causing false errors
-    // Real validation happens on the backend when creating the bot
+    // COMPLETELY DISABLE frontend validation to prevent blocking bot creation
     setTokenValidation({ isValidating: false });
+    
+    // Show simple length feedback without API calls
+    if (form.getValues("platformType") === "discord" && value.length > 0) {
+      if (value.length < 50) {
+        setTokenValidation({ valid: undefined, message: "Keep typing... Discord tokens are usually 59+ characters" });
+      } else {
+        setTokenValidation({ valid: undefined, message: "Ready to validate when you click Connect Bot" });
+      }
+    }
   };
   
   // Handle form submission
