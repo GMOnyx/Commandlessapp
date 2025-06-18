@@ -362,7 +362,7 @@ function isConversationalInput(input) {
     /^(yes|no|sure|maybe|alright)[\s!]*$/i,
     /^(ok|okay|cool|got it|gotcha)[\s!]*$/i,
     /^(i'm good|i'm fine|i'm great|i'm okay).*$/i,  // Allow anything after these patterns
-    /^(doing good|doing well|doing fine).*$/i,  // Allow anything after these patterns
+    /^(doing good|doing well|doing fine|doing great|doing awesome).*$/i,  // Added "doing great" and "doing awesome"
     /^not much[\s,].*$/i,
     /^just.*$/i,
     /^nothing much[\s,].*$/i,
@@ -842,9 +842,12 @@ Respond with valid JSON only:`;
             }
           });
 
+        // Execute the actual Discord command instead of just returning a fake response
+        const executionResult = await executeDiscordCommand(commandOutput, matchedCommand.name, message);
+        
         return {
-          success: true,
-          response: `✅ Executing ${matchedCommand.name}: ${commandOutput}`
+          success: executionResult.success,
+          response: executionResult.response
         };
       }
     }
@@ -932,9 +935,12 @@ async function processWithSimpleMatching(cleanMessage, commandMappings, message,
           }
         });
 
+      // Execute the actual Discord command instead of just returning a fake response
+      const executionResult = await executeDiscordCommand(commandOutput, mapping.name, message);
+
       return {
-        success: true,
-        response: `✅ Executing ${mapping.name}: ${commandOutput}`
+        success: executionResult.success,
+        response: executionResult.response
       };
     }
   }
@@ -2303,4 +2309,321 @@ app.delete('/api/bots/:id', async (req, res) => {
       details: 'An unexpected error occurred while deleting your bot.'
     });
   }
-}); 
+});
+
+// Real Discord.js Command Execution
+async function executeDiscordCommand(commandOutput, mappingName, message) {
+  try {
+    // Extract the command name from the command output (e.g., "/pin" from "/pin")
+    const commandMatch = commandOutput.match(/^\/([a-zA-Z0-9_-]+)/);
+    if (!commandMatch) {
+      return {
+        success: false,
+        response: `❌ Invalid command format: ${commandOutput}`
+      };
+    }
+
+    const command = commandMatch[1].toLowerCase();
+    const botMember = message.guild?.members?.me;
+    
+    if (!botMember) {
+      return {
+        success: false,
+        response: "❌ Bot is not in a guild"
+      };
+    }
+
+    // Execute the actual Discord.js command
+    switch (command) {
+      case 'pin':
+        try {
+          if (!botMember.permissions.has('ManageMessages')) {
+            return { success: false, response: "❌ I don't have permission to pin messages" };
+          }
+
+          // Pin the message that the user replied to, or the user's message if no reply
+          let messageToPin = message;
+          
+          // Check if this is a reply and pin the original message
+          if (message.reference?.messageId) {
+            try {
+              const referencedMessage = await message.channel.messages.fetch(message.reference.messageId);
+              if (referencedMessage) {
+                messageToPin = referencedMessage;
+              }
+            } catch (error) {
+              // If we can't fetch the referenced message, pin the command message
+            }
+          }
+          
+          await messageToPin.pin();
+          
+          return {
+            success: true,
+            response: `📌 **Message pinned**\n**Pinned by:** ${message.author.username}`
+          };
+        } catch (error) {
+          return { success: false, response: `❌ Failed to pin message: ${error.message}` };
+        }
+
+      case 'ping':
+        const ping = message.client.ws.ping;
+        return { success: true, response: `🏓 **Pong!** Latency: ${ping}ms` };
+
+      case 'say':
+        try {
+          // Extract the message content from the command output
+          const messageMatch = commandOutput.match(/\{message\}/) ? 
+            commandOutput.replace(/.*\{message\}/, '') : 
+            commandOutput.replace(/^\/say\s*/, '');
+          
+          if (!messageMatch.trim()) {
+            return { success: false, response: "❌ Please provide a message to say" };
+          }
+          
+          await message.delete(); // Delete the command message
+          await message.channel.send(messageMatch.trim());
+          
+          return { success: true, response: '' }; // Empty response since we sent the message
+        } catch (error) {
+          return { success: false, response: `❌ Failed to send message: ${error.message}` };
+        }
+
+      case 'purge':
+        try {
+          if (!botMember.permissions.has('ManageMessages')) {
+            return { success: false, response: "❌ I don't have permission to manage messages" };
+          }
+
+          // Extract amount from command output or default to 1
+          const amountMatch = commandOutput.match(/(\d+)/);
+          const amount = amountMatch ? Math.min(parseInt(amountMatch[1]), 100) : 1;
+          
+          if (!message.channel.isTextBased() || message.channel.isDMBased()) {
+            return { success: false, response: "❌ This command can only be used in server text channels" };
+          }
+          
+          await message.delete(); // Delete the command message
+          
+          if ('bulkDelete' in message.channel) {
+            const deleted = await message.channel.bulkDelete(amount, true);
+            
+            const response = await message.channel.send(`🗑️ **Purged ${deleted.size} message(s)**`);
+            // Auto-delete the confirmation after 5 seconds
+            setTimeout(() => response.delete().catch(() => {}), 5000);
+            
+            return { success: true, response: '' }; // Empty response since we handled it above
+          } else {
+            return { success: false, response: "❌ This channel doesn't support bulk delete" };
+          }
+        } catch (error) {
+          return { success: false, response: `❌ Failed to purge messages: ${error.message}` };
+        }
+
+      case 'ban':
+        try {
+          if (!botMember.permissions.has('BanMembers')) {
+            return { success: false, response: "❌ I don't have permission to ban members" };
+          }
+
+          // Extract user ID from command output or mentions
+          let userId = null;
+          const userMatch = commandOutput.match(/<@!?(\d+)>/) || commandOutput.match(/(\d{17,19})/);
+          if (userMatch) {
+            userId = userMatch[1];
+          } else if (message.mentions.users.size > 0) {
+            userId = message.mentions.users.first().id;
+          }
+
+          if (!userId) {
+            return { success: false, response: "❌ Please specify a valid user to ban" };
+          }
+
+          if (userId === message.client.user?.id) {
+            return { success: false, response: "❌ I cannot ban myself!" };
+          }
+
+          // Extract reason
+          const reasonMatch = commandOutput.match(/reason:?\s*(.+)/) || 
+                             commandOutput.match(/for\s+(.+)/) ||
+                             commandOutput.match(/\{reason\}\s*(.+)/);
+          const reason = reasonMatch ? reasonMatch[1] : 'No reason provided';
+
+          await message.guild.bans.create(userId, { 
+            reason: `${reason} (Banned by ${message.author.username})` 
+          });
+          
+          return {
+            success: true,
+            response: `🔨 **User banned**\n**User:** <@${userId}>\n**Reason:** ${reason}\n**Banned by:** ${message.author.username}`
+          };
+        } catch (error) {
+          return { success: false, response: `❌ Failed to ban user: ${error.message}` };
+        }
+
+      case 'kick':
+        try {
+          if (!botMember.permissions.has('KickMembers')) {
+            return { success: false, response: "❌ I don't have permission to kick members" };
+          }
+
+          // Extract user ID
+          let userId = null;
+          const userMatch = commandOutput.match(/<@!?(\d+)>/) || commandOutput.match(/(\d{17,19})/);
+          if (userMatch) {
+            userId = userMatch[1];
+          } else if (message.mentions.users.size > 0) {
+            userId = message.mentions.users.first().id;
+          }
+
+          if (!userId) {
+            return { success: false, response: "❌ Please specify a valid user to kick" };
+          }
+
+          if (userId === message.client.user?.id) {
+            return { success: false, response: "❌ I cannot kick myself!" };
+          }
+
+          const reasonMatch = commandOutput.match(/reason:?\s*(.+)/) || 
+                             commandOutput.match(/for\s+(.+)/);
+          const reason = reasonMatch ? reasonMatch[1] : 'No reason provided';
+
+          const member = await message.guild.members.fetch(userId);
+          await member.kick(`${reason} (Kicked by ${message.author.username})`);
+          
+          return {
+            success: true,
+            response: `👢 **User kicked**\n**User:** ${member.displayName}\n**Reason:** ${reason}\n**Kicked by:** ${message.author.username}`
+          };
+        } catch (error) {
+          return { success: false, response: `❌ Failed to kick user: ${error.message}` };
+        }
+
+      case 'warn':
+        try {
+          // Extract user ID
+          let userId = null;
+          const userMatch = commandOutput.match(/<@!?(\d+)>/) || commandOutput.match(/(\d{17,19})/);
+          if (userMatch) {
+            userId = userMatch[1];
+          } else if (message.mentions.users.size > 0) {
+            userId = message.mentions.users.first().id;
+          }
+
+          if (!userId) {
+            return { success: false, response: "❌ Please specify a valid user to warn" };
+          }
+
+          if (userId === message.client.user?.id) {
+            return { success: false, response: "❌ I cannot warn myself!" };
+          }
+
+          const reasonMatch = commandOutput.match(/reason:?\s*(.+)/) || 
+                             commandOutput.match(/for\s+(.+)/);
+          const reason = reasonMatch ? reasonMatch[1] : 'Please follow server rules';
+
+          // Try to get display name
+          let displayName = `<@${userId}>`;
+          try {
+            const targetUser = await message.guild.members.fetch(userId);
+            displayName = targetUser.displayName;
+          } catch (error) {
+            // Use mention as fallback
+          }
+          
+          return {
+            success: true,
+            response: `⚠️ **Warning issued to ${displayName}**\n**Reason:** ${reason}\n**Issued by:** ${message.author.username}`
+          };
+        } catch (error) {
+          return { success: false, response: `❌ Failed to warn user: ${error.message}` };
+        }
+
+      case 'mute':
+        try {
+          if (!botMember.permissions.has('ModerateMembers')) {
+            return { success: false, response: "❌ I don't have permission to timeout members" };
+          }
+
+          // Extract user ID
+          let userId = null;
+          const userMatch = commandOutput.match(/<@!?(\d+)>/) || commandOutput.match(/(\d{17,19})/);
+          if (userMatch) {
+            userId = userMatch[1];
+          } else if (message.mentions.users.size > 0) {
+            userId = message.mentions.users.first().id;
+          }
+
+          if (!userId) {
+            return { success: false, response: "❌ Please specify a valid user to mute" };
+          }
+
+          if (userId === message.client.user?.id) {
+            return { success: false, response: "❌ I cannot mute myself!" };
+          }
+
+          // Extract duration (default 10 minutes)
+          const durationMatch = commandOutput.match(/(\d+)\s*([mhd])/i);
+          let duration = 10 * 60 * 1000; // 10 minutes default
+          
+          if (durationMatch) {
+            const amount = parseInt(durationMatch[1]);
+            const unit = durationMatch[2].toLowerCase();
+            switch (unit) {
+              case 'm': duration = amount * 60 * 1000; break;
+              case 'h': duration = amount * 60 * 60 * 1000; break;
+              case 'd': duration = amount * 24 * 60 * 60 * 1000; break;
+            }
+          }
+
+          const reasonMatch = commandOutput.match(/reason:?\s*(.+)/) || 
+                             commandOutput.match(/for\s+(.+)/);
+          const reason = reasonMatch ? reasonMatch[1] : 'No reason provided';
+
+          const member = await message.guild.members.fetch(userId);
+          const timeoutUntil = new Date(Date.now() + duration);
+          
+          await member.timeout(duration, `${reason} (Muted by ${message.author.username})`);
+          
+          return {
+            success: true,
+            response: `🔇 **User muted**\n**User:** ${member.displayName}\n**Duration:** until ${timeoutUntil.toLocaleString()}\n**Reason:** ${reason}\n**Muted by:** ${message.author.username}`
+          };
+        } catch (error) {
+          return { success: false, response: `❌ Failed to mute user: ${error.message}` };
+        }
+
+      case 'server-info':
+      case 'serverinfo':
+        try {
+          const guild = message.guild;
+          if (!guild) {
+            return { success: false, response: "❌ This command can only be used in a server" };
+          }
+          
+          const info = `📊 **Server Information**
+**Name:** ${guild.name}
+**Members:** ${guild.memberCount}
+**Created:** ${guild.createdAt.toDateString()}
+**Owner:** ${guild.ownerId ? `<@${guild.ownerId}>` : 'Unknown'}`;
+          
+          return { success: true, response: info };
+        } catch (error) {
+          return { success: false, response: `❌ Failed to get server info: ${error.message}` };
+        }
+
+      default:
+        // For unknown commands, return the original fake execution message
+        return {
+          success: true,
+          response: `✅ Executing ${mappingName}: ${commandOutput}`
+        };
+    }
+
+  } catch (error) {
+    return {
+      success: false,
+      response: `❌ Error executing command: ${error.message}`
+    };
+  }
+}
