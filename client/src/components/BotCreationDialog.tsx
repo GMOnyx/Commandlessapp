@@ -160,20 +160,10 @@ export default function BotCreationDialog({ open, onOpenChange }: BotCreationDia
     },
   });
   
-  // Reset validation when token changes (DISABLED to fix bot creation)
+  // Simple token change handler (NO VALIDATION to prevent blocking)
   const handleTokenChange = (value: string) => {
     form.setValue("token", value);
-    // COMPLETELY DISABLE frontend validation to prevent blocking bot creation
     setTokenValidation({ isValidating: false });
-    
-    // Show simple length feedback without API calls
-    if (form.getValues("platformType") === "discord" && value.length > 0) {
-      if (value.length < 50) {
-        setTokenValidation({ valid: undefined, message: "Keep typing... Discord tokens are usually 59+ characters" });
-      } else {
-        setTokenValidation({ valid: undefined, message: "Ready to validate when you click Connect Bot" });
-      }
-    }
   };
   
   // Handle form submission
@@ -259,6 +249,8 @@ export default function BotCreationDialog({ open, onOpenChange }: BotCreationDia
                             <CheckCircle className="h-4 w-4 text-green-500" />
                           ) : tokenValidation.valid === false ? (
                             <XCircle className="h-4 w-4 text-red-500" />
+                          ) : field.value.length > 50 ? (
+                            <CheckCircle className="h-4 w-4 text-blue-500" />
                           ) : null}
                         </div>
                       )}
