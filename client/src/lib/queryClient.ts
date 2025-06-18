@@ -9,7 +9,7 @@ let globalTokenGetter: (() => Promise<string | null>) | null = null;
 function getApiBaseUrl(): string {
   // FORCE: Always use the working Vercel deployment URL with proper API endpoints
   // This ensures we hit the Vercel serverless functions that support PUT/DELETE
-  const WORKING_VERCEL_URL = 'https://commandlessapp-4qffwwn39-abdarrahmans-projects.vercel.app';
+  const WORKING_VERCEL_URL = 'https://commandlessapp-2dx8ho2sj-abdarrahmans-projects.vercel.app';
   
   console.log('🔗 API Base URL (FORCED TO VERCEL):', WORKING_VERCEL_URL);
   return WORKING_VERCEL_URL;
