@@ -160,14 +160,51 @@ export default function BotCreationDialog({ open, onOpenChange }: BotCreationDia
     },
   });
   
-  // Simple token change handler (NO VALIDATION to prevent blocking)
+  // Simple token validation with feedback
   const handleTokenChange = (value: string) => {
     form.setValue("token", value);
-    setTokenValidation({ isValidating: false });
+    
+    // Provide simple visual feedback based on token format
+    if (form.getValues("platformType") === "discord" && value.length > 0) {
+      const cleanToken = value.trim();
+      if (cleanToken.length < 50) {
+        setTokenValidation({ 
+          valid: false, 
+          message: "Token appears too short. Discord bot tokens are typically 59+ characters.",
+          isValidating: false 
+        });
+      } else if (!/^[A-Za-z0-9._-]+$/.test(cleanToken)) {
+        setTokenValidation({ 
+          valid: false, 
+          message: "Token contains invalid characters. Only letters, numbers, dots, underscores, and hyphens are allowed.",
+          isValidating: false 
+        });
+      } else {
+        setTokenValidation({ 
+          valid: true, 
+          message: "✅ Token format looks good! It will be validated when creating the bot.",
+          isValidating: false 
+        });
+      }
+    } else {
+      setTokenValidation({ isValidating: false });
+    }
   };
   
-  // Handle form submission
+  // Handle form submission with data validation
   const onSubmit = (data: z.infer<typeof formSchema>) => {
+    console.log('Form data being submitted:', data);
+    
+    // Ensure all required fields are present
+    if (!data.botName || !data.platformType || !data.token) {
+      toast({
+        title: "Missing Required Fields",
+        description: "Please fill in bot name, platform, and token.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     createBotMutation.mutate(data);
   };
 
@@ -238,7 +275,8 @@ export default function BotCreationDialog({ open, onOpenChange }: BotCreationDia
                       {...field} 
                         onChange={(e) => {
                           field.onChange(e);
-                          handleTokenChange(e.target.value);
+                          // No validation to prevent blocking bot creation
+                          setTokenValidation({ isValidating: false });
                         }}
                       />
                       {form.watch("platformType") === "discord" && field.value && (

@@ -419,9 +419,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (req.method === 'POST' && !action) {
       // Create new bot
+      console.log('🔍 BOT CREATION DEBUG:');
+      console.log('📋 Request body:', req.body);
+      console.log('📊 Content-Type:', req.headers['content-type']);
+      
       const { botName, platformType, token, personalityContext } = req.body;
       
+      console.log('📤 Extracted fields:', {
+        botName: !!botName,
+        platformType: !!platformType,
+        token: !!token,
+        personalityContext: !!personalityContext,
+        tokenLength: token?.length
+      });
+      
       if (!botName || !platformType || !token) {
+        console.log('❌ Missing fields detected:', {
+          missingBotName: !botName,
+          missingPlatformType: !platformType,
+          missingToken: !token
+        });
         return res.status(400).json({ error: 'Missing required fields' });
       }
 
