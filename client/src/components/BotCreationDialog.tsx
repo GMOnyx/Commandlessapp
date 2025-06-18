@@ -39,11 +39,6 @@ interface BotCreationDialogProps {
 }
 
 export default function BotCreationDialog({ open, onOpenChange }: BotCreationDialogProps) {
-  const [tokenValidation, setTokenValidation] = useState<{
-    valid?: boolean;
-    message?: string;
-    isValidating: boolean;
-  }>({ isValidating: false });
   const { toast } = useToast();
   const queryClient = useQueryClient();
   
@@ -69,6 +64,13 @@ export default function BotCreationDialog({ open, onOpenChange }: BotCreationDia
       personalityContext: "",
     },
   });
+  
+  // Token validation state (simplified - now just for UI feedback)
+  const [tokenValidation, setTokenValidation] = useState<{
+    isValidating?: boolean;
+    valid?: boolean;
+    message?: string;
+  }>({ isValidating: false });
   
   // Create bot mutation
   const createBotMutation = useMutation({
@@ -115,6 +117,21 @@ export default function BotCreationDialog({ open, onOpenChange }: BotCreationDia
                 errorMessage = "This Discord bot token is already in use";
                 errorDetails = "Each Discord bot can only be connected to one account.";
                 errorSuggestion = "Please create a new Discord bot or use a different token.";
+              }
+            }
+          } else if (error.message.includes("400:")) {
+            // Handle 400 validation errors (including Discord token validation)
+            const validationMatch = error.message.match(/400:\s*(.+)/);
+            if (validationMatch) {
+              try {
+                const validationData = JSON.parse(validationMatch[1]);
+                errorMessage = validationData.error || "Validation error";
+                errorDetails = validationData.details || "";
+                errorSuggestion = validationData.suggestion || "";
+              } catch {
+                errorMessage = "Invalid bot token or configuration";
+                errorDetails = "Please check your bot token and try again.";
+                errorSuggestion = "Ensure you copied the complete token from the Discord Developer Portal.";
               }
             }
           } else {
