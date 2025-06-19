@@ -49,6 +49,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     'https://commandlessapp-qn50zakom-abdarrahmans-projects.vercel.app',
     'https://commandlessapp-40l7ovw7p-abdarrahmans-projects.vercel.app',
     'https://commandlessapp-f5ix77a2j-abdarrahmans-projects.vercel.app',
+    'https://commandlessapp-ndfe0i7p5-abdarrahmans-projects.vercel.app',
     'http://localhost:5173'
   ];
   
