@@ -1,31 +1,18 @@
 {
   "version": 2,
-  "builds": [
+  "functions": {
+    "api/**/*.ts": {
+      "runtime": "@vercel/node@3"
+    }
+  },
+  "rewrites": [
     {
-      "src": "api/**/*.ts",
-      "use": "@vercel/node"
+      "source": "/api/(.*)",
+      "destination": "/api/$1"
     },
     {
-      "src": "package.json",
-      "use": "@vercel/static-build",
-      "config": {
-        "distDir": "dist"
-      }
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
-  ],
-  "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "/api/$1"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/index.html"
-    }
-  ],
-  "env": {
-    "NODE_ENV": "production",
-    "USE_SUPABASE": "true",
-    "SKIP_SAMPLE_DATA": "true"
-  }
+  ]
 } 
