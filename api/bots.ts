@@ -189,11 +189,12 @@ export default async function handler(req: any, res: any) {
                 ...updatedBot.data,
                 autoStarted: true,
                 startupMethod: startupResult.method,
-                message: `Bot connected and automatically started using ${startupResult.method}!`
+                message: `Bot connected and automatically started using ${startupResult.method}!`,
+                status: 'live'
               });
             } else {
               // Auto-start failed, but provide client code for manual startup
-              console.log(`⚠️ Discord bot ${bot.bot_name} connected but requires manual startup`);
+              console.log(`⚠️ Discord bot ${bot.bot_name} connected but requires manual deployment`);
               
               return res.json({
                 ...updatedBot.data,
@@ -201,7 +202,15 @@ export default async function handler(req: any, res: any) {
                 requiresManualStart: true,
                 clientCode: startupResult.clientCode,
                 instructions: startupResult.instructions,
-                message: startupResult.message || 'Bot connected! Please run the provided client code to start your Discord bot.'
+                deploymentRequired: true,
+                status: 'needs_deployment',
+                message: '⚠️ Bot configured but not deployed! Discord bots need persistent hosting.',
+                troubleshooting: [
+                  '🔧 Vercel (serverless) cannot run persistent Discord bots',
+                  '🚂 Deploy to Railway/Render for automatic hosting',
+                  '💻 Or run the generated client code locally',
+                  '📋 Bot will only respond when the client is running'
+                ]
               });
             }
           }

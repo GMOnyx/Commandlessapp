@@ -14,8 +14,17 @@ import {
   AlertDialogTitle,
   AlertDialogDescription,
   AlertDialogFooter,
-  AlertDialogAction
+  AlertDialogAction,
+  AlertDialogCancel
 } from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
+import { MoreVertical, Edit, Trash2 } from "lucide-react";
 import BotCreationDialog from "@/components/BotCreationDialog";
 
 interface ConnectionCardProps {
@@ -28,6 +37,8 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
   const { toast } = useToast();
   const [showErrorDialog, setShowErrorDialog] = useState(false);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showEditDialog, setShowEditDialog] = useState(false);
   const [errorDetails, setErrorDetails] = useState<{
     message: string;
     troubleshooting?: string[];
@@ -40,9 +51,9 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
   
   const connectMutation = useMutation({
     mutationFn: async () => {
-      await apiRequest(`/api/bots?action=connect`, { 
-        method: "POST",
-        body: JSON.stringify({ botId: bot.id })
+      await apiRequest(`/api/bots`, {
+        method: "PUT",
+        body: JSON.stringify({ action: "connect", botId: bot.id }),
       });
     },
     onSuccess: () => {
@@ -54,68 +65,36 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
     },
     onError: (error: any) => {
       // Try to parse the error response for detailed information
-      let errorMessage = `Failed to connect ${bot.botName}`;
-      let troubleshooting: string[] | undefined;
-      let details: string | undefined;
+      let errorMessage = "Failed to connect bot";
+      let troubleshooting: string[] = [];
+      let details = "";
       
-      if (error instanceof Error) {
-        try {
-          // Check if the error has structured data
-          const errorText = error.message;
-          
-          // Extract JSON from error message if present
-          const jsonMatch = errorText.match(/\{.*\}/);
-          if (jsonMatch) {
-            const errorData = JSON.parse(jsonMatch[0]);
-            errorMessage = errorData.message || errorMessage;
-            troubleshooting = errorData.troubleshooting;
-            details = errorData.details;
-          } else {
-            // Handle cases where the error message contains the structured response
-            if (errorText.includes("500:") || errorText.includes("400:")) {
-              const responseMatch = errorText.match(/(?:500|400):\s*(.+)/);
-              if (responseMatch) {
-                try {
-                  const responseData = JSON.parse(responseMatch[1]);
-                  errorMessage = responseData.message || errorMessage;
-                  troubleshooting = responseData.troubleshooting;
-                  details = responseData.details;
-                } catch {
-                  errorMessage = responseMatch[1];
-                }
-              }
-            } else {
-              errorMessage = errorText;
-            }
-          }
-        } catch {
-          errorMessage = error.message;
+      try {
+        if (error instanceof Error) {
+          const errorData = JSON.parse(error.message);
+          errorMessage = errorData.error || errorMessage;
+          troubleshooting = errorData.troubleshooting || [];
+          details = errorData.details || "";
         }
+      } catch {
+        // If parsing fails, use the error message directly
+        errorMessage = error instanceof Error ? error.message : errorMessage;
       }
       
-      // Show detailed error information if available
-      if (troubleshooting && troubleshooting.length > 0) {
-        setErrorDetails({
-          message: errorMessage,
-          troubleshooting,
-          details
-        });
-        setShowErrorDialog(true);
-      } else {
-      toast({
-        title: "Error",
-          description: errorMessage,
-        variant: "destructive",
+      setErrorDetails({
+        message: errorMessage,
+        troubleshooting,
+        details
       });
-      }
+      setShowErrorDialog(true);
     },
   });
   
   const disconnectMutation = useMutation({
     mutationFn: async () => {
-      await apiRequest(`/api/bots?action=disconnect`, {
-        method: "POST",
-        body: JSON.stringify({ botId: bot.id }),
+      await apiRequest(`/api/bots`, {
+        method: "PUT", 
+        body: JSON.stringify({ action: "disconnect", botId: bot.id }),
       });
     },
     onSuccess: () => {
@@ -129,6 +108,29 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
       toast({
         title: "Error",
         description: `Failed to disconnect ${bot.botName}. ${error instanceof Error ? error.message : ''}`,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest(`/api/bots/${bot.id}`, {
+        method: "DELETE",
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/bots"] });
+      toast({
+        title: "Success",
+        description: `${bot.botName} has been deleted successfully.`,
+      });
+      setShowDeleteDialog(false);
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: `Failed to delete ${bot.botName}. ${error instanceof Error ? error.message : ''}`,
         variant: "destructive",
       });
     },
@@ -212,6 +214,28 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
               </dd>
             </dl>
           </div>
+          <div className="ml-4">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                  <MoreVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => setShowEditDialog(true)}>
+                  <Edit className="mr-2 h-4 w-4" />
+                  Edit
+                </DropdownMenuItem>
+                <DropdownMenuItem 
+                  onClick={() => setShowDeleteDialog(true)}
+                  className="text-red-600 focus:text-red-600"
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </CardContent>
       <CardFooter className="bg-gray-50 px-5 py-3 border-t border-gray-200">
@@ -236,49 +260,67 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
         </div>
       </CardFooter>
     </Card>
-      
-      <AlertDialog open={showErrorDialog} onOpenChange={setShowErrorDialog}>
-        <AlertDialogContent className="max-w-md">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Connection Failed</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-3">
-                <p>{errorDetails.message}</p>
-                
-                {errorDetails.troubleshooting && (
-                  <div>
-                    <p className="font-medium text-sm">Troubleshooting steps:</p>
-                    <ul className="list-disc list-inside text-sm space-y-1 mt-1">
-                      {errorDetails.troubleshooting.map((step, index) => (
-                        <li key={index}>{step}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                
-                {errorDetails.details && (
-                  <div>
-                    <p className="font-medium text-sm">Technical details:</p>
-                    <p className="text-xs text-gray-600 mt-1 font-mono bg-gray-100 p-2 rounded">
-                      {errorDetails.details}
-                    </p>
-                  </div>
-                )}
-                
-                <div className="text-sm text-blue-600">
-                  <p className="font-medium">Need help?</p>
-                  <p>Visit the <a href="https://discord.com/developers/applications" target="_blank" rel="noopener noreferrer" className="underline">Discord Developer Portal</a> to check your bot settings.</p>
-                </div>
+
+    {/* Error Dialog */}
+    <AlertDialog open={showErrorDialog} onOpenChange={setShowErrorDialog}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Connection Failed</AlertDialogTitle>
+          <AlertDialogDescription className="space-y-3">
+            <p>{errorDetails.message}</p>
+            {errorDetails.details && (
+              <div className="bg-gray-50 p-3 rounded-md">
+                <p className="text-sm text-gray-600">{errorDetails.details}</p>
               </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogAction onClick={() => setShowErrorDialog(false)}>
-              Got it
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+            )}
+            {errorDetails.troubleshooting && errorDetails.troubleshooting.length > 0 && (
+              <div>
+                <p className="font-medium text-sm mb-2">Troubleshooting steps:</p>
+                <ul className="text-sm text-gray-600 list-disc list-inside space-y-1">
+                  {errorDetails.troubleshooting.map((step, index) => (
+                    <li key={index}>{step}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogAction onClick={() => setShowErrorDialog(false)}>
+            OK
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
+    {/* Delete Confirmation Dialog */}
+    <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete Bot Connection</AlertDialogTitle>
+          <AlertDialogDescription>
+            Are you sure you want to delete "{bot.botName}"? This will also delete all associated command mappings. This action cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={() => deleteMutation.mutate()}
+            disabled={deleteMutation.isPending}
+            className="bg-red-600 hover:bg-red-700"
+          >
+            {deleteMutation.isPending ? "Deleting..." : "Delete"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
+    {/* Edit Dialog */}
+    <BotCreationDialog 
+      open={showEditDialog} 
+      onOpenChange={setShowEditDialog}
+      editBot={bot}
+    />
     </>
   );
 }

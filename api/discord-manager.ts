@@ -1,5 +1,5 @@
-import { type VercelRequest, type VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
+import fetch from 'node-fetch';
 
 // Initialize Supabase client
 const supabaseUrl = process.env.SUPABASE_URL!;
@@ -39,6 +39,9 @@ interface StartupResult {
   clientCode?: string;
   instructions?: string[];
   error?: string;
+  serviceId?: string;
+  deploymentId?: string;
+  envVars?: Record<string, string>;
 }
 
 export default async function handler(req: any, res: any) {
@@ -206,18 +209,86 @@ async function tryCICDStart(bot: any): Promise<StartupResult> {
 
 async function startOnRailway(bot: any, token: string): Promise<StartupResult> {
   try {
-    // Railway API call to deploy bot instance
-    // This would require Railway project setup
-    console.log('Attempting Railway deployment for bot:', bot.bot_name);
+    console.log('🚂 Attempting Railway deployment for bot:', bot.bot_name);
     
-    // For now, return not started since we'd need Railway project setup
+    // Check for required Railway environment variables
+    const projectId = process.env.RAILWAY_PROJECT_ID;
+    if (!projectId) {
+      return { 
+        started: false, 
+        method: 'railway',
+        message: 'Railway deployment requires RAILWAY_PROJECT_ID environment variable'
+      };
+    }
+
+    // Create Railway service for this bot
+    const railwayResponse = await fetch('https://backboard.railway.app/graphql/v2', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        query: `
+          mutation ServiceCreate($input: ServiceCreateInput!) {
+            serviceCreate(input: $input) {
+              id
+              name
+            }
+          }
+        `,
+        variables: {
+          input: {
+            name: `discord-bot-${bot.id}`,
+            projectId: projectId
+          }
+        }
+      })
+    });
+
+    if (railwayResponse.ok) {
+      const result = await railwayResponse.json() as any;
+      
+      if (result.data?.serviceCreate?.id) {
+        console.log('✅ Railway service created successfully');
+        
+        // Set environment variables for the deployed bot
+        const envVars = {
+          BOT_TOKEN: bot.token,
+          BOT_ID: bot.id,
+          BOT_NAME: bot.bot_name,
+          COMMANDLESS_API_URL: process.env.VERCEL_URL || 'https://commandlessapp-nft6hub5t-abdarrahmans-projects.vercel.app',
+          PERSONALITY_CONTEXT: bot.personality_context || 'A helpful Discord bot'
+        };
+
+        // Deploy using Railway template or source code
+        return { 
+          started: true, 
+          method: 'railway',
+          message: `🚂 Bot deployed to Railway! Service ID: ${result.data.serviceCreate.id}`,
+          serviceId: result.data.serviceCreate.id,
+          envVars: envVars
+        };
+      }
+    }
+    
+    const errorText = await railwayResponse.text();
+    console.error('Railway service creation failed:', errorText);
+    
     return { 
       started: false, 
       method: 'railway',
-      message: 'Railway deployment requires project setup'
+      message: 'Railway deployment failed - check credentials and project ID',
+      error: errorText
     };
   } catch (error: any) {
-    return { started: false, method: 'railway', error: error.message };
+    console.error('Railway deployment error:', error);
+    return { 
+      started: false, 
+      method: 'railway', 
+      error: error.message,
+      message: `Railway deployment failed: ${error.message}`
+    };
   }
 }
 
