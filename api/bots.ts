@@ -865,101 +865,112 @@ export default async function handler(req: any, res: any) {
 // DISCORD COMMAND DISCOVERY SYSTEM (migrated from server)
 async function discoverAndSyncCommands(botToken: string, botId: string, userId: string, forceRefresh: boolean = false) {
   try {
-    // Fetch application commands from Discord API
-    const response = await fetch('https://discord.com/api/v10/applications/@me/commands', {
+    // Get application info to determine if we have the right permissions
+    const appResponse = await fetch('https://discord.com/api/v10/applications/@me', {
       headers: {
         'Authorization': `Bot ${botToken}`,
         'Content-Type': 'application/json'
       }
     });
 
-    if (!response.ok) {
-      throw new Error(`Discord API error: ${response.status} ${response.statusText}`);
+    if (!appResponse.ok) {
+      throw new Error(`Failed to get application info: ${appResponse.status}`);
     }
 
-    const commands = await response.json();
-    
-    if (!Array.isArray(commands)) {
-      return {
-        success: false,
-        error: 'Invalid response from Discord API',
-        discoveredCommands: [],
-        createdMappings: 0
-      };
-    }
-
-    // If forceRefresh, delete existing mappings
-    if (forceRefresh) {
-      await supabase
-        .from('command_mappings')
-        .delete()
-        .eq('bot_id', botId)
-        .eq('user_id', userId);
-    }
-
-    let createdMappings = 0;
-    const discoveredCommands: any[] = [];
-
-    for (const command of commands) {
-      // Check if mapping already exists
-      const { data: existingMapping } = await supabase
+    // Check if we already have commands for this bot (unless forcing refresh)
+    if (!forceRefresh) {
+      const { data: existingMappings } = await supabase!
         .from('command_mappings')
         .select('id')
         .eq('bot_id', botId)
-        .eq('user_id', userId)
-        .eq('discord_command_id', command.id)
-        .single();
+        .limit(1);
 
-      if (existingMapping && !forceRefresh) {
-        continue; // Skip if already exists and not force refreshing
+      if (existingMappings && existingMappings.length > 0) {
+        console.log('✅ Commands already exist for bot, skipping discovery');
+        return { success: true, message: 'Commands already synced', commandCount: existingMappings.length };
       }
-
-      // Generate natural language patterns and command output
-      const patterns = generateNaturalLanguagePatterns(command);
-      const commandOutput = generateCommandOutput(command);
-
-      // Create command mapping
-      const { error } = await supabase
-        .from('command_mappings')
-        .insert({
-          user_id: userId,
-          bot_id: botId,
-          name: command.name,
-          natural_language_pattern: patterns.primary,
-          command_output: commandOutput,
-          discord_command_id: command.id,
-          description: command.description || `Discord command: ${command.name}`,
-          status: 'active'
-        });
-
-      if (!error) {
-        createdMappings++;
-      }
-
-      discoveredCommands.push({
-        id: command.id,
-        name: command.name,
-        description: command.description,
-        options: command.options || [],
-        patterns: patterns,
-        commandOutput: commandOutput
-      });
     }
 
-    return {
-      success: true,
-      discoveredCommands,
-      createdMappings,
-      totalCommands: commands.length
+    // Get global application commands
+    const commandsResponse = await fetch('https://discord.com/api/v10/applications/@me/commands', {
+      headers: {
+        'Authorization': `Bot ${botToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!commandsResponse.ok) {
+      throw new Error(`Failed to fetch commands: ${commandsResponse.status}`);
+    }
+
+    const commands = await commandsResponse.json();
+    console.log(`🔍 Discovered ${commands.length} commands for bot ${botId}`);
+
+    if (commands.length === 0) {
+      return { success: true, message: 'No commands found to sync', commandCount: 0 };
+    }
+
+    // Create command mappings for each discovered command
+    const commandMappings = [];
+    
+    for (const command of commands) {
+      // Generate natural language patterns for this command
+      const patterns = generateNaturalLanguagePatterns(command);
+      const commandOutput = generateCommandOutput(command);
+      
+      for (const pattern of patterns) {
+        commandMappings.push({
+          bot_id: botId,
+          user_id: userId,
+          name: `${command.name} - ${pattern.split(' ').slice(0, 3).join(' ')}`,
+          natural_language_pattern: pattern,
+          command_output: commandOutput,
+          status: 'active'
+        });
+      }
+    }
+
+    // Insert all command mappings
+    const { data: insertedMappings, error: insertError } = await supabase!
+      .from('command_mappings')
+      .insert(commandMappings)
+      .select();
+
+    if (insertError) {
+      console.error('Error inserting command mappings:', insertError);
+      throw insertError;
+    }
+
+    console.log(`✅ Successfully synced ${insertedMappings.length} command patterns for bot ${botId}`);
+
+    // Log the sync activity
+    await supabase!
+      .from('activities')
+      .insert({
+        user_id: userId,
+        activity_type: 'commands_synced',
+        description: `Automatically synced ${commands.length} Discord commands`,
+        metadata: { 
+          botId,
+          commandCount: commands.length,
+          patternCount: insertedMappings.length,
+          forceRefresh 
+        }
+      });
+
+    return { 
+      success: true, 
+      message: `Successfully synced ${commands.length} commands with ${insertedMappings.length} patterns`,
+      commandCount: commands.length,
+      patternCount: insertedMappings.length
     };
 
   } catch (error) {
     console.error('Command discovery error:', error);
-    return {
-      success: false,
-      error: error.message,
-      discoveredCommands: [],
-      createdMappings: 0
+    return { 
+      success: false, 
+      message: `Failed to sync commands: ${(error as Error).message}`,
+      error: (error as Error).message
     };
   }
 }
