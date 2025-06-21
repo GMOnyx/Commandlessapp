@@ -43,6 +43,7 @@ async function processMessageWithAI(
   conversationalResponse?: string;
 }> {
   try {
+    console.log(`🤖 Processing message with AI: "${message}" for bot ${botId}`);
     const lowerMessage = message.toLowerCase();
     
     // Get command mappings for this bot (auto-discovered commands)
@@ -52,6 +53,8 @@ async function processMessageWithAI(
       .eq('bot_id', botId)
       .eq('user_id', userId)
       .eq('status', 'active');
+    
+    console.log(`📋 Found ${commandMappings?.length || 0} command mappings for bot ${botId}`);
     
     if (commandMappings && commandMappings.length > 0) {
       // Use advanced AI matching with discovered commands
@@ -63,6 +66,8 @@ async function processMessageWithAI(
         // Use Gemini to generate natural response
         const naturalResponse = await generateNaturalResponse(message, bestMatch.command, bestMatch.params);
         
+        console.log(`✅ AI matched command: ${commandName} with confidence ${bestMatch.confidence}`);
+        
         return {
           response: naturalResponse || `Executing ${commandName} command with confidence ${(bestMatch.confidence * 100).toFixed(1)}%`,
           shouldExecute: true,
@@ -73,6 +78,7 @@ async function processMessageWithAI(
     
     // Check if this is a conversational input that shouldn't trigger commands
     if (isConversationalInput(message)) {
+      console.log('💬 Detected conversational input, generating friendly response');
       const conversationalResponse = await generateConversationalResponse(message, context, conversationContext);
       return {
         response: conversationalResponse,
@@ -84,6 +90,7 @@ async function processMessageWithAI(
     // Check if user needs clarification
     const clarification = await checkForClarificationNeed(message, commandMappings || []);
     if (clarification) {
+      console.log('❓ Requesting clarification from user');
       return {
         response: clarification,
         shouldExecute: false,
@@ -92,7 +99,15 @@ async function processMessageWithAI(
       };
     }
     
-    // Fallback to basic patterns if no discovered commands match
+    // Improved fallback patterns if no discovered commands match
+    if (lowerMessage.includes('ping')) {
+      console.log('🏓 Responding to ping command');
+      return {
+        response: "Pong! 🏓 I'm online and ready to help. My AI processing is working correctly!",
+        shouldExecute: false
+      };
+    }
+    
     if (lowerMessage.includes('ban') && lowerMessage.includes('@')) {
       const username = message.match(/@(\w+)/)?.[1];
       return {
@@ -121,6 +136,7 @@ async function processMessageWithAI(
     }
     
     if (lowerMessage.includes('hello') || lowerMessage.includes('hi')) {
+      console.log('👋 Responding to greeting');
       return {
         response: "Hello! I'm a Discord bot powered by Commandless AI. You can give me natural language commands and I'll execute them intelligently.",
         shouldExecute: false,
@@ -129,6 +145,7 @@ async function processMessageWithAI(
     }
     
     if (lowerMessage.includes('help')) {
+      console.log('❓ Providing help information');
       // Show available commands from discovery
       if (commandMappings && commandMappings.length > 0) {
         const commands = commandMappings.map(cmd => extractCommandName(cmd.command_output)).slice(0, 5);
@@ -138,21 +155,22 @@ async function processMessageWithAI(
         };
       } else {
         return {
-          response: "I can help with Discord moderation! Try commands like:\n• 'ban @user for spam'\n• 'kick @user breaking rules'\n• 'warn @user please follow guidelines'",
+          response: "I can help with Discord moderation! I'm powered by AI and can understand natural language. Try commands like:\n• 'ping' - test if I'm working\n• 'help' - show this message\n• Just mention me and ask me to do something!",
           shouldExecute: false
         };
       }
     }
     
+    console.log('🤷 No specific command detected, providing default response');
     return {
-      response: "I understand you mentioned me, but I'm not sure what you'd like me to do. Try asking for 'help' to see what I can do!",
+      response: "I hear you! I'm an AI Discord bot and I'm working properly. Try asking for 'help' or give me a specific command like 'ping'. 🤖",
       shouldExecute: false
     };
     
   } catch (error) {
-    console.error('AI processing error:', error);
+    console.error('❌ AI processing error:', error);
     return {
-      response: "Sorry, I encountered an error processing your message.",
+      response: "I'm having a bit of trouble processing that right now, but I'm here and listening! Try asking for 'help' or 'ping'. 🤖",
       shouldExecute: false
     };
   }

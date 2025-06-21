@@ -40,9 +40,9 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
   
   const connectMutation = useMutation({
     mutationFn: async () => {
-      await apiRequest(`/api/bots`, {
-        method: "PUT",
-        body: JSON.stringify({ action: "connect", botId: bot.id }),
+      await apiRequest(`/api/bots?action=connect`, { 
+        method: "POST",
+        body: JSON.stringify({ botId: bot.id })
       });
     },
     onSuccess: () => {
@@ -113,9 +113,9 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
   
   const disconnectMutation = useMutation({
     mutationFn: async () => {
-      await apiRequest(`/api/bots`, {
-        method: "PUT", 
-        body: JSON.stringify({ action: "disconnect", botId: bot.id }),
+      await apiRequest(`/api/bots?action=disconnect`, {
+        method: "POST",
+        body: JSON.stringify({ botId: bot.id }),
       });
     },
     onSuccess: () => {

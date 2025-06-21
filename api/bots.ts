@@ -47,13 +47,13 @@ export default async function handler(req: any, res: any) {
   if (isAllowedOrigin) {
     res.setHeader('Access-Control-Allow-Origin', origin);
   } else {
-    res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Origin', '*');
   }
   
   res.setHeader('Access-Control-Allow-Methods', 'GET, PUT, DELETE, OPTIONS, POST');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
-
+  
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
