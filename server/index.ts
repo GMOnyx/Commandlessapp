@@ -1,6 +1,5 @@
 import 'dotenv/config';
 import express, { type Request, Response, NextFunction } from "express";
-import cors from 'cors';
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { setupSampleData } from "./setupSampleData";
@@ -8,47 +7,39 @@ import { initSupabase } from "./supabase";
 import { resetData } from "./resetData";
 import { validateEncryptionSetup } from "./utils/encryption";
 import { validateGeminiConfig } from "./gemini/client";
-import { getConfig } from "./config/production";
 
 const app = express();
+app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
 
-// Load dynamic configuration
-const config = getConfig();
-
-// CORS Configuration - Use dynamic allowed origins
-app.use(cors({
-  origin: config.server.allowedOrigins,
-  credentials: true,
-}));
-
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ extended: true, limit: "50mb" }));
-
-// Add request logging for debugging
 app.use((req, res, next) => {
-  if (config.features.enableDebugLogging) {
-    log(`${req.method} ${req.path}`, 'debug');
-  }
+  const start = Date.now();
+  const path = req.path;
+  let capturedJsonResponse: Record<string, any> | undefined = undefined;
+
+  const originalResJson = res.json;
+  res.json = function (bodyJson, ...args) {
+    capturedJsonResponse = bodyJson;
+    return originalResJson.apply(res, [bodyJson, ...args]);
+  };
+
+  res.on("finish", () => {
+    const duration = Date.now() - start;
+    if (path.startsWith("/api")) {
+      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
+      if (capturedJsonResponse) {
+        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+      }
+
+      if (logLine.length > 80) {
+        logLine = logLine.slice(0, 79) + "…";
+      }
+
+      log(logLine);
+    }
+  });
+
   next();
-});
-
-// Health check endpoint
-app.get('/health', (_req, res) => {
-  res.json({ 
-    status: 'healthy', 
-    timestamp: new Date().toISOString(),
-    environment: config.server.environment,
-    port: config.server.port
-  });
-});
-
-// Root endpoint
-app.get('/', (_req, res) => {
-  res.json({ 
-    message: 'Commandless API', 
-    environment: config.server.environment,
-    timestamp: new Date().toISOString()
-  });
 });
 
 (async () => {
@@ -58,7 +49,7 @@ app.get('/', (_req, res) => {
   validateGeminiConfig();
   
   // Initialize Supabase if enabled
-  if (config.database.useSupabase) {
+  if (process.env.USE_SUPABASE === 'true') {
     try {
       await initSupabase();
     } catch (error) {
@@ -69,15 +60,15 @@ app.get('/', (_req, res) => {
   }
   
   // Reset all data if requested
-  if (config.features.resetData) {
+  if (process.env.RESET_DATA === 'true') {
     log('Resetting all application data...', 'info');
     await resetData();
     log('Data reset complete.', 'info');
   }
   
   // Setup sample data for demo purposes
-  if (!config.features.skipSampleData) {
-    await setupSampleData();
+  if (process.env.SKIP_SAMPLE_DATA !== 'true') {
+  await setupSampleData();
   } else {
     log('Skipping sample data setup (SKIP_SAMPLE_DATA=true)', 'info');
   }
@@ -92,22 +83,22 @@ app.get('/', (_req, res) => {
     throw err;
   });
 
-  // Setup Vite in development or serve static files in production
-  if (config.server.environment === "development") {
+  // importantly only setup vite in development and after
+  // setting up all the other routes so the catch-all route
+  // doesn't interfere with the other routes
+  if (app.get("env") === "development") {
     await setupVite(app, server);
   } else {
     serveStatic(app);
   }
 
-  // Use dynamic port and host from configuration
+  // Using port 5001 to avoid conflict with port 5000 which is already in use
+  const port = 5001;
   server.listen({
-    port: config.server.port,
-    host: config.server.host,
+    port,
+    host: "0.0.0.0",
     reusePort: true,
   }, () => {
-    log(`🚀 Commandless server running on ${config.server.host}:${config.server.port}`);
-    log(`🌍 Environment: ${config.server.environment}`);
-    log(`📡 Database: ${config.database.useSupabase ? 'Supabase' : 'In-memory'}`);
-    log(`🔒 Security: ${config.security.encryptionKey ? 'Encrypted' : 'Basic'}`);
+    log(`serving on port ${port}`);
   });
 })();

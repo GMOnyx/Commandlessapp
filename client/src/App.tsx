@@ -6,7 +6,6 @@ import SignUp from "@/pages/SignUp";
 import CommandMappings from "@/pages/CommandMappings";
 import CommandMappingDetail from "@/pages/CommandMappingDetail";
 import BotConnections from "@/pages/BotConnections";
-import BotSetupGuide from "@/pages/BotSetupGuide";
 import NotFound from "@/pages/not-found";
 import AuthProvider from "@/components/AuthProvider";
 import { useAuth } from "@clerk/clerk-react";
@@ -76,15 +75,15 @@ function AppContent() {
       <Switch>
         <Route path="/sign-up">
           <SignUp />
-      </Route>
+        </Route>
         <Route path="/sign-in">
           <Login />
-      </Route>
-      <Route>
+        </Route>
+        <Route>
           <Redirect to="/sign-in" />
-      </Route>
-    </Switch>
-  );
+        </Route>
+      </Switch>
+    );
   }
 
   // Show main app when authenticated
@@ -99,7 +98,6 @@ function AppContent() {
           <Route path="/mappings" component={CommandMappings} />
           <Route path="/mappings/:id" component={CommandMappingDetail} />
           <Route path="/connections" component={BotConnections} />
-          <Route path="/setup" component={BotSetupGuide} />
           <Route component={NotFound} />
         </Switch>
       </Layout>

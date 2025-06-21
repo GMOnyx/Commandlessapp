@@ -1,77 +1,6 @@
-# Commandless - Conversational AI Bot Platform
+# Commandless App
 
-Transform your Discord and Telegram bots from clunky slash commands to natural conversational AI.
-
-## 🚀 Quick Deployment (Vercel + Sevalla)
-
-### Frontend (Vercel)
-1. Connect this repository to Vercel
-2. Set environment variables:
-   ```
-   VITE_API_URL=https://your-backend.sevalla.app
-   VITE_CLERK_PUBLISHABLE_KEY=pk_live_your_key
-   ```
-3. Deploy - Vercel will automatically run `npm run vercel-build`
-
-### Backend (Sevalla)
-1. Connect this repository to Sevalla Application Hosting
-2. Set build command: `docker build -t app .`
-3. Set environment variables:
-   ```
-   CLERK_SECRET_KEY=sk_live_your_secret
-   SUPABASE_URL=https://your-project.supabase.co
-   SUPABASE_ANON_KEY=your_anon_key
-   ENCRYPTION_KEY=your_32_char_key
-   GEMINI_API_KEY=your_gemini_key
-   USE_SUPABASE=true
-   ALLOWED_ORIGINS=https://your-frontend.vercel.app
-   ```
-4. Deploy
-
-## 🏗️ Local Development
-
-```bash
-# Install dependencies
-npm install
-
-# Set up environment
-cp .env.sample .env
-# Edit .env with your values
-
-# Start development server
-npm run dev
-```
-
-## 🔧 Environment Variables
-
-### Frontend (VITE_*)
-- `VITE_API_URL` - Backend API URL
-- `VITE_CLERK_PUBLISHABLE_KEY` - Clerk public key
-
-### Backend
-- `CLERK_SECRET_KEY` - Clerk secret key (must match frontend)
-- `SUPABASE_URL` - Supabase project URL
-- `SUPABASE_ANON_KEY` - Supabase anonymous key
-- `ENCRYPTION_KEY` - 32-character encryption key
-- `GEMINI_API_KEY` - Google Gemini API key
-- `ALLOWED_ORIGINS` - Comma-separated list of allowed origins
-
-## 📚 Features
-
-- **Natural Language Processing** - Convert user messages to bot commands
-- **Multi-Platform Support** - Discord and Telegram bots
-- **AI-Powered Intent Recognition** - Powered by Google Gemini
-- **Real-time Command Mapping** - Visual command builder
-- **Secure Authentication** - Clerk-based auth system
-
-## 🛠️ Tech Stack
-
-- **Frontend**: React, TypeScript, Vite, Tailwind CSS
-- **Backend**: Node.js, Express, TypeScript
-- **Database**: Supabase (PostgreSQL)
-- **Authentication**: Clerk
-- **AI**: Google Gemini
-- **Deployment**: Vercel (Frontend) + Sevalla (Backend)
+A modern app for creating voice-controlled commands through natural language patterns with enterprise-grade security.
 
 ## Features
 
@@ -118,7 +47,7 @@ ENCRYPTION_KEY=your_32_character_encryption_key_here
 # Generate with: openssl rand -hex 32
 
 # AI/NLP Integration
-GEMINI_API_KEY=your_google_gemini_api_key
+GEMINI_API_KEY=your_google_gemini_api_key_here
 
 # Development Configuration
 NODE_ENV=development

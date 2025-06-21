@@ -1,4 +1,3 @@
-import { type VercelRequest, type VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 
 // Initialize Supabase client
@@ -35,25 +34,17 @@ function decodeJWT(token: string): { userId: string } | null {
   }
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // Enhanced CORS headers
+export default async function handler(req: any, res: any) {
+  // Universal CORS headers - accept custom domain or any Vercel URL
   const origin = req.headers.origin;
-  const allowedOrigins = [
-    'https://www.commandless.app',
-    'https://commandless.app',
-    'https://commandlessapp-jkjxueanq-abdarrahmans-projects.vercel.app',
-    'https://commandlessapp-grm435w11-abdarrahmans-projects.vercel.app',
-    'https://commandlessapp-ek46aa30u-abdarrahmans-projects.vercel.app',
-    'https://commandlessapp-9z79i99ao-abdarrahmans-projects.vercel.app',
-    'https://commandlessapp-8y8ryjgo4-abdarrahmans-projects.vercel.app',
-    'https://commandlessapp-qn50zakom-abdarrahmans-projects.vercel.app',
-    'https://commandlessapp-40l7ovw7p-abdarrahmans-projects.vercel.app',
-    'https://commandlessapp-f5ix77a2j-abdarrahmans-projects.vercel.app',
-    'https://commandlessapp-ndfe0i7p5-abdarrahmans-projects.vercel.app',
-    'http://localhost:5173'
-  ];
+  const isAllowedOrigin = origin && (
+    origin === 'https://www.commandless.app' ||
+    origin === 'https://commandless.app' ||
+    origin === 'http://localhost:5173' ||
+    origin.endsWith('.vercel.app')
+  );
   
-  if (origin && allowedOrigins.includes(origin)) {
+  if (isAllowedOrigin) {
     res.setHeader('Access-Control-Allow-Origin', origin);
   } else {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -424,15 +415,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (req.method === 'POST' && !action) {
       // Create new bot
       console.log('🔍 BOT CREATION DEBUG:');
-      console.log('📋 Request body:', req.body);
+      console.log('📋 Request body:', JSON.stringify(req.body, null, 2));
       console.log('📊 Content-Type:', req.headers['content-type']);
+      console.log('📊 Method:', req.method);
+      console.log('📊 URL:', req.url);
       
       const { botName, platformType, token, personalityContext } = req.body;
       
       console.log('📤 Extracted fields:', {
         botName: !!botName,
+        botNameValue: botName,
         platformType: !!platformType,
+        platformTypeValue: platformType,
         token: !!token,
+        tokenValue: token ? `${token.substring(0, 20)}...` : 'undefined',
         personalityContext: !!personalityContext,
         tokenLength: token?.length
       });
@@ -441,15 +437,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         console.log('❌ Missing fields detected:', {
           missingBotName: !botName,
           missingPlatformType: !platformType,
-          missingToken: !token
+          missingToken: !token,
+          bodyKeys: Object.keys(req.body || {}),
+          bodyStringified: JSON.stringify(req.body)
         });
-        return res.status(400).json({ error: 'Missing required fields' });
+        return res.status(400).json({ 
+          error: 'Missing required fields', 
+          details: {
+            botName: !!botName,
+            platformType: !!platformType,
+            token: !!token,
+            received: Object.keys(req.body || {})
+          }
+        });
       }
 
       // Validate Discord token if it's a Discord bot
       if (platformType === 'discord') {
+        console.log('🔍 Validating Discord token...');
         const tokenValidation = await validateDiscordToken(token);
+        console.log('📊 Token validation result:', tokenValidation);
         if (!tokenValidation.valid) {
+          console.log('❌ Token validation failed:', tokenValidation.error);
           return res.status(400).json({ error: 'Invalid Discord bot token' });
         }
       }

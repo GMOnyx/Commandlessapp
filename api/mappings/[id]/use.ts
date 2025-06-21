@@ -1,4 +1,3 @@
-import { type VercelRequest, type VercelResponse } from '@vercel/node';
 import { verifyToken } from '@clerk/backend';
 import { createClient } from '@supabase/supabase-js';
 
@@ -30,9 +29,22 @@ async function getUserFromToken(token: string) {
   }
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
+export default async function handler(req: any, res: any) {
+  // Universal CORS headers - accept custom domain or any Vercel URL
+  const origin = req.headers.origin;
+  const isAllowedOrigin = origin && (
+    origin === 'https://www.commandless.app' ||
+    origin === 'https://commandless.app' ||
+    origin === 'http://localhost:5173' ||
+    origin.endsWith('.vercel.app')
+  );
+  
+  if (isAllowedOrigin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   

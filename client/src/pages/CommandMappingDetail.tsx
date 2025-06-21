@@ -77,8 +77,10 @@ export default function CommandMappingDetail() {
     setEditError(null);
     
     try {
-      const response = await apiRequest("PUT", `/api/mappings/${id}`, editForm);
-      await response.json(); // Ensure response is consumed
+      const response = await apiRequest(`/api/mappings/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(editForm),
+      });
       setShowEditModal(false);
       // Refresh the mapping data
       window.location.reload();

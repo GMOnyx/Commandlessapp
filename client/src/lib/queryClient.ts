@@ -1,69 +1,39 @@
 import { QueryClient } from "@tanstack/react-query";
-import { type ClassValue, clsx } from "clsx";
-import { twMerge } from "tailwind-merge";
 
-// Global token getter - will be set by the App component
-let globalTokenGetter: (() => Promise<string | null>) | null = null;
-
-// Dynamic API base URL configuration
+// New universal base-URL resolver
 function getApiBaseUrl(): string {
-  // FORCE: Always use the working Vercel deployment URL with proper API endpoints
-  // This ensures we hit the Vercel serverless functions that support PUT/DELETE
-  const WORKING_VERCEL_URL = 'https://commandlessapp-ndfe0i7p5-abdarrahmans-projects.vercel.app';
+  // 1. If a build-time env var is set (e.g. VITE_API_BASE_URL) use it
+  const envUrl = import.meta.env.VITE_API_BASE_URL as string | undefined;
+  if (envUrl) return envUrl.replace(/\/+$/, '');
   
-  console.log('🔗 API Base URL (FORCED TO VERCEL):', WORKING_VERCEL_URL);
-  return WORKING_VERCEL_URL;
+  // 2. Else default to same-origin (works on Vercel prod / preview / localhost)
+  return window.location.origin;
 }
 
-const API_BASE_URL = getApiBaseUrl();
-
-export { API_BASE_URL };
-
-// Enhanced logging function for debugging
-function logDetailed(category: string, message: string, data?: any) {
-  const timestamp = new Date().toISOString();
-  const logData = {
-    timestamp,
-    category,
-    message,
-    url: typeof window !== 'undefined' ? window.location.href : 'N/A',
-    userAgent: typeof window !== 'undefined' ? navigator.userAgent : 'N/A',
-    ...data
-  };
-  
-  console.log(`🔍 [${category}] ${message}`, logData);
-}
+export const API_BASE_URL = getApiBaseUrl();
 
 // API request function that includes authentication
-export async function apiRequest(endpoint: string, options: RequestInit = {}): Promise<any> {
-  // Use current origin (Vercel) instead of hardcoded Railway URL
-  const baseUrl = API_BASE_URL;
-  
-  const url = `${baseUrl}${endpoint}`;
-  
-  logDetailed('API_REQUEST', 'Starting API request', {
-    endpoint,
-    baseUrl,
-    fullUrl: url,
-    method: options.method || 'GET',
-    hasBody: !!options.body,
-    headers: options.headers
-  });
+export async function apiRequest(endpoint: string, options: RequestInit = {}) {
+  const url = `${API_BASE_URL}${endpoint}`;
 
-  // Get authentication token
+  // Get the auth token directly from Clerk
   let token: string | null = null;
-  if (globalTokenGetter) {
-    try {
-      token = await globalTokenGetter();
-      logDetailed('AUTH_TOKEN', 'Token retrieved', { 
-        hasToken: !!token,
-        tokenLength: token?.length || 0
-      });
-    } catch (error) {
-      logDetailed('AUTH_ERROR', 'Failed to get token', { 
-        error: error instanceof Error ? error.message : 'Unknown error' 
-      });
+  
+  console.log('🔍 apiRequest called for:', endpoint);
+  
+  // Try to get token from Clerk directly
+  try {
+    // Check if Clerk is available on window (it should be after Clerk loads)
+    const clerk = (window as any)?.Clerk;
+    
+    if (clerk && clerk.session) {
+      token = await clerk.session.getToken();
+      console.log('🔑 Got token from Clerk session:', token ? 'Token exists' : 'No token');
+    } else {
+      console.log('❌ No Clerk session available');
     }
+  } catch (error) {
+    console.error("Failed to get auth token from Clerk:", error);
   }
 
   const config: RequestInit = {
@@ -75,66 +45,19 @@ export async function apiRequest(endpoint: string, options: RequestInit = {}): P
     },
   };
 
-  logDetailed('API_REQUEST', 'Making fetch request', {
-    url,
-    method: config.method || 'GET',
-    hasToken: !!token,
-    headers: Object.keys(config.headers || {}),
-    authHeaderPresent: !!(config.headers as any)?.Authorization
-  });
+  console.log(`Making API request to ${endpoint}`, { hasToken: !!token });
 
-  try {
-    const response = await fetch(url, config);
-    
-    logDetailed('API_RESPONSE', 'Received response', {
-      url,
-      status: response.status,
-      statusText: response.statusText,
-      ok: response.ok,
-      headers: Object.fromEntries(response.headers.entries())
-    });
+  const response = await fetch(url, config);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      logDetailed('API_ERROR', 'HTTP error response', {
-        url,
-        status: response.status,
-        statusText: response.statusText,
-        errorText
-      });
-      let errorMessage = `HTTP ${response.status}`;
-      
-      try {
-        const errorData = JSON.parse(errorText);
-        errorMessage = errorData.message || errorData.error || errorMessage;
-      } catch {
-        errorMessage = errorText || errorMessage;
-      }
-      
-      throw new Error(`${response.status}: ${errorMessage}`);
-    }
-
-    const contentType = response.headers.get("content-type");
-    if (contentType && contentType.includes("application/json")) {
-      const data = await response.json();
-      logDetailed('API_SUCCESS', 'Request completed successfully', {
-        url,
-        status: response.status,
-        dataType: typeof data,
-        dataKeys: data && typeof data === 'object' ? Object.keys(data) : 'N/A'
-      });
-      return data;
-    }
-    
-    return response.text();
-  } catch (error) {
-    logDetailed('API_ERROR', 'Fetch failed', {
-      url,
-      error: error instanceof Error ? error.message : 'Unknown error',
-      errorType: error instanceof TypeError ? 'TypeError' : error instanceof Error ? error.constructor.name : 'Unknown'
-    });
-    throw error;
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error(`API Error ${response.status}:`, errorText);
+    throw new Error(`HTTP ${response.status}: ${errorText}`);
   }
+
+  const data = await response.json();
+  console.log(`API response from ${endpoint}:`, data);
+  return data;
 }
 
 // Default query function for React Query
@@ -154,32 +77,14 @@ export const queryClient = new QueryClient({
   },
 });
 
-// Function to set auth token getter - called by App component
+// Legacy function to set auth token getter (now unused but kept for compatibility)
 export function setAuthTokenGetter(getter: () => Promise<string | null>) {
-  console.log('🔧 setAuthTokenGetter called - token getter is now available!');
-  globalTokenGetter = getter;
-  
-  // Test the token getter immediately
-  setTimeout(async () => {
-    try {
-      console.log('🧪 Testing token getter...');
-      const testToken = await getter();
-      console.log('🧪 Token getter test result:', {
-        hasToken: !!testToken,
-        tokenLength: testToken?.length || 0
-      });
-    } catch (error) {
-      console.error('🧪 Token getter test failed:', error);
-    }
-  }, 1000);
+  console.log('🔧 setAuthTokenGetter called (legacy - now using Clerk directly)');
 }
 
 // Alternative API request for use outside React components
 export async function apiRequestWithToken(endpoint: string, token: string | null, options: RequestInit = {}) {
-  // Use current origin (Vercel) instead of hardcoded Railway URL
-  const baseUrl = API_BASE_URL;
-  
-  const url = `${baseUrl}${endpoint}`;
+  const url = `${API_BASE_URL}${endpoint}`;
 
   const config: RequestInit = {
     ...options,
@@ -198,10 +103,4 @@ export async function apiRequestWithToken(endpoint: string, token: string | null
   }
 
   return response.json();
-}
-
-// Version: Fixed API routing to use Vercel endpoints - 2025-01-25
-
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
 }

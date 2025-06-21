@@ -11,41 +11,10 @@ interface ActionResult {
 /**
  * Execute actual Discord moderation actions based on command text
  */
-export async function executeDiscordAction(
-  userInput: string,
-  mentionedUserIds: string[],
-  message: any,
-  client: any,
-  userId: string // Pass user ID dynamically, never hardcode
-): Promise<DiscordExecutionResult> {
+export async function executeDiscordAction(commandText: string, message: Message): Promise<ActionResult> {
   try {
-    console.log(`[DISCORD] Processing action for user: ${userId}`);
-    console.log(`[DISCORD] Input: "${userInput}"`);
-    console.log(`[DISCORD] Mentioned users: [${mentionedUserIds.join(', ')}]`);
-
-    // Get user's bots and commands dynamically
-    const bots = await storage.getBots(userId);
-    if (!bots || bots.length === 0) {
-      console.log(`[DISCORD] No bots found for user: ${userId}`);
-      return {
-        success: false,
-        message: "I understand you mentioned me, but I'm not sure what you'd like me to do. You can try asking me to help with moderation commands.",
-        debug: { reason: 'no_bots_configured', userId }
-      };
-    }
-
-    const commandMappings = await storage.getCommandMappings(userId);
-    if (!commandMappings || commandMappings.length === 0) {
-      console.log(`[DISCORD] No command mappings found for user: ${userId}`);
-      return {
-        success: false,
-        message: "I understand you mentioned me, but I don't have any commands configured yet.",
-        debug: { reason: 'no_commands_configured', userId }
-      };
-    }
-
     // Parse the command text to extract action and parameters
-    const parsed = await parseCommand(userInput, message);
+    const parsed = await parseCommand(commandText, message);
     if (!parsed) {
       return { success: false, error: "Could not parse command" };
     }

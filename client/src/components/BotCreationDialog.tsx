@@ -39,6 +39,11 @@ interface BotCreationDialogProps {
 }
 
 export default function BotCreationDialog({ open, onOpenChange }: BotCreationDialogProps) {
+  const [tokenValidation, setTokenValidation] = useState<{
+    valid?: boolean;
+    message?: string;
+    isValidating: boolean;
+  }>({ isValidating: false });
   const { toast } = useToast();
   const queryClient = useQueryClient();
   
@@ -49,6 +54,7 @@ export default function BotCreationDialog({ open, onOpenChange }: BotCreationDia
       required_error: "Please select a platform type",
     }),
     token: z.string().min(5, "Token must be at least 5 characters"),
+    clientId: z.string().optional(),
     personalityContext: z.string().optional(),
   });
   
@@ -59,23 +65,17 @@ export default function BotCreationDialog({ open, onOpenChange }: BotCreationDia
       botName: "",
       platformType: undefined,
       token: "",
+      clientId: "",
       personalityContext: "",
     },
   });
   
-  // Token validation state (simplified - now just for UI feedback)
-  const [tokenValidation, setTokenValidation] = useState<{
-    isValidating?: boolean;
-    valid?: boolean;
-    message?: string;
-  }>({ isValidating: false });
-  
   // Create bot mutation
   const createBotMutation = useMutation({
     mutationFn: async (data: z.infer<typeof formSchema>) => {
-      await apiRequest("/api/bots", {
+      return await apiRequest("/api/bots", {
         method: "POST",
-        body: JSON.stringify(data)
+        body: JSON.stringify(data),
       });
     },
     onSuccess: () => {
@@ -89,108 +89,58 @@ export default function BotCreationDialog({ open, onOpenChange }: BotCreationDia
       onOpenChange(false);
     },
     onError: (error) => {
-      let errorMessage = "Failed to create bot";
-      let errorDetails = "";
-      let errorSuggestion = "";
-      
-      if (error instanceof Error) {
-        try {
-          // Try to parse the error message as JSON (from our improved backend)
-          const jsonMatch = error.message.match(/\{.*\}/);
-          if (jsonMatch) {
-            const errorData = JSON.parse(jsonMatch[0]);
-            errorMessage = errorData.error || errorMessage;
-            errorDetails = errorData.details || "";
-            errorSuggestion = errorData.suggestion || "";
-          } else if (error.message.includes("409:")) {
-            // Handle 409 Conflict errors specifically
-            const conflictMatch = error.message.match(/409:\s*(.+)/);
-            if (conflictMatch) {
-              try {
-                const conflictData = JSON.parse(conflictMatch[1]);
-                errorMessage = conflictData.error || "Duplicate bot token";
-                errorDetails = conflictData.details || "";
-                errorSuggestion = conflictData.suggestion || "";
-              } catch {
-                errorMessage = "This Discord bot token is already in use";
-                errorDetails = "Each Discord bot can only be connected to one account.";
-                errorSuggestion = "Please create a new Discord bot or use a different token.";
-              }
-            }
-          } else if (error.message.includes("400:")) {
-            // Handle 400 validation errors (including Discord token validation)
-            const validationMatch = error.message.match(/400:\s*(.+)/);
-            if (validationMatch) {
-              try {
-                const validationData = JSON.parse(validationMatch[1]);
-                errorMessage = validationData.error || "Validation error";
-                errorDetails = validationData.details || "";
-                errorSuggestion = validationData.suggestion || "";
-              } catch {
-                errorMessage = "Invalid bot token or configuration";
-                errorDetails = "Please check your bot token and try again.";
-                errorSuggestion = "Ensure you copied the complete token from the Discord Developer Portal.";
-              }
-            }
-          } else {
-            errorMessage = error.message;
-          }
-        } catch {
-          errorMessage = error.message;
-        }
-      }
-      
-      // Create a comprehensive error message
-      let fullErrorMessage = errorMessage;
-      if (errorDetails) {
-        fullErrorMessage += `\n\n${errorDetails}`;
-      }
-      if (errorSuggestion) {
-        fullErrorMessage += `\n\nSuggestion: ${errorSuggestion}`;
-      }
-      
       toast({
-        title: "Error Creating Bot",
-        description: fullErrorMessage,
+        title: "Error",
+        description: `Failed to create bot: ${error instanceof Error ? error.message : ''}`,
         variant: "destructive",
-        duration: 8000, // Show longer for detailed errors
       });
     },
   });
   
-  // Simple token validation with feedback
+  // Token validation function
+  const validateDiscordToken = async (token: string) => {
+    if (!token || token.length < 50) {
+      setTokenValidation({ valid: false, message: "Token appears too short", isValidating: false });
+      return;
+    }
+
+    setTokenValidation({ isValidating: true });
+    
+    try {
+      const result = await apiRequest("/api/discord?action=validate-token", {
+        method: "POST",
+        body: JSON.stringify({ botToken: token }),
+      });
+      
+      setTokenValidation({
+        valid: result.valid,
+        message: result.message,
+        isValidating: false
+      });
+    } catch (error) {
+      setTokenValidation({
+        valid: false,
+        message: "Error validating token",
+        isValidating: false
+      });
+    }
+  };
+
+  // Reset validation when token changes
   const handleTokenChange = (value: string) => {
     form.setValue("token", value);
+    setTokenValidation({ isValidating: false });
     
-    // Provide simple visual feedback based on token format
-    if (form.getValues("platformType") === "discord" && value.length > 0) {
-      const cleanToken = value.trim();
-      if (cleanToken.length < 50) {
-        setTokenValidation({ 
-          valid: false, 
-          message: "Token appears too short. Discord bot tokens are typically 59+ characters.",
-          isValidating: false 
-        });
-      } else if (!/^[A-Za-z0-9._-]+$/.test(cleanToken)) {
-        setTokenValidation({ 
-          valid: false, 
-          message: "Token contains invalid characters. Only letters, numbers, dots, underscores, and hyphens are allowed.",
-          isValidating: false 
-        });
-      } else {
-        setTokenValidation({ 
-          valid: true, 
-          message: "✅ Token format looks good! It will be validated when creating the bot.",
-          isValidating: false 
-        });
-      }
-    } else {
-      setTokenValidation({ isValidating: false });
+    // Auto-validate Discord tokens after user stops typing
+    if (form.getValues("platformType") === "discord" && value.length > 50) {
+      const timeoutId = setTimeout(() => validateDiscordToken(value), 1000);
+      return () => clearTimeout(timeoutId);
     }
   };
   
   // Handle form submission
   const onSubmit = (data: z.infer<typeof formSchema>) => {
+    console.log('🚨🚨🚨 FORM SUBMIT CALLED!!! 🚨🚨🚨');
     console.log('🔍 FORM SUBMISSION DEBUG:');
     console.log('📋 Raw form data:', data);
     console.log('📊 Field validation:', {
@@ -272,8 +222,7 @@ export default function BotCreationDialog({ open, onOpenChange }: BotCreationDia
                       {...field} 
                         onChange={(e) => {
                           field.onChange(e);
-                          // No validation to prevent blocking bot creation
-                          setTokenValidation({ isValidating: false });
+                          handleTokenChange(e.target.value);
                         }}
                       />
                       {form.watch("platformType") === "discord" && field.value && (
@@ -284,8 +233,6 @@ export default function BotCreationDialog({ open, onOpenChange }: BotCreationDia
                             <CheckCircle className="h-4 w-4 text-green-500" />
                           ) : tokenValidation.valid === false ? (
                             <XCircle className="h-4 w-4 text-red-500" />
-                          ) : field.value.length > 50 ? (
-                            <CheckCircle className="h-4 w-4 text-blue-500" />
                           ) : null}
                         </div>
                       )}
@@ -312,6 +259,25 @@ export default function BotCreationDialog({ open, onOpenChange }: BotCreationDia
                   <li>Make sure bot has "bot" and "applications.commands" scopes</li>
                 </ol>
               </div>
+            )}
+            
+            {form.watch("platformType") === "discord" && (
+              <FormField
+                control={form.control}
+                name="clientId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Client ID (Optional)</FormLabel>
+                    <FormControl>
+                      <Input 
+                        placeholder="Discord Client ID" 
+                        {...field} 
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
             )}
             
             <FormField

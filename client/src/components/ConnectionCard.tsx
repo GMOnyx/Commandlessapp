@@ -14,31 +14,8 @@ import {
   AlertDialogTitle,
   AlertDialogDescription,
   AlertDialogFooter,
-  AlertDialogAction,
-  AlertDialogCancel
+  AlertDialogAction
 } from "@/components/ui/alert-dialog";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { 
-  DropdownMenu, 
-  DropdownMenuContent, 
-  DropdownMenuItem, 
-  DropdownMenuTrigger, 
-  DropdownMenuSeparator 
-} from "@/components/ui/dropdown-menu";
-import { 
-  CopyIcon, 
-  CheckIcon, 
-  MoreVertical, 
-  Edit3, 
-  Trash2, 
-  CheckCircle, 
-  AlertCircle, 
-  XCircle 
-} from "lucide-react";
 import BotCreationDialog from "@/components/BotCreationDialog";
 
 interface ConnectionCardProps {
@@ -49,107 +26,96 @@ interface ConnectionCardProps {
 export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCardProps) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  
-  // Dialog states
+  const [showErrorDialog, setShowErrorDialog] = useState(false);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
-  const [showEditDialog, setShowEditDialog] = useState(false);
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [showConnectionDialog, setShowConnectionDialog] = useState(false);
-  const [connectionDialogTitle, setConnectionDialogTitle] = useState('');
-  const [connectionDialogContent, setConnectionDialogContent] = useState<React.ReactNode>(null);
-  
-  // Loading states
-  const [connectLoading, setConnectLoading] = useState(false);
-  
-  // Edit form state
-  const [editForm, setEditForm] = useState({
-    botName: bot.botName || '',
-    token: '',
-    personalityContext: bot.personalityContext || ''
+  const [errorDetails, setErrorDetails] = useState<{
+    message: string;
+    troubleshooting?: string[];
+    details?: string;
+  }>({
+    message: "",
+    troubleshooting: [],
+    details: ""
   });
   
-  const handleConnect = async () => {
-    if (!bot.id) return;
-    
-    setConnectLoading(true);
-    try {
-      const response = await apiRequest(`/api/bots`, {
-        method: 'POST',
-        body: JSON.stringify({
-          action: 'connect',
-          botId: bot.id
-        })
+  const connectMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest(`/api/bots`, {
+        method: "PUT",
+        body: JSON.stringify({ action: "connect", botId: bot.id }),
       });
-
-      // Handle different connection scenarios
-      if (response.autoStarted) {
-        setConnectionDialogTitle('🎉 Bot Connected & Started!');
-        setConnectionDialogContent(
-          <div className="space-y-4">
-            <div className="flex items-center space-x-2 text-green-600">
-              <CheckCircle className="h-5 w-5" />
-              <span>Your Discord bot is now live and responding!</span>
-            </div>
-            <div className="bg-green-50 p-3 rounded-lg">
-              <p className="text-sm text-green-800">
-                <strong>Method:</strong> {response.startupMethod}
-              </p>
-              <p className="text-sm text-green-700 mt-1">
-                {response.message}
-              </p>
-            </div>
-            <div className="bg-blue-50 p-3 rounded-lg">
-              <p className="text-sm text-blue-800 font-medium">Test your bot:</p>
-              <div className="text-sm text-blue-700 mt-1 font-mono">
-                @{bot.botName} hello<br/>
-                @{bot.botName} what can you do?
-              </div>
-            </div>
-          </div>
-        );
-      } else {
-        setConnectionDialogTitle('✅ Bot Connected');
-        setConnectionDialogContent(
-          <div className="space-y-4">
-            <div className="flex items-center space-x-2 text-green-600">
-              <CheckCircle className="h-5 w-5" />
-              <span>{response.message || 'Bot connected successfully!'}</span>
-            </div>
-          </div>
-        );
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/bots"] });
+      toast({
+        title: "Success",
+        description: `${bot.botName} has been connected.`,
+      });
+    },
+    onError: (error: any) => {
+      // Try to parse the error response for detailed information
+      let errorMessage = `Failed to connect ${bot.botName}`;
+      let troubleshooting: string[] | undefined;
+      let details: string | undefined;
+      
+      if (error instanceof Error) {
+        try {
+          // Check if the error has structured data
+          const errorText = error.message;
+          
+          // Extract JSON from error message if present
+          const jsonMatch = errorText.match(/\{.*\}/);
+          if (jsonMatch) {
+            const errorData = JSON.parse(jsonMatch[0]);
+            errorMessage = errorData.message || errorMessage;
+            troubleshooting = errorData.troubleshooting;
+            details = errorData.details;
+          } else {
+            // Handle cases where the error message contains the structured response
+            if (errorText.includes("500:") || errorText.includes("400:")) {
+              const responseMatch = errorText.match(/(?:500|400):\s*(.+)/);
+              if (responseMatch) {
+                try {
+                  const responseData = JSON.parse(responseMatch[1]);
+                  errorMessage = responseData.message || errorMessage;
+                  troubleshooting = responseData.troubleshooting;
+                  details = responseData.details;
+                } catch {
+                  errorMessage = responseMatch[1];
+                }
+              }
+            } else {
+              errorMessage = errorText;
+            }
+          }
+        } catch {
+          errorMessage = error.message;
+        }
       }
       
-      setShowConnectionDialog(true);
-      queryClient.invalidateQueries({ queryKey: ["/api/bots"] });
-      
-    } catch (error) {
-      console.error('Connection error:', error);
-      setConnectionDialogTitle('❌ Connection Failed');
-      setConnectionDialogContent(
-        <div className="space-y-4">
-          <div className="flex items-center space-x-2 text-red-600">
-            <XCircle className="h-5 w-5" />
-            <span>Failed to connect bot</span>
-          </div>
-          <p className="text-sm text-gray-600">
-            {error instanceof Error ? error.message : 'An unexpected error occurred'}
-          </p>
-        </div>
-      );
-      setShowConnectionDialog(true);
-    } finally {
-      setConnectLoading(false);
-    }
-  };
+      // Show detailed error information if available
+      if (troubleshooting && troubleshooting.length > 0) {
+        setErrorDetails({
+          message: errorMessage,
+          troubleshooting,
+          details
+        });
+        setShowErrorDialog(true);
+      } else {
+      toast({
+        title: "Error",
+          description: errorMessage,
+        variant: "destructive",
+      });
+      }
+    },
+  });
   
   const disconnectMutation = useMutation({
     mutationFn: async () => {
-      await apiRequest(`/api/bots`, { 
-        method: 'POST',
-        body: JSON.stringify({
-          action: 'disconnect',
-          botId: bot.id
-        })
+      await apiRequest(`/api/bots`, {
+        method: "PUT", 
+        body: JSON.stringify({ action: "disconnect", botId: bot.id }),
       });
     },
     onSuccess: () => {
@@ -168,111 +134,21 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
     },
   });
   
-  const editMutation = useMutation({
-    mutationFn: async (data: { botName: string; token?: string; personalityContext?: string }) => {
-      await apiRequest(`/api/bots/${bot.id}`, {
-        method: 'PUT',
-        body: JSON.stringify(data)
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/bots"] });
-      setShowEditDialog(false);
-      setEditForm({ botName: '', token: '', personalityContext: '' });
-      toast({
-        title: "Success",
-        description: `${bot.botName} has been updated.`,
-      });
-    },
-    onError: (error) => {
-      toast({
-        title: "Error",
-        description: `Failed to update ${bot.botName}. ${error instanceof Error ? error.message : ''}`,
-        variant: "destructive",
-      });
-    },
-  });
-  
-  const deleteMutation = useMutation({
-    mutationFn: async () => {
-      await apiRequest(`/api/bots/${bot.id}`, {
-        method: 'DELETE'
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/bots"] });
-      setShowDeleteDialog(false);
-      toast({
-        title: "Success",
-        description: `${bot.botName} has been deleted.`,
-      });
-    },
-    onError: (error) => {
-      toast({
-        title: "Error",
-        description: `Failed to delete ${bot.botName}. ${error instanceof Error ? error.message : ''}`,
-        variant: "destructive",
-      });
-    },
-  });
-  
-  const syncCommandsMutation = useMutation({
-    mutationFn: async () => {
-      const response = await apiRequest(`/api/bots`, { 
-        method: 'PUT',
-        body: JSON.stringify({ id: bot.id, action: 'sync-commands' })
-      });
-      return response;
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/bots"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/mappings"] });
-      toast({
-        title: "Commands Synced",
-        description: `Found ${data.commandsFound} commands, created ${data.commandsCreated} new mappings${data.commandsSkipped > 0 ? `, skipped ${data.commandsSkipped} existing` : ''}.`,
-      });
-    },
-    onError: (error) => {
-      toast({
-        title: "Sync Failed",
-        description: `Failed to sync commands for ${bot.botName}. ${error instanceof Error ? error.message : ''}`,
-        variant: "destructive",
-      });
-    },
-  });
-
-  const handleEdit = () => {
-    setEditForm({
-      botName: bot.botName || '',
-      token: '',
-      personalityContext: bot.personalityContext || ''
-    });
-    setShowEditDialog(true);
-  };
-
-  const handleEditSubmit = () => {
-    editMutation.mutate({
-      botName: editForm.botName,
-      token: editForm.token || undefined,
-      personalityContext: editForm.personalityContext
-    });
-  };
-  
   if (isNewCard) {
     return (
       <>
-        <Card className="overflow-hidden border-2 border-dashed border-gray-300">
-          <CardContent className="p-5 flex justify-center items-center h-full">
-            <button 
-              type="button" 
-              className="relative block w-full py-6 text-center"
+      <Card className="overflow-hidden border-2 border-dashed border-gray-300">
+        <CardContent className="p-5 flex justify-center items-center h-full">
+          <button 
+            type="button" 
+            className="relative block w-full py-6 text-center"
               onClick={() => setShowCreateDialog(true)}
-            >
-              <div className="text-gray-400 text-2xl mb-2">+</div>
+          >
+            <div className="text-gray-400 text-2xl mb-2">+</div>
               <span className="block text-sm font-medium text-gray-900">Connect new bot</span>
-            </button>
-          </CardContent>
-        </Card>
+          </button>
+        </CardContent>
+      </Card>
         
         <BotCreationDialog 
           open={showCreateDialog} 
@@ -302,204 +178,107 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
   
   return (
     <>
-      <Card className="overflow-hidden">
-        <CardContent className="p-5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center flex-1">
-              <div className={cn("flex-shrink-0 rounded-md p-3", getPlatformColor())}>
-                {getPlatformIcon()}
-              </div>
-              <div className="ml-5 w-0 flex-1">
-                <dl>
-                  <dt className="text-sm font-medium text-gray-500 truncate">
-                    {bot.platformType === "discord" ? "Discord" : "Telegram"}
-                  </dt>
-                  <dd>
-                    <div className="flex items-center">
-                      <div className="text-lg font-medium text-gray-900">{bot.botName}</div>
-                      <span className="ml-2 flex-shrink-0">
-                        <span className={cn(
-                          "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium",
-                          bot.isConnected 
-                            ? "bg-green-100 text-green-800" 
-                            : "bg-red-100 text-red-800"
-                        )}>
-                          <div className={cn(
-                            "h-2 w-2 mr-1 rounded-full",
-                            bot.isConnected 
-                              ? "bg-green-400 animate-pulse" 
-                              : "bg-red-400"
-                          )}></div>
-                          {bot.isConnected ? "Connected" : "Disconnected"}
-                        </span>
-                      </span>
-                    </div>
-                  </dd>
-                </dl>
-              </div>
-            </div>
-            
-            {/* Three-dot menu */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                  <MoreVertical className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={handleEdit}>
-                  <Edit3 className="mr-2 h-4 w-4" />
-                  Edit credentials
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem 
-                  onClick={() => setShowDeleteDialog(true)}
-                  className="text-red-600 focus:text-red-600"
-                >
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  Delete bot
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+    <Card className="overflow-hidden">
+      <CardContent className="p-5">
+        <div className="flex items-center">
+          <div className={cn("flex-shrink-0 rounded-md p-3", getPlatformColor())}>
+            {getPlatformIcon()}
           </div>
-        </CardContent>
-        
-        <CardFooter className="bg-gray-50 px-5 py-3 border-t border-gray-200">
-          <div className="flex items-center justify-between w-full">
-            <div className="text-sm">
-              {bot.isConnected ? (
-                <button
-                  onClick={() => disconnectMutation.mutate()}
-                  disabled={disconnectMutation.isPending}
-                  className="font-medium text-primary hover:text-primary-600 focus:outline-none"
-                >
-                  {disconnectMutation.isPending ? "Disconnecting..." : "Disconnect bot"}
-                </button>
-              ) : (
-                <button
-                  onClick={handleConnect}
-                  disabled={connectLoading}
-                  className="font-medium text-primary hover:text-primary-600 focus:outline-none"
-                >
-                  {connectLoading ? "Connecting..." : "Connect bot"}
-                </button>
-              )}
-            </div>
-            
-            {bot.isConnected && bot.platformType === "discord" && (
-              <div className="text-sm">
-                <button
-                  onClick={() => syncCommandsMutation.mutate()}
-                  disabled={syncCommandsMutation.isPending}
-                  className="font-medium text-blue-600 hover:text-blue-700 focus:outline-none"
-                >
-                  {syncCommandsMutation.isPending ? "Syncing..." : "Sync Commands"}
-                </button>
-              </div>
-            )}
+          <div className="ml-5 w-0 flex-1">
+            <dl>
+              <dt className="text-sm font-medium text-gray-500 truncate">
+                {bot.platformType === "discord" ? "Discord" : "Telegram"}
+              </dt>
+              <dd>
+                <div className="flex items-center">
+                  <div className="text-lg font-medium text-gray-900">{bot.botName}</div>
+                  <span className="ml-2 flex-shrink-0">
+                    <span className={cn(
+                      "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium",
+                      bot.isConnected 
+                        ? "bg-green-100 text-green-800" 
+                        : "bg-red-100 text-red-800"
+                    )}>
+                      <div className={cn(
+                        "h-2 w-2 mr-1 rounded-full",
+                        bot.isConnected 
+                          ? "bg-green-400 animate-pulse" 
+                          : "bg-red-400"
+                      )}></div>
+                      {bot.isConnected ? "Connected" : "Disconnected"}
+                    </span>
+                  </span>
+                </div>
+              </dd>
+            </dl>
           </div>
-        </CardFooter>
-      </Card>
-      
-      {/* Connection Status Dialog */}
-      <Dialog open={showConnectionDialog} onOpenChange={setShowConnectionDialog}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{connectionDialogTitle}</DialogTitle>
-          </DialogHeader>
-          
-          <div className="space-y-4">
-            {connectionDialogContent}
-          </div>
-
-          <DialogFooter>
-            <Button onClick={() => setShowConnectionDialog(false)}>
-              Got it, let's go!
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit Bot Dialog */}
-      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle>Edit Bot Credentials</DialogTitle>
-          </DialogHeader>
-          
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="edit-bot-name">Bot Name</Label>
-              <Input
-                id="edit-bot-name"
-                value={editForm.botName}
-                onChange={(e) => setEditForm(prev => ({ ...prev, botName: e.target.value }))}
-                placeholder="Enter bot name"
-              />
-            </div>
-            
-            <div>
-              <Label htmlFor="edit-token">Discord Token (leave empty to keep current)</Label>
-              <Input
-                id="edit-token"
-                type="password"
-                value={editForm.token}
-                onChange={(e) => setEditForm(prev => ({ ...prev, token: e.target.value }))}
-                placeholder="Enter new token or leave empty"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Only enter a new token if you want to change it
-              </p>
-            </div>
-            
-            <div>
-              <Label htmlFor="edit-personality">Personality Context</Label>
-              <Textarea
-                id="edit-personality"
-                value={editForm.personalityContext}
-                onChange={(e) => setEditForm(prev => ({ ...prev, personalityContext: e.target.value }))}
-                placeholder="Describe your bot's personality..."
-                rows={3}
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowEditDialog(false)}>
-              Cancel
-            </Button>
-            <Button 
-              onClick={handleEditSubmit}
-              disabled={editMutation.isPending || !editForm.botName.trim()}
+        </div>
+      </CardContent>
+      <CardFooter className="bg-gray-50 px-5 py-3 border-t border-gray-200">
+        <div className="text-sm">
+          {bot.isConnected ? (
+            <button
+              onClick={() => disconnectMutation.mutate()}
+              disabled={disconnectMutation.isPending}
+              className="font-medium text-primary hover:text-primary-600 focus:outline-none"
             >
-              {editMutation.isPending ? "Updating..." : "Save Changes"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete Confirmation Dialog */}
-      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-        <AlertDialogContent>
+              {disconnectMutation.isPending ? "Disconnecting..." : "Disconnect bot"}
+            </button>
+          ) : (
+            <button
+              onClick={() => connectMutation.mutate()}
+              disabled={connectMutation.isPending}
+              className="font-medium text-primary hover:text-primary-600 focus:outline-none"
+            >
+              {connectMutation.isPending ? "Connecting..." : "Connect bot"}
+            </button>
+          )}
+        </div>
+      </CardFooter>
+    </Card>
+      
+      <AlertDialog open={showErrorDialog} onOpenChange={setShowErrorDialog}>
+        <AlertDialogContent className="max-w-md">
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Bot</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete <strong>{bot.botName}</strong>? This action cannot be undone.
-              All command mappings associated with this bot will also be deleted.
+            <AlertDialogTitle>Connection Failed</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>{errorDetails.message}</p>
+                
+                {errorDetails.troubleshooting && (
+                  <div>
+                    <p className="font-medium text-sm">Troubleshooting steps:</p>
+                    <ul className="list-disc list-inside text-sm space-y-1 mt-1">
+                      {errorDetails.troubleshooting.map((step, index) => (
+                        <li key={index}>{step}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                
+                {errorDetails.details && (
+                  <div>
+                    <p className="font-medium text-sm">Technical details:</p>
+                    <p className="text-xs text-gray-600 mt-1 font-mono bg-gray-100 p-2 rounded">
+                      {errorDetails.details}
+                    </p>
+                  </div>
+                )}
+                
+                <div className="text-sm text-blue-600">
+                  <p className="font-medium">Need help?</p>
+                  <p>Visit the <a href="https://discord.com/developers/applications" target="_blank" rel="noopener noreferrer" className="underline">Discord Developer Portal</a> to check your bot settings.</p>
+                </div>
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction 
-              onClick={() => deleteMutation.mutate()}
-              className="bg-red-600 hover:bg-red-700"
-              disabled={deleteMutation.isPending}
-            >
-              {deleteMutation.isPending ? "Deleting..." : "Delete Bot"}
+            <AlertDialogAction onClick={() => setShowErrorDialog(false)}>
+              Got it
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </>
   );
-} 
+}

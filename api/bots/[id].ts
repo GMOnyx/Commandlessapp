@@ -1,4 +1,3 @@
-import { type VercelRequest, type VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
@@ -18,21 +17,17 @@ function decodeJWT(token: string): { userId: string } | null {
   }
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // Enhanced CORS headers
+export default async function handler(req: any, res: any) {
+  // Universal CORS headers - accept custom domain or any Vercel URL
   const origin = req.headers.origin;
-  const allowedOrigins = [
-    'https://www.commandless.app',
-    'https://commandless.app',
-    'https://commandlessapp-jkjxueanq-abdarrahmans-projects.vercel.app',
-    'https://commandlessapp-grm435w11-abdarrahmans-projects.vercel.app',
-    'https://commandlessapp-ek46aa30u-abdarrahmans-projects.vercel.app',
-    'https://commandlessapp-9z79i99ao-abdarrahmans-projects.vercel.app',
-    'https://commandlessapp-8y8ryjgo4-abdarrahmans-projects.vercel.app',
-    'http://localhost:5173'
-  ];
+  const isAllowedOrigin = origin && (
+    origin === 'https://www.commandless.app' ||
+    origin === 'https://commandless.app' ||
+    origin === 'http://localhost:5173' ||
+    origin.endsWith('.vercel.app')
+  );
   
-  if (origin && allowedOrigins.includes(origin)) {
+  if (isAllowedOrigin) {
     res.setHeader('Access-Control-Allow-Origin', origin);
   } else {
     res.setHeader('Access-Control-Allow-Origin', '*');

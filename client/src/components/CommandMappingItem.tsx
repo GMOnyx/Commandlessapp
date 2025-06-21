@@ -105,4 +105,3 @@ export default function CommandMappingItem({ mapping, bots }: CommandMappingItem
     </li>
   );
 }
-
