@@ -594,7 +594,7 @@ export default async function handler(req: any, res: any) {
 
             // Automatically configure Discord webhook endpoint
             try {
-              const webhookUrl = `${process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://commandlessapp-gfb7a7zd6-abdarrahmans-projects.vercel.app'}/api/discord?action=webhook`;
+              const webhookUrl = `${process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://commandlessapp-rbvrhdsa2-abdarrahmans-projects.vercel.app'}/api/discord?action=webhook`;
               
               console.log(`🔗 Setting webhook URL for ${bot.bot_name}: ${webhookUrl}`);
               
