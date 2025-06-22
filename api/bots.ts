@@ -999,8 +999,11 @@ async function discoverAndSyncCommands(botToken: string, botId: string, userId: 
       }
     }
 
-    // Try BOTH global and guild commands to debug
+    // Get global application commands with detailed debugging
     console.log(`🌍 Fetching GLOBAL application commands...`);
+    console.log(`🔗 Discord API URL: https://discord.com/api/v10/applications/@me/commands`);
+    console.log(`🔑 Authorization header: Bot ${botToken.substring(0, 20)}...`);
+    
     const commandsResponse = await fetch('https://discord.com/api/v10/applications/@me/commands', {
       headers: {
         'Authorization': `Bot ${botToken}`,
@@ -1009,157 +1012,74 @@ async function discoverAndSyncCommands(botToken: string, botId: string, userId: 
     });
 
     console.log(`📋 Global commands response status: ${commandsResponse.status}`);
+    console.log(`📋 Response headers:`, Object.fromEntries(commandsResponse.headers.entries()));
     
     if (!commandsResponse.ok) {
       const commandsError = await commandsResponse.text();
       console.error(`❌ Failed to fetch global commands: ${commandsResponse.status} - ${commandsError}`);
+      
+      // Log the full error for debugging
+      console.error(`🔍 Full error details:`);
+      console.error(`   Status: ${commandsResponse.status}`);
+      console.error(`   Status Text: ${commandsResponse.statusText}`);
+      console.error(`   Error Body: ${commandsError}`);
+      
       throw new Error(`Failed to fetch commands: ${commandsResponse.status} - ${commandsError}`);
     }
 
-    const globalCommands = await commandsResponse.json();
+    const rawResponse = await commandsResponse.text();
+    console.log(`📄 Raw response body: ${rawResponse.substring(0, 500)}${rawResponse.length > 500 ? '...' : ''}`);
+    
+    let globalCommands;
+    try {
+      globalCommands = JSON.parse(rawResponse);
+    } catch (parseError) {
+      console.error(`❌ Failed to parse commands response as JSON:`, parseError);
+      console.error(`📄 Raw response that failed to parse: ${rawResponse}`);
+      throw new Error(`Invalid JSON response from Discord API: ${parseError.message}`);
+    }
+    
     console.log(`🌍 Global commands found: ${globalCommands.length}`);
+    console.log(`📊 Commands response type: ${Array.isArray(globalCommands) ? 'Array' : typeof globalCommands}`);
     
     if (globalCommands.length > 0) {
       console.log(`📋 Global command names: ${globalCommands.map(cmd => cmd.name).join(', ')}`);
-    }
-
-    // Also check guild commands for debugging
-    console.log(`🏰 Attempting to fetch GUILD commands from recent guilds...`);
-    let guildCommands = [];
-    
-    try {
-      // Get bot's guilds to check for guild-specific commands
-      const guildsResponse = await fetch('https://discord.com/api/v10/users/@me/guilds', {
-        headers: {
-          'Authorization': `Bot ${botToken}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      console.log(`🔧 First command details:`, JSON.stringify(globalCommands[0], null, 2));
+    } else {
+      console.log(`⚠️ NO GLOBAL COMMANDS FOUND!`);
+      console.log(`📋 This means either:`);
+      console.log(`   • Commands are not registered globally (only in specific servers)`);
+      console.log(`   • Bot token doesn't have applications.commands scope`);
+      console.log(`   • Commands were deleted or not properly registered`);
+      console.log(`   • There's a Discord API issue`);
       
-      if (guildsResponse.ok) {
-        const guilds = await guildsResponse.json();
-        console.log(`🏰 Bot is in ${guilds.length} guilds`);
-        
-        // Check commands in first guild (for debugging)
-        if (guilds.length > 0) {
-          const firstGuild = guilds[0];
-          console.log(`🔍 Checking guild commands in: ${firstGuild.name} (${firstGuild.id})`);
-          
-          const guildCommandsResponse = await fetch(`https://discord.com/api/v10/applications/${appData.id}/guilds/${firstGuild.id}/commands`, {
-            headers: {
-              'Authorization': `Bot ${botToken}`,
-              'Content-Type': 'application/json'
-            }
-          });
-          
-          if (guildCommandsResponse.ok) {
-            guildCommands = await guildCommandsResponse.json();
-            console.log(`🏰 Guild commands found: ${guildCommands.length}`);
-            if (guildCommands.length > 0) {
-              console.log(`📋 Guild command names: ${guildCommands.map(cmd => cmd.name).join(', ')}`);
-            }
-          } else {
-            console.log(`⚠️ Could not fetch guild commands: ${guildCommandsResponse.status}`);
-          }
-        }
-      } else {
-        console.log(`⚠️ Could not fetch guilds: ${guildsResponse.status}`);
-      }
-    } catch (guildError) {
-      console.log(`⚠️ Guild command check failed: ${guildError.message}`);
+      // Let's also check if we can access application info at all
+      console.log(`🔍 Double-checking application access...`);
+      console.log(`✅ Application info worked earlier: ${appData.name} (${appData.id})`);
+      console.log(`📊 Bot has required scopes to access application info`);
     }
 
-    // Use BOTH global and guild commands for complete discovery
-    let allCommands = [...globalCommands];
-    
-    // Add guild commands if any were found
-    if (guildCommands.length > 0) {
-      console.log(`📋 Adding ${guildCommands.length} guild commands to discovery`);
-      allCommands = [...allCommands, ...guildCommands];
-    }
-    
-    // If still no global commands but we found guild commands, try to get guild commands from ALL guilds
-    if (globalCommands.length === 0 && guildCommands.length === 0) {
-      console.log(`🔍 No global commands found, searching ALL guilds for commands...`);
-      
-      try {
-        const guildsResponse = await fetch('https://discord.com/api/v10/users/@me/guilds', {
-          headers: {
-            'Authorization': `Bot ${botToken}`,
-            'Content-Type': 'application/json'
-          }
-        });
-        
-        if (guildsResponse.ok) {
-          const allGuilds = await guildsResponse.json();
-          console.log(`🏰 Searching ${allGuilds.length} guilds for commands...`);
-          
-          for (const guild of allGuilds) {
-            try {
-              const guildCommandsResponse = await fetch(`https://discord.com/api/v10/applications/${appData.id}/guilds/${guild.id}/commands`, {
-                headers: {
-                  'Authorization': `Bot ${botToken}`,
-                  'Content-Type': 'application/json'
-                }
-              });
-              
-              if (guildCommandsResponse.ok) {
-                const guildSpecificCommands = await guildCommandsResponse.json();
-                if (guildSpecificCommands.length > 0) {
-                  console.log(`🏰 Found ${guildSpecificCommands.length} commands in guild: ${guild.name}`);
-                  console.log(`📋 Guild command names: ${guildSpecificCommands.map(cmd => cmd.name).join(', ')}`);
-                  allCommands = [...allCommands, ...guildSpecificCommands];
-                }
-              } else {
-                console.log(`⚠️ Could not access guild ${guild.name}: ${guildCommandsResponse.status}`);
-              }
-            } catch (guildError) {
-              console.log(`⚠️ Error checking guild ${guild.name}: ${guildError.message}`);
-            }
-          }
-        }
-      } catch (error) {
-        console.log(`⚠️ Could not fetch guilds for comprehensive search: ${error.message}`);
-      }
-    }
-    
-    const commands = allCommands;
-    console.log(`🔍 Total commands discovered (global + guild): ${commands.length}`);
-    
-    // Remove duplicates by command name (in case same command exists globally and in guild)
-    const uniqueCommands = commands.filter((command, index, self) => 
-      index === self.findIndex(c => c.name === command.name)
-    );
-    
-    if (uniqueCommands.length !== commands.length) {
-      console.log(`🔄 Removed ${commands.length - uniqueCommands.length} duplicate commands`);
-    }
-    
-    const finalCommands = uniqueCommands;
-    console.log(`✅ Final unique commands to process: ${finalCommands.length}`);
+    const commands = globalCommands;
+    console.log(`🔍 Using global commands. Total discovered: ${commands.length}`);
 
-    if (finalCommands.length === 0) {
+    if (commands.length === 0) {
       console.log(`⚠️ NO COMMANDS FOUND after comprehensive search!`);
       console.log(`📋 Search summary:`);
       console.log(`   • Global commands: ${globalCommands.length}`);
-      console.log(`   • Guild commands checked: ${guildCommands.length}`);
-      console.log(`   • Total commands found: ${allCommands.length}`);
       console.log(`📋 Possible issues:`);
       console.log(`   • Bot token doesn't have applications.commands scope`);
       console.log(`   • Commands haven't been registered yet`);
-      console.log(`   • Bot lacks permissions to view commands in guilds`);
-      console.log(`   • Bot is using message-based commands instead of slash commands`);
+      console.log(`   • Bot lacks permissions to view commands`);
+      console.log(`   • Commands are registered to specific guilds instead of globally`);
       
       return { 
         success: true, 
-        message: 'No slash commands found after comprehensive search', 
+        message: 'No slash commands found - may be guild-specific or missing scope', 
         commandCount: 0,
         discoveredCommands: [],
         createdMappings: 0,
         debugInfo: {
           globalCommands: globalCommands.length,
-          guildCommandsChecked: guildCommands.length,
-          totalCommandsFound: allCommands.length,
           applicationId: appData.id,
           botName: appData.name
         }
@@ -1169,7 +1089,7 @@ async function discoverAndSyncCommands(botToken: string, botId: string, userId: 
     // Create command mappings for each discovered command
     const commandMappings = [];
     
-    for (const command of finalCommands) {
+    for (const command of commands) {
       console.log(`🔧 Processing command: ${command.name} (ID: ${command.id})`);
       console.log(`   Description: ${command.description}`);
       console.log(`   Options: ${command.options?.length || 0}`);
@@ -1216,33 +1136,29 @@ async function discoverAndSyncCommands(botToken: string, botId: string, userId: 
       .insert({
         user_id: userId,
         activity_type: 'commands_synced',
-        description: `Automatically synced ${finalCommands.length} Discord commands`,
+        description: `Automatically synced ${commands.length} Discord commands`,
         metadata: { 
           botId,
-          commandCount: finalCommands.length,
+          commandCount: commands.length,
           patternCount: insertedMappings.length,
           forceRefresh,
           debugInfo: {
             globalCommands: globalCommands.length,
-            guildCommandsChecked: guildCommands.length,
-            totalCommandsFound: allCommands.length,
-            finalUniqueCommands: finalCommands.length
+            applicationId: appData.id,
+            botName: appData.name
           }
         }
       });
 
     return { 
       success: true, 
-      message: `Successfully synced ${finalCommands.length} commands with ${insertedMappings.length} patterns`,
-      commandCount: finalCommands.length,
+      message: `Successfully synced ${commands.length} commands with ${insertedMappings.length} patterns`,
+      commandCount: commands.length,
       patternCount: insertedMappings.length,
-      discoveredCommands: finalCommands,
+      discoveredCommands: commands,
       createdMappings: insertedMappings.length,
       debugInfo: {
         globalCommands: globalCommands.length,
-        guildCommandsChecked: guildCommands.length,
-        totalCommandsFound: allCommands.length,
-        finalUniqueCommands: finalCommands.length,
         applicationId: appData.id,
         botName: appData.name
       }
