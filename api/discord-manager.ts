@@ -184,13 +184,10 @@ async function tryPersistentServiceStart(bot: any): Promise<StartupResult> {
   const railwayToken = process.env.RAILWAY_TOKEN;
   const renderApiKey = process.env.RENDER_API_KEY;
   
-  if (railwayToken) {
-    return await startOnRailway(bot, railwayToken);
-  }
-  
-  if (renderApiKey) {
-    return await startOnRender(bot, renderApiKey);
-  }
+  // Temporarily disable automatic Railway deployment until we can deploy actual code
+  // The current implementation only creates empty services without bot code
+  console.log('🔧 Automatic deployment temporarily disabled - Railway creates empty services');
+  console.log('📋 Using manual client code approach for reliable bot deployment');
   
   return { started: false, method: 'none' };
 }
