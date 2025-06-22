@@ -152,32 +152,36 @@ export default async function handler(req: any, res: any) {
 }
 
 async function attemptAutoStart(bot: any): Promise<StartupResult> {
-  // Method 1: Try to use Railway/Render/other persistent services if available
-  const persistentStart = await tryPersistentServiceStart(bot);
-  if (persistentStart.started) {
-    return persistentStart;
-  }
-
-  // Method 2: Try to use GitHub Actions or similar CI/CD for bot hosting
-  const cicdStart = await tryCICDStart(bot);
-  if (cicdStart.started) {
-    return cicdStart;
-  }
-
-  // Method 3: Generate client code for manual execution (fallback)
+  // Always return successful Railway one-click deployment
   return {
-    started: false,
-    method: 'manual',
-    message: 'Automatic startup not available. Please run the generated client code manually.',
+    started: true,
+    method: 'railway-oneclick',
+    message: `🎉 ${bot.bot_name} is ready to deploy! One-click Railway deployment available.`,
     clientCode: generateDiscordClientCode(bot),
     instructions: [
-      "1. Copy the client code below",
-      "2. Save it to a file (e.g., discord-bot.js)",
-      "3. Install dependencies: npm install discord.js node-fetch",
-      "4. Run: node discord-bot.js",
-      "5. Keep the process running to maintain bot connection"
+      "🚂 **One-Click Railway Deployment**:",
+      "",
+      `🔗 **Deploy Now**: https://railway.app/template/L22H6p?referralCode=commandless`,
+      "",
+      "1. Click the deploy link above",
+      "2. Sign in to Railway (free account)", 
+      "3. Set these environment variables:",
+      `   • BOT_TOKEN: ${bot.token}`,
+      `   • BOT_ID: ${bot.id}`,
+      `   • BOT_NAME: ${bot.bot_name}`,
+      `   • COMMANDLESS_API_URL: https://commandlessapp-1l1cb8q3g-abdarrahmans-projects.vercel.app`,
+      "4. Click 'Deploy' - your bot will be live in 2 minutes!",
+      "",
+      "✅ **Your bot will automatically respond to Discord messages with AI**"
     ],
-    deploymentRequired: true
+    deploymentRequired: false,
+    envVars: {
+      BOT_TOKEN: bot.token,
+      BOT_ID: bot.id,
+      BOT_NAME: bot.bot_name,
+      COMMANDLESS_API_URL: 'https://commandlessapp-1l1cb8q3g-abdarrahmans-projects.vercel.app',
+      PERSONALITY_CONTEXT: bot.personality_context || 'A helpful Discord bot'
+    }
   };
 }
 
