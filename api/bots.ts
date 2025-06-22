@@ -592,6 +592,35 @@ export default async function handler(req: any, res: any) {
               });
             }
 
+            // Automatically configure Discord webhook endpoint
+            try {
+              const webhookUrl = `${process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://commandlessapp-gfb7a7zd6-abdarrahmans-projects.vercel.app'}/api/discord?action=webhook`;
+              
+              console.log(`🔗 Setting webhook URL for ${bot.bot_name}: ${webhookUrl}`);
+              
+              const webhookResponse = await fetch(`https://discord.com/api/v10/applications/${validation.applicationId}`, {
+                method: 'PATCH',
+                headers: {
+                  'Authorization': `Bot ${bot.token}`,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  interactions_endpoint_url: webhookUrl
+                })
+              });
+
+              if (webhookResponse.ok) {
+                console.log(`✅ Webhook endpoint configured successfully for ${bot.bot_name}`);
+              } else {
+                const webhookError = await webhookResponse.text();
+                console.warn(`⚠️ Failed to set webhook endpoint: ${webhookError}`);
+                // Continue anyway - webhook setup is not critical for basic functionality
+              }
+            } catch (webhookError) {
+              console.warn(`⚠️ Webhook setup failed for ${bot.bot_name}:`, webhookError);
+              // Continue anyway - webhook setup is not critical for basic functionality
+            }
+
             // In a real implementation, you would start the Discord client here
             // For serverless environment, we just validate and mark as connected
             console.log(`Discord bot ${bot.bot_name} validated and marked as connected`);
