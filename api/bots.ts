@@ -1109,8 +1109,7 @@ async function discoverAndSyncCommands(botToken: string, botId: string, userId: 
           name: `${command.name} - ${pattern.split(' ').slice(0, 3).join(' ')}`,
           natural_language_pattern: pattern,
           command_output: commandOutput,
-          status: 'active',
-          description: command.description || `Discord slash command: /${command.name}`
+          status: 'active'
         });
       }
     }
