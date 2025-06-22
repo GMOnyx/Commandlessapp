@@ -56,37 +56,83 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
         body: JSON.stringify({ action: "connect", botId: bot.id }),
       });
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/bots"] });
-      toast({
-        title: "Success",
-        description: `${bot.botName} has been connected.`,
-      });
+      
+      if (data.autoStarted) {
+        toast({
+          title: "Success",
+          description: `🎉 ${bot.botName} is now live and responding!`,
+        });
+      } else if (data.deploymentRequired) {
+        toast({
+          title: "Deployment Required",
+          description: `⚠️ ${bot.botName} is configured but needs to be deployed to respond to messages.`,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Success",
+          description: `${bot.botName} has been connected.`,
+        });
+      }
     },
     onError: (error: any) => {
       // Try to parse the error response for detailed information
-      let errorMessage = "Failed to connect bot";
-      let troubleshooting: string[] = [];
-      let details = "";
+      let errorMessage = `Failed to connect ${bot.botName}`;
+      let troubleshooting: string[] | undefined;
+      let details: string | undefined;
       
-      try {
-        if (error instanceof Error) {
-          const errorData = JSON.parse(error.message);
-          errorMessage = errorData.error || errorMessage;
-          troubleshooting = errorData.troubleshooting || [];
-          details = errorData.details || "";
+      if (error instanceof Error) {
+        try {
+          // Check if the error has structured data
+          const errorText = error.message;
+          
+          // Extract JSON from error message if present
+          const jsonMatch = errorText.match(/\{.*\}/);
+          if (jsonMatch) {
+            const errorData = JSON.parse(jsonMatch[0]);
+            errorMessage = errorData.message || errorMessage;
+            troubleshooting = errorData.troubleshooting;
+            details = errorData.details;
+          } else {
+            // Handle cases where the error message contains the structured response
+            if (errorText.includes("500:") || errorText.includes("400:")) {
+              const responseMatch = errorText.match(/(?:500|400):\s*(.+)/);
+              if (responseMatch) {
+                try {
+                  const responseData = JSON.parse(responseMatch[1]);
+                  errorMessage = responseData.message || errorMessage;
+                  troubleshooting = responseData.troubleshooting;
+                  details = responseData.details;
+                } catch {
+                  errorMessage = responseMatch[1];
+                }
+              }
+            } else {
+              errorMessage = errorText;
+            }
+          }
+        } catch {
+          errorMessage = error.message;
         }
-      } catch {
-        // If parsing fails, use the error message directly
-        errorMessage = error instanceof Error ? error.message : errorMessage;
       }
       
-      setErrorDetails({
-        message: errorMessage,
-        troubleshooting,
-        details
-      });
-      setShowErrorDialog(true);
+      // Show detailed error information if available
+      if (troubleshooting && troubleshooting.length > 0) {
+        setErrorDetails({
+          message: errorMessage,
+          troubleshooting,
+          details
+        });
+        setShowErrorDialog(true);
+      } else {
+        toast({
+          title: "Error",
+          description: errorMessage,
+          variant: "destructive",
+        });
+      }
     },
   });
   
@@ -263,31 +309,43 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
 
     {/* Error Dialog */}
     <AlertDialog open={showErrorDialog} onOpenChange={setShowErrorDialog}>
-      <AlertDialogContent>
+      <AlertDialogContent className="max-w-md">
         <AlertDialogHeader>
           <AlertDialogTitle>Connection Failed</AlertDialogTitle>
-          <AlertDialogDescription className="space-y-3">
-            <p>{errorDetails.message}</p>
-            {errorDetails.details && (
-              <div className="bg-gray-50 p-3 rounded-md">
-                <p className="text-sm text-gray-600">{errorDetails.details}</p>
+          <AlertDialogDescription asChild>
+            <div className="space-y-3">
+              <p>{errorDetails.message}</p>
+              
+              {errorDetails.troubleshooting && (
+                <div>
+                  <p className="font-medium text-sm">Troubleshooting steps:</p>
+                  <ul className="list-disc list-inside text-sm space-y-1 mt-1">
+                    {errorDetails.troubleshooting.map((step, index) => (
+                      <li key={index}>{step}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              
+              {errorDetails.details && (
+                <div>
+                  <p className="font-medium text-sm">Technical details:</p>
+                  <p className="text-xs text-gray-600 mt-1 font-mono bg-gray-100 p-2 rounded">
+                    {errorDetails.details}
+                  </p>
+                </div>
+              )}
+              
+              <div className="text-sm text-blue-600">
+                <p className="font-medium">Need help?</p>
+                <p>Visit the <a href="https://discord.com/developers/applications" target="_blank" rel="noopener noreferrer" className="underline">Discord Developer Portal</a> to check your bot settings.</p>
               </div>
-            )}
-            {errorDetails.troubleshooting && errorDetails.troubleshooting.length > 0 && (
-              <div>
-                <p className="font-medium text-sm mb-2">Troubleshooting steps:</p>
-                <ul className="text-sm text-gray-600 list-disc list-inside space-y-1">
-                  {errorDetails.troubleshooting.map((step, index) => (
-                    <li key={index}>{step}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
+            </div>
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogAction onClick={() => setShowErrorDialog(false)}>
-            OK
+            Got it
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
