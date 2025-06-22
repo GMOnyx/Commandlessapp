@@ -169,7 +169,7 @@ async function attemptAutoStart(bot: any): Promise<StartupResult> {
       `   • BOT_TOKEN: ${bot.token}`,
       `   • BOT_ID: ${bot.id}`,
       `   • BOT_NAME: ${bot.bot_name}`,
-      `   • COMMANDLESS_API_URL: https://commandlessapp-1l1cb8q3g-abdarrahmans-projects.vercel.app`,
+      `   • COMMANDLESS_API_URL: https://commandless.app`,
       "4. Click 'Deploy' - your bot will be live in 2 minutes!",
       "",
       "✅ **Your bot will automatically respond to Discord messages with AI**"
@@ -178,7 +178,7 @@ async function attemptAutoStart(bot: any): Promise<StartupResult> {
       BOT_TOKEN: bot.token,
       BOT_ID: bot.id,
       BOT_NAME: bot.bot_name,
-      COMMANDLESS_API_URL: 'https://commandlessapp-1l1cb8q3g-abdarrahmans-projects.vercel.app',
+      COMMANDLESS_API_URL: 'https://commandless.app',
       PERSONALITY_CONTEXT: bot.personality_context || 'A helpful Discord bot'
     }
   };
@@ -361,7 +361,7 @@ const fetch = require('node-fetch');
 const BOT_TOKEN = '${bot.token}';
 const BOT_ID = '${bot.id}';
 const BOT_NAME = '${bot.bot_name}';
-const COMMANDLESS_API_URL = 'https://commandlessapp-gfb7a7zd6-abdarrahmans-projects.vercel.app';
+const COMMANDLESS_API_URL = 'https://commandless.app';
 
 console.log('🤖 Starting \${BOT_NAME}...');
 console.log('🔗 Commandless API:', COMMANDLESS_API_URL);
