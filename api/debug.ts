@@ -31,6 +31,8 @@ export default async function handler(req: any, res: any) {
     console.log('- CLERK_SECRET_KEY exists:', !!process.env.CLERK_SECRET_KEY);
     console.log('- SUPABASE_URL exists:', !!process.env.SUPABASE_URL);
     console.log('- SUPABASE_ANON_KEY exists:', !!process.env.SUPABASE_ANON_KEY);
+    console.log('- RAILWAY_TOKEN exists:', !!process.env.RAILWAY_TOKEN);
+    console.log('- RAILWAY_PROJECT_ID exists:', !!process.env.RAILWAY_PROJECT_ID);
     console.log('- NODE_ENV:', process.env.NODE_ENV);
 
     // Test Supabase connection
