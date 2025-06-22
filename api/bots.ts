@@ -1116,10 +1116,13 @@ async function discoverAndSyncCommands(botToken: string, botId: string, userId: 
 
     console.log(`📝 Created ${commandMappings.length} command mappings from ${commands.length} commands`);
 
-    // Insert all command mappings
+    // Insert all command mappings with conflict handling
     const { data: insertedMappings, error: insertError } = await supabase!
       .from('command_mappings')
-      .insert(commandMappings)
+      .upsert(commandMappings, { 
+        onConflict: 'user_id,bot_id,name',
+        ignoreDuplicates: true 
+      })
       .select();
 
     if (insertError) {
