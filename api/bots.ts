@@ -1001,10 +1001,10 @@ async function discoverAndSyncCommands(botToken: string, botId: string, userId: 
 
     // Get global application commands with detailed debugging
     console.log(`🌍 Fetching GLOBAL application commands...`);
-    console.log(`🔗 Discord API URL: https://discord.com/api/v10/applications/@me/commands`);
+    console.log(`🔗 Discord API URL: https://discord.com/api/v10/applications/${appData.id}/commands`);
     console.log(`🔑 Authorization header: Bot ${botToken.substring(0, 20)}...`);
     
-    const commandsResponse = await fetch('https://discord.com/api/v10/applications/@me/commands', {
+    const commandsResponse = await fetch(`https://discord.com/api/v10/applications/${appData.id}/commands`, {
       headers: {
         'Authorization': `Bot ${botToken}`,
         'Content-Type': 'application/json'
