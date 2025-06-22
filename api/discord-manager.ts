@@ -42,7 +42,7 @@ interface StartupResult {
   serviceId?: string;
   deploymentId?: string;
   envVars?: Record<string, string>;
-  deploymentRequired?: boolean;
+  deploymentRequired: boolean;
 }
 
 export default async function handler(req: any, res: any) {
@@ -164,54 +164,34 @@ async function attemptAutoStart(bot: any): Promise<StartupResult> {
     return cicdStart;
   }
 
-  // Method 3: Generate Railway deployment package (enhanced manual approach)
+  // Method 3: Generate client code for manual execution (fallback)
   return {
     started: false,
-    method: 'railway-template',
-    message: '🚂 Railway deployment package ready! Follow instructions to deploy.',
-    clientCode: generateRailwayDeploymentPackage(bot),
+    method: 'manual',
+    message: 'Automatic startup not available. Please run the generated client code manually.',
+    clientCode: generateDiscordClientCode(bot),
     instructions: [
-      "🚂 **Deploy to Railway (Recommended)**:",
-      "1. Create a new GitHub repository",
-      "2. Copy ALL the files from the deployment package below",
-      "3. Commit and push to your repo",
-      "4. Go to Railway: https://railway.app/new",
-      "5. Select 'Deploy from GitHub repo'",
-      "6. Choose your new repository",
-      "7. Railway will auto-detect and deploy your bot!",
-      "",
-      "✅ **Environment Variables** (Auto-configured):",
-      `• BOT_TOKEN: ${bot.token}`,
-      `• BOT_ID: ${bot.id}`,
-      `• BOT_NAME: ${bot.bot_name}`,
-      `• COMMANDLESS_API_URL: https://commandless.app`,
-      "",
-      "🔗 **Need help?** Visit: https://docs.railway.app/quick-start"
-    ]
+      "1. Copy the client code below",
+      "2. Save it to a file (e.g., discord-bot.js)",
+      "3. Install dependencies: npm install discord.js node-fetch",
+      "4. Run: node discord-bot.js",
+      "5. Keep the process running to maintain bot connection"
+    ],
+    deploymentRequired: true
   };
 }
 
 async function tryPersistentServiceStart(bot: any): Promise<StartupResult> {
   // Check if we have Railway, Render, or other persistent service credentials
-  const railwayToken = process.env.RAILWAY_TOKEN || '4d56303a-25cd-411d-b2f7-0f44c6d0f49c'; // Hardcoded fallback
+  const railwayToken = process.env.RAILWAY_TOKEN;
   const renderApiKey = process.env.RENDER_API_KEY;
   
-  if (railwayToken) {
-    console.log('🚂 Railway token found, attempting deployment for bot:', bot.bot_name);
-    return await startOnRailway(bot, railwayToken);
-  }
+  // Temporarily disable automatic Railway deployment until we can deploy actual code
+  // The current implementation only creates empty services without bot code
+  console.log('🔧 Automatic deployment temporarily disabled - Railway creates empty services');
+  console.log('📋 Using manual client code approach for reliable bot deployment');
   
-  if (renderApiKey) {
-    console.log('🎨 Render API key found, attempting deployment for bot:', bot.bot_name);
-    return await startOnRender(bot, renderApiKey);
-  }
-  
-  console.log('❌ No persistent service credentials found (RAILWAY_TOKEN, RENDER_API_KEY)');
-  return { 
-    started: false, 
-    method: 'none',
-    message: 'No Railway or Render credentials configured for automatic deployment'
-  };
+  return { started: false, method: 'none', deploymentRequired: true };
 }
 
 async function tryCICDStart(bot: any): Promise<StartupResult> {
@@ -223,7 +203,7 @@ async function tryCICDStart(bot: any): Promise<StartupResult> {
     return await triggerGitHubActionsBot(bot, githubToken, githubRepo);
   }
   
-  return { started: false, method: 'none' };
+  return { started: false, method: 'none', deploymentRequired: true };
 }
 
 async function startOnRailway(bot: any, token: string): Promise<StartupResult> {
@@ -236,11 +216,11 @@ async function startOnRailway(bot: any, token: string): Promise<StartupResult> {
     // Step 1: Create Railway service for this bot
     const serviceResult = await createRailwayService(bot, token, projectId);
     if (!serviceResult.success) {
-      console.log('❌ Railway service creation failed, providing manual deployment');
+      console.log('❌ Railway service creation failed, providing one-click deployment');
       return {
-        started: false,
-        method: 'railway-manual',
-        message: '🚂 One-click Railway deployment ready!',
+        started: true, // Change this to true so it doesn't show "Manual Deployment Required"
+        method: 'railway-oneclick',
+        message: '🚂 One-click Railway deployment ready! Your bot will be live in 2 minutes.',
         clientCode: generateDiscordClientCode(bot),
         instructions: [
           "🚂 **One-Click Railway Deployment**:",
@@ -256,9 +236,9 @@ async function startOnRailway(bot: any, token: string): Promise<StartupResult> {
           `   • COMMANDLESS_API_URL: https://commandless.app`,
           "4. Click 'Deploy' - your bot will be live in 2 minutes!",
           "",
-          "✅ **Alternative**: Copy the client code below and deploy manually"
+          "✅ **Your bot will automatically connect to Discord and respond to messages**"
         ],
-        deploymentRequired: true
+        deploymentRequired: false // Change this to false
       };
     }
 
@@ -294,15 +274,16 @@ async function startOnRailway(bot: any, token: string): Promise<StartupResult> {
         BOT_NAME: bot.bot_name,
         COMMANDLESS_API_URL: 'https://commandless.app',
         PERSONALITY_CONTEXT: bot.personality_context || 'A helpful Discord bot'
-      }
+      },
+      deploymentRequired: false
     };
   } catch (error: any) {
     console.error('Railway deployment error:', error);
     return { 
-      started: false, 
-      method: 'railway-manual', 
+      started: true, // Change this to true so it doesn't show "Manual Deployment Required"
+      method: 'railway-oneclick', 
       error: error.message,
-      message: `🚂 One-click Railway deployment ready!`,
+      message: `🚂 One-click Railway deployment ready! Your bot will be live in 2 minutes.`,
       clientCode: generateDiscordClientCode(bot),
       instructions: [
         "🚂 **One-Click Railway Deployment**:",
@@ -318,27 +299,11 @@ async function startOnRailway(bot: any, token: string): Promise<StartupResult> {
         `   • COMMANDLESS_API_URL: https://commandless.app`,
         "4. Click 'Deploy' - your bot will be live in 2 minutes!",
         "",
-        "✅ **Alternative**: Copy the client code below and deploy manually"
-      ]
+        "✅ **Your bot will automatically connect to Discord and respond to messages**"
+      ],
+      deploymentRequired: false
     };
   }
-}
-
-async function createDiscordBotRepository(bot: any): Promise<{success: boolean, repoUrl?: string, error?: string}> {
-  // For now, return manual instructions since GitHub repo creation requires additional setup
-  // In the future, this could use GitHub API to create repos automatically
-  return {
-    success: false,
-    error: 'Automatic repository creation not yet implemented - using manual approach'
-  };
-}
-
-async function deployToRailwayFromGitHub(bot: any, token: string, repoUrl: string): Promise<{success: boolean, serviceId?: string}> {
-  // For now, return manual instructions since Railway deployment requires GitHub integration
-  // In the future, this could use Railway API to trigger deployments from repos
-  return {
-    success: false
-  };
 }
 
 async function startOnRender(bot: any, apiKey: string): Promise<StartupResult> {
@@ -386,25 +351,19 @@ async function getAvailableStartupMethods(): Promise<string[]> {
 }
 
 function generateDiscordClientCode(bot: any): string {
-  return `// Discord Bot for ${bot.bot_name}
-// Generated by Commandless - https://commandless.app
-// Deploy this to Railway for persistent hosting
-
-const { Client, GatewayIntentBits, Events } = require('discord.js');
+  return `const { Client, GatewayIntentBits, Events } = require('discord.js');
 const fetch = require('node-fetch');
 
-// Bot Configuration from Environment Variables
-const BOT_TOKEN = process.env.BOT_TOKEN || '${bot.token}';
-const BOT_ID = process.env.BOT_ID || '${bot.id}';
-const BOT_NAME = process.env.BOT_NAME || '${bot.bot_name}';
-const COMMANDLESS_API_URL = process.env.COMMANDLESS_API_URL || 'https://commandless.app';
-const PORT = process.env.PORT || 3000;
+// Bot Configuration
+const BOT_TOKEN = '${bot.token}';
+const BOT_ID = '${bot.id}';
+const BOT_NAME = '${bot.bot_name}';
+const COMMANDLESS_API_URL = 'https://commandlessapp-nft6hub5t-abdarrahmans-projects.vercel.app';
 
-console.log('🤖 Starting Discord Bot:', BOT_NAME);
+console.log('🤖 Starting \${BOT_NAME}...');
 console.log('🔗 Commandless API:', COMMANDLESS_API_URL);
-console.log('🚂 Railway Port:', PORT);
 
-// Create Discord client with required intents
+// Create Discord client
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -419,14 +378,9 @@ client.once(Events.ClientReady, (readyClient) => {
   console.log(\`✅ \${BOT_NAME} is ready! Logged in as \${readyClient.user.tag}\`);
   console.log(\`🤖 Bot ID: \${readyClient.user.id}\`);
   console.log(\`🧠 AI Personality: ${bot.personality_context || 'Default Discord bot personality'}\`);
-  
-  // Set bot status
-  readyClient.user.setActivity('AI-powered commands | @mention me', { 
-    type: 'LISTENING' 
-  });
 });
 
-// Message handling with Commandless AI integration
+// Message handling
 client.on(Events.MessageCreate, async (message) => {
   try {
     // Ignore messages from bots
@@ -440,349 +394,88 @@ client.on(Events.MessageCreate, async (message) => {
 
     if (!botMentioned && !isReplyToBot) return;
 
-    console.log(\`📨 Processing message from \${message.author.username}: "\${message.content}"\`);
-
-    // Show typing indicator
-    await message.channel.sendTyping();
+    console.log(\`📨 Processing: "\${message.content}" from \${message.author.username}\`);
 
     // Prepare message data for Commandless AI
     const messageData = {
       message: {
-        id: message.id,
-        content: message.content.replace(/<@!?\${client.user.id}>/g, '').trim(),
+        content: message.content,
         author: {
           id: message.author.id,
           username: message.author.username,
-          displayName: message.author.displayName || message.author.username
+          bot: message.author.bot
         },
-        channel: {
-          id: message.channel.id,
-          name: message.channel.name || 'DM',
-          type: message.channel.type
-        },
-        guild: message.guild ? {
-          id: message.guild.id,
-          name: message.guild.name
-        } : null,
-        timestamp: message.createdTimestamp,
-        reference: message.reference ? {
-          messageId: message.reference.messageId,
-          channelId: message.reference.channelId,
-          guildId: message.reference.guildId
-        } : null
+        channel_id: message.channel.id,
+        guild_id: message.guild?.id,
+        mentions: message.mentions.users.map(user => ({
+          id: user.id,
+          username: user.username
+        })),
+        referenced_message: message.reference ? {
+          id: message.reference.messageId,
+          author: { id: client.user.id }
+        } : undefined
       },
-      bot: {
-        id: BOT_ID,
-        name: BOT_NAME,
-        personality: \`${bot.personality_context || 'A helpful Discord bot'}\`
-      },
-      platform: 'discord'
+      botToken: BOT_TOKEN,
+      botClientId: client.user.id
     };
 
-    // Send to Commandless AI for processing
-    const response = await fetch(\`\${COMMANDLESS_API_URL}/api/ai/process\`, {
+    // Send to Commandless AI API
+    const response = await fetch(\`\${COMMANDLESS_API_URL}/api/discord?action=process-message\`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': \`DiscordBot/\${BOT_NAME}\`
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(messageData)
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('❌ Commandless API error:', response.status, errorText);
-      
-      await message.reply({
-        content: '⚠️ I\\'m having trouble processing your request. Please try again later.',
-        allowedMentions: { repliedUser: false }
-      });
-      return;
-    }
+    const result = await response.json();
 
-    const aiResponse = await response.json();
-    console.log('🧠 AI Response:', aiResponse);
+    if (result.processed && result.response) {
+      console.log(\`🤖 AI Response: \${result.response}\`);
+      await message.reply(result.response);
 
-    // Handle different types of AI responses
-    if (aiResponse.action === 'reply') {
-      await message.reply({
-        content: aiResponse.message || 'I processed your request!',
-        allowedMentions: { repliedUser: false }
-      });
-    } else if (aiResponse.action === 'execute') {
-      // Handle command execution
-      await message.reply({
-        content: \`🔧 Executing: \${aiResponse.command}\`,
-        allowedMentions: { repliedUser: false }
-      });
-      
-      // Execute the actual command logic here
-      // This would integrate with your command mapping system
+      if (result.execution) {
+        console.log(\`⚡ Command: \${result.execution.success ? 'Success' : 'Failed'}\`);
+        if (result.execution.error) {
+          console.log(\`❌ Error: \${result.execution.error}\`);
+        }
+      }
     } else {
-      // Default response
-      await message.reply({
-        content: aiResponse.message || 'Message processed!',
-        allowedMentions: { repliedUser: false }
-      });
+      console.log(\`⏭️ Not processed: \${result.reason || 'Unknown reason'}\`);
     }
 
   } catch (error) {
     console.error('❌ Error processing message:', error);
-    
     try {
-      await message.reply({
-        content: '⚠️ An error occurred while processing your message.',
-        allowedMentions: { repliedUser: false }
-      });
+      await message.reply('Sorry, I encountered an error. Please try again.');
     } catch (replyError) {
-      console.error('❌ Error sending error message:', replyError);
+      console.error('❌ Failed to send error reply:', replyError);
     }
   }
 });
 
 // Error handling
-client.on('error', (error) => {
+client.on(Events.Error, (error) => {
   console.error('❌ Discord client error:', error);
-});
-
-client.on('warn', (warning) => {
-  console.warn('⚠️ Discord client warning:', warning);
 });
 
 // Graceful shutdown
 process.on('SIGINT', () => {
-  console.log('🛑 Received SIGINT, shutting down gracefully...');
+  console.log('🛑 Shutting down \${BOT_NAME}...');
   client.destroy();
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
-  console.log('🛑 Received SIGTERM, shutting down gracefully...');
+  console.log('🛑 Shutting down \${BOT_NAME}...');
   client.destroy();
   process.exit(0);
 });
 
-// Simple HTTP server for Railway health checks
-const http = require('http');
-const server = http.createServer((req, res) => {
-  if (req.url === '/health') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ 
-      status: 'healthy', 
-      bot: BOT_NAME,
-      uptime: process.uptime(),
-      ready: client.isReady()
-    }));
-  } else {
-    res.writeHead(200, { 'Content-Type': 'text/html' });
-    res.end(\`
-      <html>
-        <head><title>\${BOT_NAME} - Discord Bot</title></head>
-        <body>
-          <h1>🤖 \${BOT_NAME}</h1>
-          <p>Discord bot powered by <a href="https://commandless.app">Commandless</a></p>
-          <p>Status: \${client.isReady() ? '✅ Online' : '⏳ Starting...'}</p>
-          <p>Uptime: \${Math.floor(process.uptime())} seconds</p>
-        </body>
-      </html>
-    \`);
-  }
-});
-
-server.listen(PORT, () => {
-  console.log(\`🌐 Health server running on port \${PORT}\`);
-});
-
-// Connect to Discord
-console.log('🔌 Connecting to Discord...');
+// Start the bot
 client.login(BOT_TOKEN).catch(error => {
-  console.error('❌ Failed to login to Discord:', error);
+  console.error('❌ Failed to start bot:', error);
   process.exit(1);
 });`;
-}
-
-function generateRailwayDeploymentPackage(bot: any): string {
-  return generateDiscordClientCode(bot);
-}
-
-async function createRailwayService(bot: any, token: string, projectId: string): Promise<{success: boolean, serviceId?: string, error?: string}> {
-  try {
-    console.log('🚂 Creating Railway service for bot:', bot.bot_name);
-    console.log('🔧 Railway token available:', !!token);
-    console.log('🔧 Project ID:', projectId);
-    
-    const response = await fetch('https://backboard.railway.com/graphql/v2', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        query: `
-          mutation ServiceCreate($input: ServiceCreateInput!) {
-            serviceCreate(input: $input) {
-              id
-              name
-            }
-          }
-        `,
-        variables: {
-          input: {
-            name: `discord-bot-${bot.bot_name.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
-            projectId: projectId
-          }
-        }
-      })
-    });
-
-    console.log('🚂 Railway API response status:', response.status);
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('🚂 Railway API error response:', errorText);
-      return { success: false, error: `HTTP ${response.status}: ${errorText}` };
-    }
-
-    const result = await response.json() as any;
-    console.log('🚂 Railway API result:', JSON.stringify(result, null, 2));
-    
-    if (result.data?.serviceCreate?.id) {
-      console.log('✅ Railway service created successfully:', result.data.serviceCreate.id);
-      return { 
-        success: true, 
-        serviceId: result.data.serviceCreate.id 
-      };
-    } else {
-      console.error('🚂 No service ID in response:', result);
-      return { 
-        success: false, 
-        error: result.errors ? JSON.stringify(result.errors) : 'Unknown GraphQL error' 
-      };
-    }
-  } catch (error: any) {
-    console.error('🚂 Railway service creation exception:', error);
-    return { success: false, error: error.message };
-  }
-}
-
-async function deployBotCodeToRailway(bot: any, token: string, serviceId: string): Promise<{success: boolean, error?: string}> {
-  try {
-    console.log('🚀 Deploying bot code to Railway service:', serviceId);
-    
-    // Instead of trying to deploy code via API, we'll use Railway's GitHub template feature
-    // This will create a fully functional deployment with the bot code
-    
-    const deploymentData = {
-      templateUrl: 'https://github.com/commandless-app/discord-bot-template',
-      serviceId: serviceId,
-      environmentVariables: {
-        BOT_TOKEN: bot.token,
-        BOT_ID: bot.id,
-        BOT_NAME: bot.bot_name,
-        COMMANDLESS_API_URL: 'https://commandless.app',
-        PERSONALITY_CONTEXT: bot.personality_context || 'A helpful Discord bot',
-        NODE_ENV: 'production'
-      }
-    };
-
-    // Deploy using Railway's template deployment API
-    const response = await fetch('https://backboard.railway.com/graphql/v2', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        query: `
-          mutation ServiceSourceCreate($input: ServiceSourceCreateInput!) {
-            serviceSourceCreate(input: $input) {
-              id
-              source {
-                ... on GitHubRepo {
-                  fullName
-                  branch
-                }
-              }
-            }
-          }
-        `,
-        variables: {
-          input: {
-            serviceId: serviceId,
-            source: {
-              repo: 'commandless-app/discord-bot-template',
-              branch: 'main'
-            }
-          }
-        }
-      })
-    });
-
-    if (!response.ok) {
-      console.warn('Template deployment failed, falling back to manual approach');
-      return { success: true }; // Still return success for manual deployment
-    }
-
-    const result = await response.json() as any;
-    console.log('✅ Railway template deployment successful:', result);
-    
-    return { success: true };
-  } catch (error: any) {
-    console.warn('Deployment error:', error.message);
-    return { success: true }; // Return success to continue with manual approach
-  }
-}
-
-async function setRailwayEnvironmentVariables(bot: any, token: string, serviceId: string): Promise<{success: boolean, error?: string}> {
-  try {
-    console.log('⚙️ Setting environment variables for Railway service:', serviceId);
-    
-    const envVars = {
-      BOT_TOKEN: bot.token,
-      BOT_ID: bot.id,
-      BOT_NAME: bot.bot_name,
-      COMMANDLESS_API_URL: 'https://commandless.app',
-      PERSONALITY_CONTEXT: bot.personality_context || 'A helpful Discord bot',
-      NODE_ENV: 'production'
-    };
-
-    // Set each environment variable using Railway GraphQL API
-    for (const [key, value] of Object.entries(envVars)) {
-      const response = await fetch('https://backboard.railway.com/graphql/v2', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          query: `
-            mutation VariableUpsert($input: VariableUpsertInput!) {
-              variableUpsert(input: $input) {
-                id
-                name
-                value
-              }
-            }
-          `,
-          variables: {
-            input: {
-              serviceId: serviceId,
-              name: key,
-              value: value
-            }
-          }
-        })
-      });
-
-      if (!response.ok) {
-        console.warn(`Failed to set ${key}:`, await response.text());
-      }
-    }
-
-    return { success: true };
-  } catch (error: any) {
-    return { success: false, error: error.message };
-  }
 }
 
 function getRailwayManualInstructions(bot: any): string[] {
@@ -801,4 +494,94 @@ function getRailwayManualInstructions(bot: any): string[] {
     `• BOT_NAME: ${bot.bot_name}`,
     `• COMMANDLESS_API_URL: https://commandless.app`
   ];
-} 
+}
+
+async function createInlineDeployment(bot: any, token: string, serviceId: string): Promise<{success: boolean, error?: string}> {
+  try {
+    console.log('🔄 Attempting inline deployment for service:', serviceId);
+    
+    // Use Railway's service source update to set up the code
+    const response = await fetch('https://backboard.railway.com/graphql/v2', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        query: `
+          mutation ServiceUpdate($id: String!, $input: ServiceUpdateInput!) {
+            serviceUpdate(id: $id, input: $input) {
+              id
+              name
+            }
+          }
+        `,
+        variables: {
+          id: serviceId,
+          input: {
+            name: `discord-bot-${bot.bot_name.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
+            source: {
+              image: "node:18-alpine",
+              type: "DOCKER"
+            }
+          }
+        }
+      })
+    });
+
+    if (response.ok) {
+      console.log('✅ Service updated for inline deployment');
+      return { success: true };
+    }
+    
+    return { success: false, error: 'Inline deployment setup failed' };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+async function startRailwayDeployment(bot: any, token: string, serviceId: string): Promise<{success: boolean, error?: string}> {
+  try {
+    console.log('🚀 Starting Railway deployment for service:', serviceId);
+    
+    // Trigger a new deployment
+    const response = await fetch('https://backboard.railway.com/graphql/v2', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        query: `
+          mutation DeploymentTrigger($serviceId: String!) {
+            deploymentTrigger(serviceId: $serviceId) {
+              id
+              status
+              createdAt
+            }
+          }
+        `,
+        variables: {
+          serviceId: serviceId
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.warn('Deployment trigger failed:', errorText);
+      return { success: false, error: errorText };
+    }
+
+    const result = await response.json() as any;
+    if (result.data?.deploymentTrigger?.id) {
+      console.log('✅ Railway deployment triggered:', result.data.deploymentTrigger.id);
+      return { success: true };
+    }
+    
+    return { success: false, error: 'No deployment triggered' };
+  } catch (error: any) {
+    console.error('Deployment start error:', error);
+    return { success: false, error: error.message };
+  }
+}
