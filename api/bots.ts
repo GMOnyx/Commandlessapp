@@ -275,16 +275,22 @@ export default async function handler(req: any, res: any) {
           metadata: { botId: bot.id, platformType: bot.platform_type }
         });
 
-      const formattedBot = {
+      // Return response with expected properties for the frontend
+      return res.status(200).json({
         id: updatedBot.id,
         botName: updatedBot.bot_name,
         platformType: updatedBot.platform_type,
         personalityContext: updatedBot.personality_context,
         isConnected: updatedBot.is_connected,
-        createdAt: updatedBot.created_at
-      };
-
-      return res.status(200).json(formattedBot);
+        createdAt: updatedBot.created_at,
+        // Frontend expects these properties
+        autoStarted: false,
+        deploymentRequired: false,
+        requiresManualStart: false,
+        status: "disconnected",
+        message: `${bot.bot_name} has been disconnected`,
+        startupMethod: "none"
+      });
     }
 
     if (req.method === 'POST' && action === 'sync-commands') {
@@ -649,16 +655,22 @@ export default async function handler(req: any, res: any) {
             metadata: { botId: bot.id, platformType: bot.platform_type }
           });
 
-        const formattedBot = {
+        // Return response with expected properties for the frontend
+        return res.status(200).json({
           id: updatedBot.id,
           botName: updatedBot.bot_name,
           platformType: updatedBot.platform_type,
           personalityContext: updatedBot.personality_context,
           isConnected: updatedBot.is_connected,
-          createdAt: updatedBot.created_at
-        };
-
-        return res.status(200).json(formattedBot);
+          createdAt: updatedBot.created_at,
+          // Frontend expects these properties
+          autoStarted: false,
+          deploymentRequired: true,
+          requiresManualStart: true,
+          status: "connected",
+          message: `${bot.bot_name} has been connected and is ready for deployment`,
+          startupMethod: "manual"
+        });
       }
 
       if (action === 'disconnect') {
@@ -702,16 +714,22 @@ export default async function handler(req: any, res: any) {
             metadata: { botId: bot.id, platformType: bot.platform_type }
           });
 
-        const formattedBot = {
+        // Return response with expected properties for the frontend
+        return res.status(200).json({
           id: updatedBot.id,
           botName: updatedBot.bot_name,
           platformType: updatedBot.platform_type,
           personalityContext: updatedBot.personality_context,
           isConnected: updatedBot.is_connected,
-          createdAt: updatedBot.created_at
-        };
-
-        return res.status(200).json(formattedBot);
+          createdAt: updatedBot.created_at,
+          // Frontend expects these properties
+          autoStarted: false,
+          deploymentRequired: false,
+          requiresManualStart: false,
+          status: "disconnected",
+          message: `${bot.bot_name} has been disconnected`,
+          startupMethod: "none"
+        });
       }
 
       if (action === 'sync-commands') {
@@ -1256,6 +1274,7 @@ async function validateDiscordToken(token: string) {
 
 // DISCORD CLIENT CODE GENERATION (migrated from server)
 function generateDiscordClientCode(bot: any): string {
+  const COMMANDLESS_API_URL = 'https://commandless.app';
   return `const { Client, GatewayIntentBits, Events } = require('discord.js');
 const fetch = require('node-fetch');
 
@@ -1263,7 +1282,6 @@ const fetch = require('node-fetch');
 const BOT_TOKEN = '${bot.token}';
 const BOT_ID = '${bot.id}';
 const BOT_NAME = '${bot.bot_name}';
-const COMMANDLESS_API_URL = 'https://commandlessapp-nft6hub5t-abdarrahmans-projects.vercel.app';
 
 console.log('🤖 Starting \${BOT_NAME}...');
 console.log('🔗 Commandless API:', COMMANDLESS_API_URL);
