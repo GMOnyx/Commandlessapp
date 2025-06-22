@@ -596,6 +596,42 @@ export default async function handler(req: any, res: any) {
             // For serverless environment, we just validate and mark as connected
             console.log(`Discord bot ${bot.bot_name} validated and marked as connected`);
             
+            // Try Railway auto-deployment
+            try {
+              const autoStartResponse = await fetch(`${process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://commandless.app'}/api/discord-manager?action=auto-start`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${userId}`
+                },
+                body: JSON.stringify({ botId: actualBotId })
+              });
+
+              if (autoStartResponse.ok) {
+                const autoStartResult = await autoStartResponse.json();
+                console.log('🚂 Railway auto-start result:', autoStartResult);
+                
+                if (autoStartResult.autoStarted) {
+                  // Railway deployment successful!
+                  return res.status(200).json({
+                    id: updatedBot.id,
+                    botName: updatedBot.bot_name,
+                    platformType: updatedBot.platform_type,
+                    personalityContext: updatedBot.personality_context,
+                    isConnected: updatedBot.is_connected,
+                    createdAt: updatedBot.created_at,
+                    autoStarted: true,
+                    deploymentRequired: false,
+                    requiresManualStart: false,
+                    status: "live",
+                    message: `🎉 ${bot.bot_name} is now live on Railway and responding to Discord messages!`,
+                    startupMethod: autoStartResult.method || "railway"
+                  });
+                }
+              }
+            } catch (autoStartError) {
+              console.warn('Railway auto-start failed:', autoStartError);
+            }
           } catch (error) {
             // Revert database status if validation failed
             await supabase
