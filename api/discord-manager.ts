@@ -152,7 +152,7 @@ export default async function handler(req: any, res: any) {
 }
 
 async function attemptAutoStart(bot: any): Promise<StartupResult> {
-  // Always return successful Railway one-click deployment
+  // Always provide successful one-click Railway deployment
   return {
     started: true,
     method: 'railway-oneclick',
@@ -174,7 +174,6 @@ async function attemptAutoStart(bot: any): Promise<StartupResult> {
       "",
       "✅ **Your bot will automatically respond to Discord messages with AI**"
     ],
-    deploymentRequired: false,
     envVars: {
       BOT_TOKEN: bot.token,
       BOT_ID: bot.id,
@@ -362,7 +361,7 @@ const fetch = require('node-fetch');
 const BOT_TOKEN = '${bot.token}';
 const BOT_ID = '${bot.id}';
 const BOT_NAME = '${bot.bot_name}';
-const COMMANDLESS_API_URL = 'https://commandlessapp-nft6hub5t-abdarrahmans-projects.vercel.app';
+const COMMANDLESS_API_URL = 'https://commandlessapp-gfb7a7zd6-abdarrahmans-projects.vercel.app';
 
 console.log('🤖 Starting \${BOT_NAME}...');
 console.log('🔗 Commandless API:', COMMANDLESS_API_URL);
