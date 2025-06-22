@@ -27,6 +27,25 @@ import { Button } from "@/components/ui/button";
 import { MoreVertical, Edit, Trash2 } from "lucide-react";
 import BotCreationDialog from "@/components/BotCreationDialog";
 
+// Response type interfaces
+interface ConnectionResponse {
+  autoStarted?: boolean;
+  deploymentRequired?: boolean;
+  requiresManualStart?: boolean;
+  status?: string;
+  message?: string;
+  troubleshooting?: string[];
+  startupMethod?: string;
+}
+
+interface SyncCommandsResponse {
+  success: boolean;
+  commandCount?: number;
+  createdMappings?: number;
+  discoveredCommands?: any[];
+  message?: string;
+}
+
 interface ConnectionCardProps {
   bot: Bot;
   isNewCard?: boolean;
@@ -49,9 +68,9 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
     details: ""
   });
   
-  const connectMutation = useMutation({
-    mutationFn: async () => {
-      await apiRequest(`/api/bots`, {
+  const connectMutation = useMutation<ConnectionResponse>({
+    mutationFn: async (): Promise<ConnectionResponse> => {
+      return await apiRequest(`/api/bots`, {
         method: "PUT",
         body: JSON.stringify({ action: "connect", botId: bot.id }),
       });
@@ -59,15 +78,16 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/bots"] });
       
-      if (data.autoStarted) {
+      // Safely check for data properties with fallbacks
+      if (data && data.autoStarted) {
         toast({
           title: "Success",
           description: `🎉 ${bot.botName} is now live and responding!`,
         });
-      } else if (data.deploymentRequired) {
+      } else if (data && data.deploymentRequired) {
         toast({
-          title: "Deployment Required",
-          description: `⚠️ ${bot.botName} is configured but needs to be deployed to respond to messages.`,
+          title: "Manual Deployment Required",
+          description: `⚠️ ${bot.botName} is configured but needs manual deployment to respond to messages.`,
           variant: "destructive",
         });
       } else {
@@ -181,6 +201,33 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
       });
     },
   });
+
+  const syncCommandsMutation = useMutation<SyncCommandsResponse>({
+    mutationFn: async (): Promise<SyncCommandsResponse> => {
+      return await apiRequest(`/api/bots`, {
+        method: "PUT",
+        body: JSON.stringify({ 
+          action: "sync-commands", 
+          botId: bot.id,
+          forceRefresh: true 
+        }),
+      });
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/bots"] });
+      toast({
+        title: "Commands Synced",
+        description: `Successfully synced ${data.createdMappings || 0} commands for ${bot.botName}`,
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Sync Failed",
+        description: `Failed to sync commands for ${bot.botName}. ${error instanceof Error ? error.message : ''}`,
+        variant: "destructive",
+      });
+    },
+  });
   
   if (isNewCard) {
     return (
@@ -272,6 +319,15 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
                   <Edit className="mr-2 h-4 w-4" />
                   Edit
                 </DropdownMenuItem>
+                {bot.platformType === "discord" && (
+                  <DropdownMenuItem 
+                    onClick={() => syncCommandsMutation.mutate()}
+                    disabled={syncCommandsMutation.isPending}
+                  >
+                    <SiDiscord className="mr-2 h-4 w-4" />
+                    {syncCommandsMutation.isPending ? "Syncing..." : "Sync Commands"}
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem 
                   onClick={() => setShowDeleteDialog(true)}
                   className="text-red-600 focus:text-red-600"
