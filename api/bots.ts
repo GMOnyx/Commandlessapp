@@ -1069,27 +1069,97 @@ async function discoverAndSyncCommands(botToken: string, botId: string, userId: 
       console.log(`⚠️ Guild command check failed: ${guildError.message}`);
     }
 
-    // Use global commands for now (most common setup)
-    const commands = globalCommands;
-    console.log(`🔍 Using global commands. Total discovered: ${commands.length}`);
+    // Use BOTH global and guild commands for complete discovery
+    let allCommands = [...globalCommands];
+    
+    // Add guild commands if any were found
+    if (guildCommands.length > 0) {
+      console.log(`📋 Adding ${guildCommands.length} guild commands to discovery`);
+      allCommands = [...allCommands, ...guildCommands];
+    }
+    
+    // If still no global commands but we found guild commands, try to get guild commands from ALL guilds
+    if (globalCommands.length === 0 && guildCommands.length === 0) {
+      console.log(`🔍 No global commands found, searching ALL guilds for commands...`);
+      
+      try {
+        const guildsResponse = await fetch('https://discord.com/api/v10/users/@me/guilds', {
+          headers: {
+            'Authorization': `Bot ${botToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (guildsResponse.ok) {
+          const allGuilds = await guildsResponse.json();
+          console.log(`🏰 Searching ${allGuilds.length} guilds for commands...`);
+          
+          for (const guild of allGuilds) {
+            try {
+              const guildCommandsResponse = await fetch(`https://discord.com/api/v10/applications/${appData.id}/guilds/${guild.id}/commands`, {
+                headers: {
+                  'Authorization': `Bot ${botToken}`,
+                  'Content-Type': 'application/json'
+                }
+              });
+              
+              if (guildCommandsResponse.ok) {
+                const guildSpecificCommands = await guildCommandsResponse.json();
+                if (guildSpecificCommands.length > 0) {
+                  console.log(`🏰 Found ${guildSpecificCommands.length} commands in guild: ${guild.name}`);
+                  console.log(`📋 Guild command names: ${guildSpecificCommands.map(cmd => cmd.name).join(', ')}`);
+                  allCommands = [...allCommands, ...guildSpecificCommands];
+                }
+              } else {
+                console.log(`⚠️ Could not access guild ${guild.name}: ${guildCommandsResponse.status}`);
+              }
+            } catch (guildError) {
+              console.log(`⚠️ Error checking guild ${guild.name}: ${guildError.message}`);
+            }
+          }
+        }
+      } catch (error) {
+        console.log(`⚠️ Could not fetch guilds for comprehensive search: ${error.message}`);
+      }
+    }
+    
+    const commands = allCommands;
+    console.log(`🔍 Total commands discovered (global + guild): ${commands.length}`);
+    
+    // Remove duplicates by command name (in case same command exists globally and in guild)
+    const uniqueCommands = commands.filter((command, index, self) => 
+      index === self.findIndex(c => c.name === command.name)
+    );
+    
+    if (uniqueCommands.length !== commands.length) {
+      console.log(`🔄 Removed ${commands.length - uniqueCommands.length} duplicate commands`);
+    }
+    
+    const finalCommands = uniqueCommands;
+    console.log(`✅ Final unique commands to process: ${finalCommands.length}`);
 
-    if (commands.length === 0) {
-      console.log(`⚠️ NO COMMANDS FOUND!`);
-      console.log(`📋 Possible reasons:`);
-      console.log(`   • Commands are registered to specific guilds instead of globally`);
+    if (finalCommands.length === 0) {
+      console.log(`⚠️ NO COMMANDS FOUND after comprehensive search!`);
+      console.log(`📋 Search summary:`);
+      console.log(`   • Global commands: ${globalCommands.length}`);
+      console.log(`   • Guild commands checked: ${guildCommands.length}`);
+      console.log(`   • Total commands found: ${allCommands.length}`);
+      console.log(`📋 Possible issues:`);
       console.log(`   • Bot token doesn't have applications.commands scope`);
       console.log(`   • Commands haven't been registered yet`);
-      console.log(`   • Bot is using legacy message-based commands`);
+      console.log(`   • Bot lacks permissions to view commands in guilds`);
+      console.log(`   • Bot is using message-based commands instead of slash commands`);
       
       return { 
         success: true, 
-        message: 'No commands found to sync - bot may use guild-specific commands or legacy commands', 
+        message: 'No slash commands found after comprehensive search', 
         commandCount: 0,
         discoveredCommands: [],
         createdMappings: 0,
         debugInfo: {
           globalCommands: globalCommands.length,
           guildCommandsChecked: guildCommands.length,
+          totalCommandsFound: allCommands.length,
           applicationId: appData.id,
           botName: appData.name
         }
@@ -1099,7 +1169,7 @@ async function discoverAndSyncCommands(botToken: string, botId: string, userId: 
     // Create command mappings for each discovered command
     const commandMappings = [];
     
-    for (const command of commands) {
+    for (const command of finalCommands) {
       console.log(`🔧 Processing command: ${command.name} (ID: ${command.id})`);
       console.log(`   Description: ${command.description}`);
       console.log(`   Options: ${command.options?.length || 0}`);
@@ -1146,29 +1216,33 @@ async function discoverAndSyncCommands(botToken: string, botId: string, userId: 
       .insert({
         user_id: userId,
         activity_type: 'commands_synced',
-        description: `Automatically synced ${commands.length} Discord commands`,
+        description: `Automatically synced ${finalCommands.length} Discord commands`,
         metadata: { 
           botId,
-          commandCount: commands.length,
+          commandCount: finalCommands.length,
           patternCount: insertedMappings.length,
           forceRefresh,
           debugInfo: {
             globalCommands: globalCommands.length,
-            guildCommandsChecked: guildCommands.length
+            guildCommandsChecked: guildCommands.length,
+            totalCommandsFound: allCommands.length,
+            finalUniqueCommands: finalCommands.length
           }
         }
       });
 
     return { 
       success: true, 
-      message: `Successfully synced ${commands.length} commands with ${insertedMappings.length} patterns`,
-      commandCount: commands.length,
+      message: `Successfully synced ${finalCommands.length} commands with ${insertedMappings.length} patterns`,
+      commandCount: finalCommands.length,
       patternCount: insertedMappings.length,
-      discoveredCommands: commands,
+      discoveredCommands: finalCommands,
       createdMappings: insertedMappings.length,
       debugInfo: {
         globalCommands: globalCommands.length,
         guildCommandsChecked: guildCommands.length,
+        totalCommandsFound: allCommands.length,
+        finalUniqueCommands: finalCommands.length,
         applicationId: appData.id,
         botName: appData.name
       }
