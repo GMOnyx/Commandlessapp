@@ -1086,7 +1086,7 @@ async function discoverAndSyncCommands(botToken: string, botId: string, userId: 
       };
     }
 
-    // Create command mappings for each discovered command
+    // Create command mappings for each discovered command (reference data for AI)
     const commandMappings = [];
     
     for (const command of commands) {
@@ -1094,24 +1094,18 @@ async function discoverAndSyncCommands(botToken: string, botId: string, userId: 
       console.log(`   Description: ${command.description}`);
       console.log(`   Options: ${command.options?.length || 0}`);
       
-      // Generate natural language patterns for this command
-      const patterns = generateNaturalLanguagePatterns(command);
+      // Store the actual Discord command structure for AI reference
       const commandOutput = generateCommandOutput(command);
       
-      console.log(`   Generated patterns: ${patterns.alternatives?.length || 0} alternatives`);
-      
-      const allPatterns = [patterns.primary, ...(patterns.alternatives || [])];
-      
-      for (const pattern of allPatterns) {
-        commandMappings.push({
-          bot_id: botId,
-          user_id: userId,
-          name: `${command.name} - ${pattern.split(' ').slice(0, 3).join(' ')}`,
-          natural_language_pattern: pattern,
-          command_output: commandOutput,
-          status: 'active'
-        });
-      }
+      // Store each command ONCE as reference data for AI processing
+      commandMappings.push({
+        bot_id: botId,
+        user_id: userId,
+        name: command.name,
+        natural_language_pattern: command.description || `Discord slash command: /${command.name}`,
+        command_output: commandOutput,
+        status: 'active'
+      });
     }
 
     console.log(`📝 Created ${commandMappings.length} command mappings from ${commands.length} commands`);
