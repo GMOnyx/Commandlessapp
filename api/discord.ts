@@ -27,7 +27,7 @@ interface DiscordMessage {
   };
 }
 
-// ADVANCED AI MESSAGE PROCESSING (migrated from server)
+// ADVANCED AI MESSAGE PROCESSING (migrated from server/simple-index.js)
 async function processMessageWithAI(
   message: string, 
   context: string = '', 
@@ -44,7 +44,6 @@ async function processMessageWithAI(
 }> {
   try {
     console.log(`🤖 Processing message with AI: "${message}" for bot ${botId}`);
-    const lowerMessage = message.toLowerCase();
     
     // Get command mappings for this bot (auto-discovered commands)
     const { data: commandMappings } = await supabase
@@ -56,117 +55,21 @@ async function processMessageWithAI(
     
     console.log(`📋 Found ${commandMappings?.length || 0} command mappings for bot ${botId}`);
     
-    if (commandMappings && commandMappings.length > 0) {
-      // Use advanced AI matching with discovered commands
-      const bestMatch = await findBestCommandMatchWithAI(message, commandMappings, conversationContext);
-      
-      if (bestMatch && bestMatch.confidence > 0.3) {
-        const commandName = extractCommandName(bestMatch.command.command_output);
-        
-        // Use Gemini to generate natural response
-        const naturalResponse = await generateNaturalResponse(message, bestMatch.command, bestMatch.params);
-        
-        console.log(`✅ AI matched command: ${commandName} with confidence ${bestMatch.confidence}`);
-        
-        return {
-          response: naturalResponse || `Executing ${commandName} command with confidence ${(bestMatch.confidence * 100).toFixed(1)}%`,
-          shouldExecute: true,
-          command: bestMatch.command.command_output
-        };
-      }
-    }
-    
-    // Check if this is a conversational input that shouldn't trigger commands
-    if (isConversationalInput(message)) {
-      console.log('💬 Detected conversational input, generating friendly response');
-      const conversationalResponse = await generateConversationalResponse(message, context, conversationContext);
+    if (!commandMappings || commandMappings.length === 0) {
       return {
-        response: conversationalResponse,
+        response: "Hi there! I don't have any commands configured yet, but I'm happy to chat!",
         shouldExecute: false,
-        conversationalResponse: conversationalResponse
+        conversationalResponse: "Hi there! I don't have any commands configured yet, but I'm happy to chat!"
       };
     }
-    
-    // Check if user needs clarification
-    const clarification = await checkForClarificationNeed(message, commandMappings || []);
-    if (clarification) {
-      console.log('❓ Requesting clarification from user');
-      return {
-        response: clarification,
-        shouldExecute: false,
-        needsClarification: true,
-        clarificationQuestion: clarification
-      };
+
+    // Use AI if available, otherwise fall back to simple matching
+    if (genAI) {
+      return await processWithAdvancedAI(message, commandMappings, userId, conversationContext);
+    } else {
+      return await processWithSimpleMatching(message, commandMappings, userId);
     }
-    
-    // Improved fallback patterns if no discovered commands match
-    if (lowerMessage.includes('ping')) {
-      console.log('🏓 Responding to ping command');
-      return {
-        response: "Pong! 🏓 I'm online and ready to help. My AI processing is working correctly!",
-        shouldExecute: false
-      };
-    }
-    
-    if (lowerMessage.includes('ban') && lowerMessage.includes('@')) {
-      const username = message.match(/@(\w+)/)?.[1];
-      return {
-        response: `I would ban user ${username} if I had the proper permissions.`,
-        shouldExecute: true,
-        command: `ban ${username}`
-      };
-    }
-    
-    if (lowerMessage.includes('kick') && lowerMessage.includes('@')) {
-      const username = message.match(/@(\w+)/)?.[1];
-      return {
-        response: `I would kick user ${username} if I had the proper permissions.`,
-        shouldExecute: true,
-        command: `kick ${username}`
-      };
-    }
-    
-    if (lowerMessage.includes('warn') && lowerMessage.includes('@')) {
-      const username = message.match(/@(\w+)/)?.[1];
-      return {
-        response: `Warning issued to ${username}. Please follow server rules.`,
-        shouldExecute: true,
-        command: `warn ${username}`
-      };
-    }
-    
-    if (lowerMessage.includes('hello') || lowerMessage.includes('hi')) {
-      console.log('👋 Responding to greeting');
-      return {
-        response: "Hello! I'm a Discord bot powered by Commandless AI. You can give me natural language commands and I'll execute them intelligently.",
-        shouldExecute: false,
-        conversationalResponse: "Hello! I'm a Discord bot powered by Commandless AI. You can give me natural language commands and I'll execute them intelligently."
-      };
-    }
-    
-    if (lowerMessage.includes('help')) {
-      console.log('❓ Providing help information');
-      // Show available commands from discovery
-      if (commandMappings && commandMappings.length > 0) {
-        const commands = commandMappings.map(cmd => extractCommandName(cmd.command_output)).slice(0, 5);
-        return {
-          response: `I can help with these commands: ${commands.join(', ')}. Try using natural language like "warn that user for spam" or "ban @user for trolling".`,
-          shouldExecute: false
-        };
-      } else {
-        return {
-          response: "I can help with Discord moderation! I'm powered by AI and can understand natural language. Try commands like:\n• 'ping' - test if I'm working\n• 'help' - show this message\n• Just mention me and ask me to do something!",
-          shouldExecute: false
-        };
-      }
-    }
-    
-    console.log('🤷 No specific command detected, providing default response');
-    return {
-      response: "I hear you! I'm an AI Discord bot and I'm working properly. Try asking for 'help' or give me a specific command like 'ping'. 🤖",
-      shouldExecute: false
-    };
-    
+
   } catch (error) {
     console.error('❌ AI processing error:', error);
     return {
@@ -174,6 +77,340 @@ async function processMessageWithAI(
       shouldExecute: false
     };
   }
+}
+
+// Advanced AI Processing (from server/simple-index.js)
+async function processWithAdvancedAI(cleanMessage: string, commandMappings: any[], userId: string, conversationContext: string) {
+  try {
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+    
+    // Create a comprehensive prompt for command analysis
+    const commandList = commandMappings.map(cmd => 
+      `- ID: ${cmd.id}, Name: ${cmd.name}, Pattern: "${cmd.natural_language_pattern}" → ${cmd.command_output}`
+    ).join('\n');
+
+    // Enhanced prompt with sophisticated AI analysis (from server/simple-index.js)
+    const prompt = `You are an advanced natural language processor for Discord bot commands. Your job is to:
+1. **Determine if the user wants to execute a command OR have casual conversation**
+2. **Extract parameters aggressively and intelligently from natural language**
+3. **Be decisive - execute commands when intent is clear, even with informal language**
+4. **Maintain conversational flow when user is replying to previous bot messages**
+
+AVAILABLE COMMANDS:
+${commandList}
+
+${conversationContext ? `
+🗣️ **CONVERSATION CONTEXT:**
+${conversationContext}
+
+**CONVERSATION HANDLING:**
+- If user is replying to a previous bot message, consider the conversation flow
+- Maintain context and provide relevant follow-up responses
+- If the reply seems to be continuing a conversation rather than issuing a command, respond conversationally
+- **IMPORTANT: Replies can also contain commands! Treat reply messages the same as mentioned messages for command detection**
+- Look for conversational cues like "thanks", "ok", "got it", "what about", "also", "and", etc.
+- But also look for command cues like "ban", "kick", "warn", "purge", "say", etc. even in replies
+
+🎯 **PARAMETER EXTRACTION MASTERY:**
+
+**Discord Mentions**: Extract user IDs from any mention format:
+- "warn <@560079402013032448> for spamming" → user: "560079402013032448"
+- "please mute <@!123456> because annoying" → user: "123456"
+- "ban that toxic <@999888> user" → user: "999888"
+
+**Natural Language Patterns**: Understand ANY phrasing that indicates command intent:
+- "can you delete like 5 messages please" → purge command, amount: "5"
+- "remove that user from the server" → ban command
+- "give them a warning for being rude" → warn command
+- "tell everyone the meeting is starting" → say command
+- "check how fast you are" → ping command
+- "what server are we in" → server-info command
+
+**Context-Aware Extraction**: Look at the ENTIRE message for parameters:
+- "nothing much just warn <@560079402013032448> for being annoying" 
+  → EXTRACT: user: "560079402013032448", reason: "being annoying"
+- "hey bot, when you have time, could you ban <@123> for trolling everyone"
+  → EXTRACT: user: "123", reason: "trolling everyone"
+- "that user <@999> has been really helpful, make a note about it"
+  → EXTRACT: user: "999", message: "has been really helpful"
+
+**Semantic Understanding**: Map natural language to command actions:
+- "remove/get rid of/kick out" → ban
+- "tell everyone/announce/broadcast" → say
+- "delete/clear/clean up messages" → purge
+- "stick/attach this message" → pin
+- "give warning/issue warning" → warn
+- "check speed/latency/response time" → ping
+- "server details/info/stats" → server-info
+
+**Multi-Parameter Intelligence**: Extract complete information:
+- "warn john for being toxic and breaking rules repeatedly" 
+  → user: "john", reason: "being toxic and breaking rules repeatedly"
+- "please purge about 15 messages to clean this up"
+  → amount: "15"
+- "tell everyone 'meeting moved to 3pm tomorrow'"
+  → message: "meeting moved to 3pm tomorrow"
+
+🔥 **DECISION MAKING RULES:**
+
+**EXECUTE IMMEDIATELY IF:**
+- ✅ Clear command intent (even with casual phrasing)
+- ✅ ANY required parameters can be extracted
+- ✅ User mentions someone with @ symbol for moderation commands
+- ✅ Numbers found for amount-based commands (purge, slowmode)
+- ✅ Message content found for say/note commands
+
+**CASUAL CONVERSATION IF:**
+- ❌ No command-related words or intent
+- ❌ Pure greetings ("hi", "hello", "how are you")
+- ❌ Questions about the bot's capabilities
+- ❌ General chat without action words
+- ❌ Conversational replies to previous bot messages ("thanks", "ok", "cool", "got it", "im great", "not much", "good", "fine")
+- ❌ Follow-up questions about previous responses
+- ❌ Emotional responses ("lol", "haha", "awesome", "nice", "wow")
+- ❌ Short acknowledgments ("yes", "no", "sure", "maybe", "alright")
+
+**CONFIDENCE SCORING:**
+- 90-100: Perfect match with all parameters extracted
+- 80-89: Clear intent with most important parameters
+- 70-79: Good intent with some parameters (STILL EXECUTE)
+- 60-69: Likely intent but may need minor clarification
+- Below 60: Ask for clarification only if truly ambiguous
+
+` : ''}
+
+USER MESSAGE: "${cleanMessage}"
+
+CONTEXT: ${conversationContext || 'User mentioned me in Discord. Extract any mentioned users, numbers, or quoted text.'}
+
+🚀 **RESPOND WITH JSON:**
+
+**For COMMANDS (action intent detected):**
+\`\`\`json
+{
+  "isCommand": true,
+  "bestMatch": {
+    "commandId": <command_id>,
+    "confidence": <60-100>,
+    "params": {
+      "user": "extracted_user_id",
+      "reason": "complete reason text",
+      "message": "complete message text",
+      "amount": "number_as_string"
+    }
+  }
+}
+\`\`\`
+
+**For CONVERSATION (no command intent):**
+\`\`\`json
+{
+  "isCommand": false,
+  "conversationalResponse": "friendly, helpful response that maintains conversation flow and references previous context when appropriate"
+}
+\`\`\`
+
+**EXAMPLES OF CONVERSATION FLOW:**
+- Reply to "wassup?" → "Hey! Not much, just chillin' and ready to help out. What's going on with you? 😎"
+- Reply to "thanks" after command execution → "You're welcome! Happy to help. Anything else you need?"
+- Reply to "ok" after explanation → "Great! Let me know if you have any other questions."
+- Reply to "what about X?" → Reference previous context and answer about X
+- Reply to "also can you..." → Handle the additional request while acknowledging the continuation
+
+**EXAMPLES OF AGGRESSIVE EXTRACTION:**
+- "nothing much, just ban <@560079402013032448> for spam" → EXECUTE ban immediately
+- "can you please delete like 10 messages" → EXECUTE purge immediately  
+- "tell everyone the event is cancelled" → EXECUTE say immediately
+- "that user keeps trolling, give them a warning" → EXTRACT context for warn
+- "yo bot, how's your ping?" → EXECUTE ping immediately
+- "remove this toxic user from server" → Need user ID for ban
+- "hi how are you doing?" → CASUAL conversation
+
+⚡ **BE BOLD**: If you can extract ANY meaningful parameters and understand the intent, EXECUTE the command. Don't ask for clarification unless truly necessary!
+
+Respond with valid JSON only:`;
+    
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const aiResponse = response.text().trim();
+    
+    console.log('🤖 AI Response:', aiResponse);
+    
+    // Parse AI response
+    let parsed;
+    try {
+      // Extract JSON from response if it's wrapped in text
+      const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
+      parsed = JSON.parse(jsonMatch ? jsonMatch[0] : aiResponse);
+    } catch (parseError) {
+      console.error('Failed to parse AI response:', parseError);
+      return {
+        response: "Hey! I'm here and ready to help. What's going on?",
+        shouldExecute: false,
+        conversationalResponse: "Hey! I'm here and ready to help. What's going on?"
+      };
+    }
+
+    if (parsed.isCommand && parsed.bestMatch && parsed.bestMatch.commandId) {
+      // Find the matching command by ID
+      const matchedCommand = commandMappings.find(cmd => cmd.id === parsed.bestMatch.commandId);
+      
+      if (matchedCommand) {
+        // Advanced parameter extraction with fallback methods
+        const aiParams = parsed.bestMatch.params || {};
+        const fallbackParams = extractParametersFromPattern(cleanMessage, matchedCommand.natural_language_pattern);
+        
+        // Combine parameters, prioritizing AI extraction but filling gaps with fallback extraction
+        const finalParams = { ...fallbackParams, ...aiParams };
+
+        let commandOutput = matchedCommand.command_output;
+        
+        // Replace parameters in the output
+        for (const [key, value] of Object.entries(finalParams)) {
+          if (value && value.toString().trim()) {
+            commandOutput = commandOutput.replace(new RegExp(`\\{${key}\\}`, 'g'), value);
+          }
+        }
+        
+        // Replace any remaining placeholders with defaults
+        commandOutput = commandOutput.replace(/\{reason\}/g, 'No reason provided');
+        commandOutput = commandOutput.replace(/\{message\}/g, 'No message provided');
+        commandOutput = commandOutput.replace(/\{amount\}/g, '1');
+        commandOutput = commandOutput.replace(/\{duration\}/g, '5m');
+        commandOutput = commandOutput.replace(/\{user\}/g, 'target user');
+
+        // Log the command usage
+        await supabase
+          .from('command_mappings')
+          .update({ 
+            usage_count: (matchedCommand.usage_count || 0) + 1 
+          })
+          .eq('id', matchedCommand.id);
+
+        // Generate natural response using Gemini
+        const naturalResponse = await generateNaturalResponse(cleanMessage, matchedCommand, finalParams);
+        
+        return {
+          response: naturalResponse || `✅ Executing ${matchedCommand.name} command with confidence ${(parsed.bestMatch.confidence * 100).toFixed(1)}%`,
+          shouldExecute: true,
+          command: commandOutput
+        };
+      }
+    }
+
+    // Conversational response with enhanced personality
+    let conversationalResponse = parsed.conversationalResponse;
+    
+    // Add some personality to common responses
+    if (!conversationalResponse) {
+      const lowerMessage = cleanMessage.toLowerCase();
+      
+      if (lowerMessage.includes('wassup') || lowerMessage.includes('what\'s up') || lowerMessage.includes('whats up')) {
+        conversationalResponse = "Hey! Not much, just chillin' and ready to help out. What's going on with you? 😎";
+      } else if (lowerMessage.includes('how') && (lowerMessage.includes('going') || lowerMessage.includes('doing'))) {
+        conversationalResponse = "I'm doing great! Running smooth and ready for action. How about you? Need help with anything? 🚀";
+      } else if (lowerMessage.includes('hello') || lowerMessage.includes('hi')) {
+        conversationalResponse = "Hello! I'm your AI Discord bot. You can give me natural language commands and I'll execute them intelligently.";
+      } else if (lowerMessage.includes('help')) {
+        const commandNames = commandMappings.map(cmd => cmd.name).slice(0, 5);
+        conversationalResponse = `I can help with these commands: ${commandNames.join(', ')}. Try using natural language like "execute ${commandNames[0]}" or just mention the command name!`;
+      } else {
+        conversationalResponse = "Hey! What's up? I'm here and ready to help with whatever you need!";
+      }
+    }
+
+    return {
+      response: conversationalResponse,
+      shouldExecute: false,
+      conversationalResponse: conversationalResponse
+    };
+
+  } catch (aiError) {
+    console.error('AI processing failed:', aiError);
+    // Fall back to simple processing
+    return await processWithSimpleMatching(cleanMessage, commandMappings, userId);
+  }
+}
+
+// Simple Pattern Matching (fallback)
+async function processWithSimpleMatching(cleanMessage: string, commandMappings: any[], userId: string) {
+  const lowerMessage = cleanMessage.toLowerCase();
+  
+  // Check for command matches
+  for (const mapping of commandMappings) {
+    const commandName = mapping.name.toLowerCase();
+    const pattern = mapping.natural_language_pattern.toLowerCase();
+    
+    // Simple matching logic
+    if (lowerMessage.includes(commandName) || 
+        lowerMessage.includes(pattern.replace(/execute|command/g, '').trim()) ||
+        calculateCommandSimilarity(cleanMessage, mapping) > 0.5) {
+      
+      // Extract parameters from the message
+      const params = extractParametersFromPattern(cleanMessage, mapping.natural_language_pattern);
+      
+      // Build the command output
+      let commandOutput = mapping.command_output;
+      
+      // Replace parameters in the output
+      for (const [key, value] of Object.entries(params)) {
+        commandOutput = commandOutput.replace(new RegExp(`\\{${key}\\}`, 'g'), value);
+      }
+      
+      // Log the command usage
+      await supabase
+        .from('command_mappings')
+        .update({ 
+          usage_count: (mapping.usage_count || 0) + 1 
+        })
+        .eq('id', mapping.id);
+
+      return {
+        response: `✅ Executing ${mapping.name} command`,
+        shouldExecute: true,
+        command: commandOutput
+      };
+    }
+  }
+
+  // Conversational responses for common phrases
+  if (lowerMessage.includes('wassup') || lowerMessage.includes('what\'s up') || lowerMessage.includes('whats up')) {
+    return {
+      response: "Hey! Not much, just chillin' and ready to help out. What's going on with you? 😎",
+      shouldExecute: false,
+      conversationalResponse: "Hey! Not much, just chillin' and ready to help out. What's going on with you? 😎"
+    };
+  }
+
+  if (lowerMessage.includes('how') && (lowerMessage.includes('going') || lowerMessage.includes('doing'))) {
+    return {
+      response: "I'm doing great! Running smooth and ready for action. How about you? Need help with anything? 🚀",
+      shouldExecute: false,
+      conversationalResponse: "I'm doing great! Running smooth and ready for action. How about you? Need help with anything? 🚀"
+    };
+  }
+
+  if (lowerMessage.includes('hello') || lowerMessage.includes('hi')) {
+    return {
+      response: "Hello! I'm your AI Discord bot. You can give me natural language commands and I'll execute them intelligently.",
+      shouldExecute: false,
+      conversationalResponse: "Hello! I'm your AI Discord bot. You can give me natural language commands and I'll execute them intelligently."
+    };
+  }
+
+  if (lowerMessage.includes('help')) {
+    const commandNames = commandMappings.map(cmd => cmd.name).slice(0, 5);
+    return {
+      response: `I can help with these commands: ${commandNames.join(', ')}. Try using natural language like "execute ${commandNames[0]}" or just mention the command name!`,
+      shouldExecute: false
+    };
+  }
+
+  return {
+    response: "I understand you mentioned me, but I'm not sure what you'd like me to do. Try asking for 'help' to see what I can do!",
+    shouldExecute: false,
+    conversationalResponse: "I understand you mentioned me, but I'm not sure what you'd like me to do. Try asking for 'help' to see what I can do!"
+  };
 }
 
 // GEMINI AI INTEGRATION (migrated from server)
