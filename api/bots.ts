@@ -1124,7 +1124,22 @@ async function discoverAndSyncCommands(botToken: string, botId: string, userId: 
       throw insertError;
     }
 
-    console.log(`✅ Successfully synced ${insertedMappings.length} command patterns for bot ${botId}`);
+    console.log(`✅ Upsert operation completed. Returned records: ${insertedMappings?.length || 0}`);
+
+    // Get the actual total count of command mappings for this bot (since upsert might return 0 for existing records)
+    const { data: totalMappings, error: countError } = await supabase!
+      .from('command_mappings')
+      .select('id')
+      .eq('bot_id', botId)
+      .eq('user_id', userId);
+
+    if (countError) {
+      console.error('❌ Error counting command mappings:', countError);
+      throw countError;
+    }
+
+    const actualMappingCount = totalMappings?.length || 0;
+    console.log(`📊 Total command mappings for bot: ${actualMappingCount}`);
 
     // Log the sync activity
     await supabase!
@@ -1136,27 +1151,30 @@ async function discoverAndSyncCommands(botToken: string, botId: string, userId: 
         metadata: { 
           botId,
           commandCount: commands.length,
-          patternCount: insertedMappings.length,
+          patternCount: actualMappingCount,
           forceRefresh,
           debugInfo: {
             globalCommands: globalCommands.length,
             applicationId: appData.id,
-            botName: appData.name
+            botName: appData.name,
+            upsertReturned: insertedMappings?.length || 0
           }
         }
       });
 
     return { 
       success: true, 
-      message: `Successfully synced ${commands.length} commands with ${insertedMappings.length} patterns`,
+      message: `Successfully synced ${commands.length} commands with ${actualMappingCount} patterns`,
       commandCount: commands.length,
-      patternCount: insertedMappings.length,
+      patternCount: actualMappingCount,
       discoveredCommands: commands,
-      createdMappings: insertedMappings.length,
+      createdMappings: actualMappingCount,
       debugInfo: {
         globalCommands: globalCommands.length,
         applicationId: appData.id,
-        botName: appData.name
+        botName: appData.name,
+        totalMappings: actualMappingCount,
+        upsertReturned: insertedMappings?.length || 0
       }
     };
 
