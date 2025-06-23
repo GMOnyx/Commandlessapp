@@ -12,13 +12,38 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const { action, message, botId, userId, context } = req.body;
+    const body = req.body;
+    let messageContent = '';
+    let botId = '';
+    let userId = '';
 
-    if (action === 'process-message') {
-      console.log(`📨 NEW API: Processing message: "${message}" for bot ${botId}`);
+    // Handle Universal Relay Service format vs standard format
+    if (body.message && typeof body.message === 'object' && body.message.content) {
+      // Universal Relay Service format
+      messageContent = body.message.content;
+      botId = body.botClientId || 'unknown';
+      userId = body.message.author?.id || 'unknown';
       
-      // Simple response for now to test the new API is working
-      const response = "Hey! The new API is working! Your sophisticated AI system will be added next.";
+      console.log(`📨 NEW API (URS Format): Processing message: "${messageContent}" for bot ${botId}`);
+      
+      // Return response in Universal Relay Service expected format
+      const response = "🎉 Hey! The new API is working with Universal Relay Service! Your sophisticated AI system will be added next.";
+      
+      return res.status(200).json({
+        processed: true,
+        response: response,
+        execution: null
+      });
+      
+    } else if (body.action === 'process-message') {
+      // Standard format
+      messageContent = body.message;
+      botId = body.botId;
+      userId = body.userId;
+      
+      console.log(`📨 NEW API (Standard Format): Processing message: "${messageContent}" for bot ${botId}`);
+      
+      const response = "Hey! The new API is working with standard format! Your sophisticated AI system will be added next.";
       
       return res.status(200).json({
         success: true,
@@ -28,7 +53,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    return res.status(400).json({ error: 'Invalid action' });
+    return res.status(400).json({ error: 'Invalid message format' });
   } catch (error) {
     console.error('Error processing message:', error);
     return res.status(500).json({ 
