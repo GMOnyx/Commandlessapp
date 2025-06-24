@@ -376,6 +376,15 @@ async function processDiscordMessageWithAI(message, guildId, channelId, userId, 
       };
     }
     
+    // For skipMentionCheck (replies), use the original message if cleanMessage is empty
+    const messageToProcess = cleanMessage || (skipMentionCheck ? message : '');
+    if (!messageToProcess) {
+      return {
+        processed: true,
+        conversationalResponse: "Hello! How can I help you today? I can help with moderation commands or just chat!"
+      };
+    }
+    
     // Use the authenticated user ID if provided, otherwise fall back to user ID 1
     const userIdToUse = authenticatedUserId || "user_2yMTRvIng7ljDfRRUlXFvQkWSb5";
 
@@ -404,7 +413,7 @@ async function processDiscordMessageWithAI(message, guildId, channelId, userId, 
     
     // Process the message with enhanced AI logic (EXACT from local system)
     const analysisResult = await analyzeMessageWithAI(
-      cleanMessage, 
+      messageToProcess, 
       commands, 
       bot?.personality_context || undefined,
       conversationContext
@@ -487,7 +496,7 @@ async function processDiscordMessageWithAI(message, guildId, channelId, userId, 
             guildId,
             channelId,
             discordUserId: userId,
-            userMessage: cleanMessage,
+            userMessage: messageToProcess,
             commandOutput: outputCommand
           }
         });
