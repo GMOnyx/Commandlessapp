@@ -2,10 +2,11 @@
   "name": "commandless-server",
   "version": "1.0.0",
   "description": "Commandless Discord Bot Server",
-  "main": "simple-index.js",
+  "main": "universal-relay-service.js",
   "scripts": {
-    "start": "node simple-index.js",
-    "dev": "node simple-index.js"
+    "start": "node universal-relay-service.js",
+    "dev": "node universal-relay-service.js",
+    "backend": "node simple-index.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
@@ -13,7 +14,8 @@
     "cors": "^2.8.5",
     "discord.js": "^14.14.1",
     "dotenv": "^16.3.1",
-    "express": "^4.18.2"
+    "express": "^4.18.2",
+    "node-fetch": "^3.3.2"
   },
   "engines": {
     "node": ">=18.0.0"
