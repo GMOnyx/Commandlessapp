@@ -1,18 +1,12 @@
 import { QueryClient } from "@tanstack/react-query";
 
-// Railway backend URL for bot edit/delete operations only
-const RAILWAY_API_URL = 'https://commandless-app-production.up.railway.app';
-
 // New universal base-URL resolver
 function getApiBaseUrl(endpoint?: string): string {
   // 1. If a build-time env var is set (e.g. VITE_API_BASE_URL) use it
   const envUrl = import.meta.env.VITE_API_BASE_URL as string | undefined;
   if (envUrl) return envUrl.replace(/\/+$/, '');
   
-  // 2. Use Railway ONLY for bot edit/delete operations (these were failing with 405)
-  // All other operations stay on Vercel
-  
-  // 3. Default to Vercel for all operations (same as before the change)
+  // 2. Default to Vercel for all operations
   return window.location.origin;
 }
 
@@ -20,13 +14,7 @@ export const API_BASE_URL = getApiBaseUrl();
 
 // API request function that includes authentication
 export async function apiRequest(endpoint: string, options: RequestInit = {}) {
-  let baseUrl = getApiBaseUrl(endpoint);
-  
-  // Special handling: use Railway for bot edit/delete operations
-  if (endpoint.includes('/api/bots/') && options.method && (options.method === 'PUT' || options.method === 'DELETE')) {
-    baseUrl = RAILWAY_API_URL;
-  }
-  
+  const baseUrl = getApiBaseUrl(endpoint);
   const url = `${baseUrl}${endpoint}`;
 
   // Get the auth token directly from Clerk
