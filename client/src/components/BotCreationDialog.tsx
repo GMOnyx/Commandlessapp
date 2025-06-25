@@ -149,7 +149,7 @@ export default function BotCreationDialog({ open, onOpenChange, editBot }: BotCr
     setTokenValidation({ isValidating: true });
     
     try {
-      const result = await apiRequest("/api/discord?action=validate-token", {
+      const result = await apiRequest("/api/validate-token", {
         method: "POST",
         body: JSON.stringify({ botToken: token }),
       });
