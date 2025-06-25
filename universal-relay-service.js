@@ -6,7 +6,7 @@ import express from 'express';
 // Configuration
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
-const COMMANDLESS_API_URL = process.env.COMMANDLESS_API_URL || 'https://commandless.app';
+const COMMANDLESS_API_URL = process.env.COMMANDLESS_API_URL || 'https://commandless-app-production.up.railway.app';
 const CHECK_INTERVAL = 30000; // Check for new bots every 30 seconds
 
 console.log('🚀 Starting Universal Discord Relay Service');
@@ -176,6 +176,9 @@ async function createDiscordClient(bot) {
           botToken: bot.token,
           botClientId: client.user.id
         };
+
+        // Show "Bot is typing..." indicator
+        await message.channel.sendTyping();
 
         // Send to Commandless AI API
         const response = await fetch(`${COMMANDLESS_API_URL}/api/discord?action=process-message`, {
