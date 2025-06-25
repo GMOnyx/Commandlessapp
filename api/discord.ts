@@ -9,6 +9,78 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Initialize Gemini AI
 const genAI = process.env.GEMINI_API_KEY ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY) : null;
+const GEMINI_MODEL = "gemini-1.5-pro";
+
+interface DiscordMessage {
+  content: string;
+  author: {
+    id: string;
+    username: string;
+    bot: boolean;
+  };
+  channel_id: string;
+  guild_id?: string;
+  mentions?: Array<{ id: string; username: string }>;
+  referenced_message?: {
+    id: string;
+    author: { id: string };
+  };
+}
+
+// Advanced Message Context Management (migrated from server/simple-index.js)
+class MessageContextManager {
+  constructor() {
+    this.contexts = new Map(); // channelId -> messages
+    this.MAX_CONTEXT_MESSAGES = 10;
+    this.CONTEXT_EXPIRY_HOURS = 2;
+  }
+
+  addMessage(channelId, messageId, content, author, isBot) {
+    if (!this.contexts.has(channelId)) {
+      this.contexts.set(channelId, []);
+    }
+
+    const messages = this.contexts.get(channelId);
+    messages.push({
+      messageId,
+      content,
+      author,
+      timestamp: new Date(),
+      isBot
+    });
+
+    // Keep only recent messages
+    if (messages.length > this.MAX_CONTEXT_MESSAGES) {
+      messages.splice(0, messages.length - this.MAX_CONTEXT_MESSAGES);
+    }
+
+    // Clean up old messages
+    this.cleanupOldMessages(channelId);
+  }
+
+  getRecentMessages(channelId, limit = 5) {
+    const messages = this.contexts.get(channelId) || [];
+    return messages.slice(-limit);
+  }
+
+  getMessageById(channelId, messageId) {
+    const messages = this.contexts.get(channelId) || [];
+    return messages.find(msg => msg.messageId === messageId);
+  }
+
+  cleanupOldMessages(channelId) {
+    const messages = this.contexts.get(channelId);
+    if (!messages) return;
+
+    const cutoff = new Date();
+    cutoff.setHours(cutoff.getHours() - this.CONTEXT_EXPIRY_HOURS);
+
+    const validMessages = messages.filter(msg => msg.timestamp > cutoff);
+    this.contexts.set(channelId, validMessages);
+  }
+}
+
+const messageContextManager = new MessageContextManager();
 
 // SOPHISTICATED AI PROCESSING FUNCTIONS (migrated from server/simple-index.js)
 
@@ -236,7 +308,7 @@ function extractParametersFromPattern(userInput: string, naturalLanguagePattern:
 // SOPHISTICATED AI PROCESSING WITH GEMINI (exact copy from server/simple-index.js)
 async function processWithAI(cleanMessage: string, commandMappings: any[], message: any, userId: string, conversationContext: string = ''): Promise<any> {
   try {
-    const model = genAI!.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const model = genAI!.getGenerativeModel({ model: GEMINI_MODEL });
     
     // Create a comprehensive prompt for command analysis
     const commandList = commandMappings.map(cmd => 
@@ -484,27 +556,56 @@ Respond with valid JSON only:`;
   }
 }
 
-// MAIN MESSAGE PROCESSING (updated to use sophisticated systems)
-async function processMessageWithAI(
-  messageContent: string, 
-  botId: string, 
-  userId: string, 
-  message: any
-): Promise<{
-  response: string;
-  shouldExecute: boolean;
-  command?: string;
-}> {
+// SOPHISTICATED AI MESSAGE PROCESSING (migrated from server/simple-index.js)
+async function processMessageWithAI(message, userId) {
   try {
-    console.log(`🚀 SOPHISTICATED PROCESSING: "${messageContent}" for bot ${botId}`);
-    
     // Clean the message content (remove bot mentions)
-    let cleanMessage = messageContent.replace(/<@!?\d+>/g, '').trim();
+    let cleanMessage = message.content.replace(/<@!?\d+>/g, '').trim();
+    
+    // Enhanced conversation context building using MessageContextManager
+    let conversationContext = '';
+    if (message.reference && message.reference.messageId) {
+      try {
+        // First check MessageContextManager for the referenced message
+        const referencedMessage = messageContextManager.getMessageById(
+          message.channelId, 
+          message.reference.messageId
+        );
+        
+        if (referencedMessage) {
+          conversationContext = `Previous message context: ${referencedMessage.author}: "${referencedMessage.content}"`;
+          console.log(`🧠 Adding conversation context from MessageContextManager: ${conversationContext}`);
+        }
+      } catch (error) {
+        console.error('Error fetching conversation context:', error);
+        // Even if we can't fetch the message, if there's a reference, assume it's conversational
+        if (message.reference && message.reference.messageId) {
+          conversationContext = 'User is replying to a previous message (context unavailable)';
+          console.log(`🧠 Adding fallback conversation context: ${conversationContext}`);
+        }
+      }
+    }
+
+    // Get recent conversation context (last few messages)
+    const recentMessages = messageContextManager.getRecentMessages(message.channelId, 3);
+    if (recentMessages.length > 0) {
+      const contextMessages = recentMessages
+        .filter(msg => msg.messageId !== message.id) // Don't include current message
+        .map(msg => `${msg.author}: "${msg.content}"`)
+        .join('\n');
+      
+      if (contextMessages) {
+        conversationContext = conversationContext 
+          ? `${conversationContext}\n\nRecent conversation:\n${contextMessages}`
+          : `Recent conversation:\n${contextMessages}`;
+        console.log(`💬 Enhanced with recent conversation context`);
+      }
+    }
     
     if (!cleanMessage) {
       return {
-        response: "Hello! How can I help you today? I can help with moderation commands or just chat!",
-        shouldExecute: false
+        success: true,
+        response: "Hello! How can I help you today? I can help with moderation commands or just chat!"
       };
     }
 
@@ -518,37 +619,30 @@ async function processMessageWithAI(
     if (mappingsError) {
       console.error('Error fetching command mappings:', mappingsError);
       return {
-        response: "I'm here to help! I had trouble accessing my commands, but I'm ready to chat.",
-        shouldExecute: false
+        success: true,
+        response: "I'm here to help! I had trouble accessing my commands, but I'm ready to chat."
       };
     }
 
     if (!commandMappings || commandMappings.length === 0) {
       return {
-        response: "Hi there! I don't have any commands configured yet, but I'm happy to chat!",
-        shouldExecute: false
+        success: true,
+        response: "Hi there! I don't have any commands configured yet, but I'm happy to chat!"
       };
     }
 
-    // Use sophisticated AI processing if available
+    // Use AI if available, otherwise fall back to simple matching
     if (genAI) {
-      const result = await processWithAI(cleanMessage, commandMappings, message, userId, '');
-      return {
-        response: result.response,
-        shouldExecute: result.success
-      };
+      return await processWithAI(cleanMessage, commandMappings, message, userId, conversationContext);
     } else {
-      return {
-        response: "Hi! My sophisticated AI isn't available right now, but I'm still here to help!",
-        shouldExecute: false
-      };
+      return await processWithSimpleMatching(cleanMessage, commandMappings, message, userId);
     }
 
   } catch (error) {
-    console.error('Error in sophisticated message processing:', error);
+    console.error('Error in processMessageWithAI:', error);
     return {
-      response: "Sorry, I encountered an error processing your message. Please try again!",
-      shouldExecute: false
+      success: true,
+      response: "Sorry, I encountered an error processing your message. Please try again!"
     };
   }
 }
@@ -575,7 +669,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       
       console.log(`📨 SOPHISTICATED API (URS): Processing "${messageContent}" for bot ${botId}`);
       
-      const result = await processMessageWithAI(messageContent, botId, userId, message);
+      const result = await processMessageWithAI(message, userId);
       
       // Return response in Universal Relay Service expected format
       return res.status(200).json({
@@ -592,12 +686,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       
       console.log(`📨 SOPHISTICATED API (Standard): Processing "${messageContent}" for bot ${botId}`);
       
-      const result = await processMessageWithAI(messageContent, botId, userId, {});
+      const result = await processMessageWithAI(message, userId);
       
       return res.status(200).json({
         success: true,
         response: result.response,
-        shouldExecute: result.shouldExecute,
+        shouldExecute: result.success,
         command: result.command || null
       });
     }
