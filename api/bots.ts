@@ -882,66 +882,8 @@ export default async function handler(req: any, res: any) {
       return res.status(400).json({ error: 'Invalid action or missing parameters' });
     }
 
-    if (req.method === 'DELETE') {
-      // Delete bot
-      const { botId } = req.query;
-      
-      if (!botId) {
-        return res.status(400).json({ error: 'Bot ID is required' });
-      }
-
-      const { data: bot, error: fetchError } = await supabase
-        .from('bots')
-        .select('*')
-        .eq('id', botId)
-        .eq('user_id', userId)
-        .single();
-
-      if (fetchError || !bot) {
-        return res.status(404).json({ error: 'Bot not found' });
-      }
-
-      // Delete associated command mappings first (cascade delete)
-      const { error: mappingsError } = await supabase
-        .from('command_mappings')
-        .delete()
-        .eq('bot_id', botId)
-        .eq('user_id', userId); // Also filter by user_id for security
-
-      if (mappingsError) {
-        console.error('Error deleting command mappings:', mappingsError);
-        // Continue with bot deletion even if mappings deletion fails
-      }
-
-      // Delete the bot
-      const { error } = await supabase
-        .from('bots')
-        .delete()
-        .eq('id', botId)
-        .eq('user_id', userId);
-
-      if (error) throw error;
-
-      // Create activity
-      await supabase
-        .from('activities')
-        .insert({
-          user_id: userId,
-          activity_type: 'bot_deleted',
-          description: `Deleted bot: ${bot.bot_name} (${bot.platform_type})`,
-          metadata: { 
-            botId: bot.id, 
-            platformType: bot.platform_type,
-            botName: bot.bot_name,
-            deletedMappings: !mappingsError
-          }
-        });
-
-      return res.status(200).json({ 
-        success: true, 
-        message: `Bot "${bot.bot_name}" and all associated command mappings have been deleted successfully` 
-      });
-    }
+    // NOTE: Bot deletion is handled by /api/bots/[id].ts 
+    // to avoid routing conflicts
 
     return res.status(400).json({ error: 'Invalid request method or action' });
 
