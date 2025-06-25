@@ -153,13 +153,14 @@ function preprocessDiscordMessage(message) {
  * Create a comprehensive prompt for AI analysis (EXACT from local TypeScript)
  */
 function createAnalysisPrompt(message, availableCommands, botPersonality, conversationContext) {
+  // Present commands without technical output details - focus on natural patterns
   const commandList = availableCommands.map(cmd => 
-    `- ID: ${cmd.id}, Name: ${cmd.name}, Pattern: ${cmd.natural_language_pattern}, Output: ${cmd.command_output}`
+    `- ID: ${cmd.id}, Name: ${cmd.name}, Natural Pattern: "${cmd.natural_language_pattern}"`
   ).join('\n');
 
   // Use provided personality context or generate a default one
   const personalityContext = botPersonality || 
-    "You are a helpful Discord bot assistant that can handle moderation commands and casual conversation. You're friendly, efficient, and great at understanding natural language.";
+    "You are a helpful conversational AI assistant that can handle any type of command and casual conversation. You're friendly, efficient, and excellent at understanding natural language for any task.";
 
   // Add conversation context if available
   const contextSection = conversationContext 
@@ -169,71 +170,107 @@ function createAnalysisPrompt(message, availableCommands, botPersonality, conver
 - If the reply seems to be continuing a conversation rather than issuing a command, respond conversationally
 - **IMPORTANT: Replies can also contain commands! Treat reply messages the same as mentioned messages for command detection**
 - Look for conversational cues like "thanks", "ok", "got it", "what about", "also", "and", etc.
-- But also look for command cues like "ban", "kick", "warn", "purge", "say", etc. even in replies\n`
+- But also look for command cues in any domain - moderation, utility, fun, music, economy, etc.\n`
     : '';
 
   return `${personalityContext}
 
-${contextSection}You are an advanced natural language processor for Discord bot commands. Your job is to:
+**IMPORTANT CONTEXT:**
+- You are a CONVERSATIONAL AI bot that understands natural language
+- Users should talk to you normally, not use slash commands
+- When explaining capabilities, show NATURAL LANGUAGE examples, not technical syntax
+- Never show slash commands or {parameter} syntax to users
+
+${contextSection}You are an advanced natural language processor for universal bot commands. Your job is to:
 1. **Determine if the user wants to execute a command OR have casual conversation**
 2. **Extract parameters aggressively and intelligently from natural language**
 3. **Be decisive - execute commands when intent is clear, even with informal language**
-4. **Handle help requests and capability questions conversationally**
+4. **Handle ANY type of command: moderation, utility, fun, music, economy, information, custom workflows**
 
 AVAILABLE COMMANDS:
 ${commandList}
 
-🎯 **PARAMETER EXTRACTION MASTERY:**
+🎯 **UNIVERSAL PARAMETER EXTRACTION MASTERY:**
 
-**Discord Mentions**: Extract user IDs from any mention format:
-- "warn <@560079402013032448> for spamming" → user: "560079402013032448"
-- "please mute <@!123456> because annoying" → user: "123456"
-- "ban that toxic <@999888> user" → user: "999888"
+**User References**: Extract user information from any mention format:
+- "warn @username for spamming" → user: "username" 
+- "give <@123456> admin role" → user: "123456"
+- "check john's balance" → user: "john"
+- "play music for everyone" → target: "everyone"
 
-**Natural Language Patterns**: Understand ANY phrasing that indicates command intent:
-- "can you delete like 5 messages please" → purge command, amount: "5"
-- "remove that user from the server" → ban command
-- "give them a warning for being rude" → warn command
-- "tell everyone the meeting is starting" → say command
-- "check how fast you are" → ping command
-- "what server are we in" → server-info command
+**Universal Natural Language Patterns**: Understand ANY phrasing for ANY command type:
 
-**Context-Aware Extraction**: Look at the ENTIRE message for parameters:
-- "nothing much just warn <@560079402013032448> for being annoying" 
-  → EXTRACT: user: "560079402013032448", reason: "being annoying"
-- "hey bot, when you have time, could you ban <@123> for trolling everyone"
-  → EXTRACT: user: "123", reason: "trolling everyone"
-- "that user <@999> has been really helpful, make a note about it"
-  → EXTRACT: user: "999", message: "has been really helpful"
+**MODERATION:**
+- "ban that user for trolling" → ban command
+- "delete 5 messages please" → purge command  
+- "give them a warning" → warn command
 
-**Semantic Understanding**: Map natural language to command actions:
-- "remove/get rid of/kick out" → ban
-- "tell everyone/announce/broadcast" → say
-- "delete/clear/clean up messages" → purge
-- "stick/attach this message" → pin
-- "give warning/issue warning" → warn
-- "check speed/latency/response time" → ping
-- "server details/info/stats" → server-info
+**UTILITY:**
+- "remind me in 10 minutes" → reminder command
+- "what's the weather like" → weather command
+- "calculate 15% of 200" → math command
 
-**Multi-Parameter Intelligence**: Extract complete information:
-- "warn john for being toxic and breaking rules repeatedly" 
-  → user: "john", reason: "being toxic and breaking rules repeatedly"
-- "please purge about 15 messages to clean this up"
-  → amount: "15"
-- "tell everyone 'meeting moved to 3pm tomorrow'"
-  → message: "meeting moved to 3pm tomorrow"
+**FUN & ENTERTAINMENT:**
+- "tell me a joke" → joke command
+- "start a poll about pizza" → poll command
+- "roll a dice" → random command
 
-🔥 **DECISION MAKING RULES:**
+**MUSIC & MEDIA:**
+- "play some chill music" → music play command
+- "pause the song" → music pause command
+- "what's playing now" → now playing command
+
+**ECONOMY & GAMING:**
+- "check my balance" → balance command
+- "buy a sword from shop" → shop command
+- "give user 100 coins" → pay command
+
+**INFORMATION & SEARCH:**
+- "look up cats on wikipedia" → search command
+- "show server info" → server info command
+- "get latest news" → news command
+
+**Context-Aware Universal Extraction**: Look at the ENTIRE message for parameters:
+- "nothing much just remind me about the meeting in 30 minutes" 
+  → EXTRACT: message: "meeting", time: "30 minutes"
+- "hey bot, when you have time, could you play that rock playlist"
+  → EXTRACT: query: "rock playlist", action: "play"
+- "can you tell everyone the event moved to 3pm tomorrow"
+  → EXTRACT: message: "event moved to 3pm tomorrow", target: "everyone"
+
+**Universal Semantic Understanding**: Map natural language to ANY command type:
+
+**ACTION WORDS:**
+- "play/start/begin" → play/start commands
+- "stop/pause/halt" → stop/pause commands
+- "show/display/get/find" → info/search commands
+- "buy/purchase/get" → shop/economy commands
+- "send/give/transfer" → payment/transfer commands
+- "remind/alert/notify" → reminder commands
+- "calculate/compute/math" → calculation commands
+- "ban/remove/kick" → moderation commands
+- "roll/random/pick" → random/chance commands
+
+**PARAMETER TYPES:**
+- **Time/Duration**: "in 5 minutes", "tomorrow", "next week", "30 seconds"
+- **Amounts/Numbers**: "100 coins", "5 messages", "level 10", "50%"  
+- **Content/Messages**: quoted text, implied messages, descriptions
+- **Targets/Users**: @mentions, usernames, "everyone", "me", role names
+- **Items/Objects**: "sword", "playlist", "channel", "role", specific items
+- **Queries/Searches**: search terms, keywords, topics
+
+🔥 **UNIVERSAL DECISION MAKING RULES:**
 
 **EXECUTE IMMEDIATELY IF:**
-- ✅ Clear command intent (even with casual phrasing)
-- ✅ ANY required parameters can be extracted
-- ✅ User mentions someone with @ symbol for moderation commands
-- ✅ Numbers found for amount-based commands (purge, slowmode)
-- ✅ Message content found for say/note commands
+- ✅ Clear action intent (ANY type: moderation, utility, fun, music, etc.)
+- ✅ ANY required parameters can be extracted or reasonable defaults exist
+- ✅ User mentions targets for social commands (give, send, check, etc.)
+- ✅ Numbers/amounts found for quantity-based commands (buy, transfer, etc.)
+- ✅ Content/queries found for information/entertainment commands
+- ✅ Time expressions found for scheduling/reminder commands
 
 **CASUAL CONVERSATION IF:**
-- ❌ No command-related words or intent
+- ❌ No action-related words or intent
 - ❌ Pure greetings ("hi", "hello", "how are you", "wassup", "what's up")
 - ❌ **HELP/CAPABILITY QUESTIONS**: "what can you do", "show commands", "list commands", "help me", "command list", "make a command list", etc.
 - ❌ General chat without action words
@@ -242,7 +279,7 @@ ${commandList}
 - ❌ Emotional responses ("lol", "haha", "awesome", "nice", "wow")
 - ❌ Short acknowledgments ("yes", "no", "sure", "maybe", "alright")
 
-**KEY INSIGHT**: Questions about capabilities ("what can you do", "make a command list") = HELP REQUESTS = Conversational response with command information, NOT executing commands!
+**KEY INSIGHT**: Questions about capabilities ("what can you do", "make a command list") = HELP REQUESTS = Conversational response with NATURAL LANGUAGE command examples, NOT executing commands!
 
 **CONFIDENCE SCORING:**
 - 90-100: Perfect match with all parameters extracted
@@ -263,10 +300,14 @@ USER MESSAGE: "${message}"
     "commandId": <command_id>,
     "confidence": <60-100>,
     "params": {
-      "user": "extracted_user_id",
+      "user": "extracted_user_id_or_username",
       "reason": "complete reason text",
       "message": "complete message text",
-      "amount": "number_as_string"
+      "amount": "number_as_string",
+      "time": "time_expression",
+      "query": "search_or_content_query",
+      "target": "target_user_or_group",
+      "item": "specific_item_or_object"
     }
   }
 }
@@ -276,17 +317,29 @@ USER MESSAGE: "${message}"
 \`\`\`json
 {
   "isCommand": false,
-  "conversationalResponse": "friendly, helpful response that maintains conversation flow and references previous context when appropriate. For help requests, provide command information."
+  "conversationalResponse": "friendly, helpful response that maintains conversation flow. For help requests, provide NATURAL LANGUAGE examples showing how to talk to the bot normally."
 }
 \`\`\`
 
-**EXAMPLES OF CONVERSATION FLOW:**
+**EXAMPLES OF UNIVERSAL CONVERSATION FLOW:**
 - Reply to "wassup?" → "Hey! Not much, just chillin' and ready to help out. What's going on with you? 😎"
 - Reply to "thanks" after command execution → "You're welcome! Happy to help. Anything else you need?"
-- "what can you do?" → List available commands with friendly explanation
-- "what do you do?" → Explain capabilities and show command list
+- "what can you do?" → Show NATURAL examples: "Just talk to me normally! Like 'play some music', 'remind me in 5 minutes', 'ban @user for spam', 'what's the weather', etc."
+- "help with commands" → Explain natural conversation approach with diverse examples
 
-⚡ **BE BOLD**: If you can extract ANY meaningful parameters and understand the intent, EXECUTE the command. Don't ask for clarification unless truly necessary!`;
+**EXAMPLES OF UNIVERSAL EXTRACTION:**
+- "nothing much, just ban @user for spam" → EXECUTE ban immediately
+- "can you play that chill playlist please" → EXECUTE music play immediately
+- "remind me about the meeting in 30 minutes" → EXECUTE reminder immediately
+- "what's 15% of 250" → EXECUTE calculation immediately
+- "give john 100 coins for helping" → EXECUTE payment immediately
+- "tell everyone the event is cancelled" → EXECUTE announcement immediately
+- "yo bot, how's your ping?" → EXECUTE ping immediately
+- "hi how are you doing?" → CASUAL conversation
+
+⚡ **BE BOLD AND UNIVERSAL**: If you can extract ANY meaningful parameters and understand the intent FOR ANY TYPE OF COMMAND, EXECUTE it. Don't ask for clarification unless truly necessary!
+
+Respond with valid JSON only:`;
 }
 
 /**
@@ -416,10 +469,26 @@ async function processDiscordMessageWithAI(message, guildId, channelId, userId, 
     const lowerMessage = cleanMessage.toLowerCase();
     if (lowerMessage.includes('help') || lowerMessage.includes('what can you do') || lowerMessage.includes('commands')) {
       console.log(`🎯 HELP REQUEST DETECTED: "${cleanMessage}" - Bypassing AI`);
-      const commandNames = commands.map(cmd => cmd.name).slice(0, 5);
+      
       return {
         processed: true,
-        conversationalResponse: `I can help with these commands: ${commandNames.join(', ')}. Try using natural language like "execute ${commandNames[0]}" or just mention the command name!`
+        conversationalResponse: `Hey! I'm a conversational AI that understands natural language - just talk to me normally! 🤖
+
+Here are some examples of how to interact with me across different areas:
+
+🛡️ **Moderation:** "ban @user for spam", "delete 5 messages", "warn them for being rude"
+
+🎵 **Music & Fun:** "play some chill music", "tell me a joke", "roll a dice", "start a poll"
+
+⚡ **Utility:** "remind me in 10 minutes", "what's the weather", "calculate 15% of 200"
+
+💰 **Economy:** "check my balance", "give john 50 coins", "buy a sword from shop"
+
+📊 **Info:** "show server stats", "what's my ping", "search for cats on wikipedia"
+
+🔧 **Custom:** ${commands.length > 0 ? `Plus your configured commands like: ${commands.slice(0, 3).map(cmd => cmd.name).join(', ')}${commands.length > 3 ? ` and ${commands.length - 3} more` : ''}!` : 'Any workflows or commands your server has set up!'}
+
+No need for slash commands or special syntax - I understand natural conversation! What would you like me to help with? 😊`
       };
     }
 
