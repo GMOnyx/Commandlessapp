@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { Bot } from "@shared/schema";
 import {
   Dialog,
   DialogContent,
@@ -36,9 +37,10 @@ import { z } from "zod";
 interface BotCreationDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  editBot?: Bot; // Optional bot to edit
 }
 
-export default function BotCreationDialog({ open, onOpenChange }: BotCreationDialogProps) {
+export default function BotCreationDialog({ open, onOpenChange, editBot }: BotCreationDialogProps) {
   const [tokenValidation, setTokenValidation] = useState<{
     valid?: boolean;
     message?: string;
@@ -47,13 +49,17 @@ export default function BotCreationDialog({ open, onOpenChange }: BotCreationDia
   const { toast } = useToast();
   const queryClient = useQueryClient();
   
-  // Define form schema
+  const isEditMode = !!editBot;
+  
+  // Define form schema - make fields optional for edit mode
   const formSchema = z.object({
     botName: z.string().min(3, "Bot name must be at least 3 characters"),
-    platformType: z.enum(["discord", "telegram"], {
-      required_error: "Please select a platform type",
-    }),
-    token: z.string().min(5, "Token must be at least 5 characters"),
+    platformType: isEditMode 
+      ? z.enum(["discord", "telegram"]).optional()
+      : z.enum(["discord", "telegram"], { required_error: "Please select a platform type" }),
+    token: isEditMode 
+      ? z.string().optional()
+      : z.string().min(5, "Token must be at least 5 characters"),
     clientId: z.string().optional(),
     personalityContext: z.string().optional(),
   });
@@ -70,19 +76,55 @@ export default function BotCreationDialog({ open, onOpenChange }: BotCreationDia
     },
   });
   
+  // Populate form when editing
+  useEffect(() => {
+    if (editBot && open) {
+      form.reset({
+        botName: editBot.botName,
+        platformType: editBot.platformType,
+        token: "", // Don't populate token for security
+        clientId: "",
+        personalityContext: editBot.personalityContext || "",
+      });
+      setTokenValidation({ isValidating: false });
+    } else if (!editBot && open) {
+      form.reset({
+        botName: "",
+        platformType: undefined,
+        token: "",
+        clientId: "",
+        personalityContext: "",
+      });
+      setTokenValidation({ isValidating: false });
+    }
+  }, [editBot, open, form]);
+  
   // Create bot mutation
   const createBotMutation = useMutation({
     mutationFn: async (data: z.infer<typeof formSchema>) => {
-      return await apiRequest("/api/bots", {
-        method: "POST",
-        body: JSON.stringify(data),
-      });
+      if (isEditMode) {
+        // Update existing bot
+        const updateData: any = { botName: data.botName };
+        if (data.token) updateData.token = data.token;
+        if (data.personalityContext !== undefined) updateData.personalityContext = data.personalityContext;
+        
+        return await apiRequest(`/api/bots/${editBot.id}`, {
+          method: "PUT",
+          body: JSON.stringify(updateData),
+        });
+      } else {
+        // Create new bot
+        return await apiRequest("/api/bots", {
+          method: "POST",
+          body: JSON.stringify(data),
+        });
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/bots"] });
       toast({
         title: "Success",
-        description: "Bot created successfully",
+        description: isEditMode ? "Bot updated successfully" : "Bot created successfully",
       });
       form.reset();
       setTokenValidation({ isValidating: false });
@@ -91,7 +133,7 @@ export default function BotCreationDialog({ open, onOpenChange }: BotCreationDia
     onError: (error) => {
       toast({
         title: "Error",
-        description: `Failed to create bot: ${error instanceof Error ? error.message : ''}`,
+        description: `Failed to ${isEditMode ? 'update' : 'create'} bot: ${error instanceof Error ? error.message : ''}`,
         variant: "destructive",
       });
     },
@@ -140,18 +182,6 @@ export default function BotCreationDialog({ open, onOpenChange }: BotCreationDia
   
   // Handle form submission
   const onSubmit = (data: z.infer<typeof formSchema>) => {
-    console.log('🚨🚨🚨 FORM SUBMIT CALLED!!! 🚨🚨🚨');
-    console.log('🔍 FORM SUBMISSION DEBUG:');
-    console.log('📋 Raw form data:', data);
-    console.log('📊 Field validation:', {
-      botName: !!data.botName,
-      platformType: !!data.platformType,
-      token: !!data.token,
-      tokenLength: data.token?.length,
-      personalityContext: !!data.personalityContext,
-    });
-    console.log('📤 JSON that will be sent:', JSON.stringify(data));
-    
     createBotMutation.mutate(data);
   };
 
@@ -159,9 +189,12 @@ export default function BotCreationDialog({ open, onOpenChange }: BotCreationDia
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle>Add a new bot</DialogTitle>
+          <DialogTitle>{isEditMode ? "Edit bot credentials" : "Add a new bot"}</DialogTitle>
           <DialogDescription>
-            Connect a Discord or Telegram bot to start creating conversational interfaces.
+            {isEditMode 
+              ? "Update your bot's credentials. Leave fields empty to keep current values."
+              : "Connect a Discord or Telegram bot to start creating conversational interfaces."
+            }
           </DialogDescription>
         </DialogHeader>
         
@@ -181,43 +214,47 @@ export default function BotCreationDialog({ open, onOpenChange }: BotCreationDia
               )}
             />
             
-            <FormField
-              control={form.control}
-              name="platformType"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Platform</FormLabel>
-                  <Select 
-                    onValueChange={field.onChange} 
-                    defaultValue={field.value}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a platform" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value="discord">Discord</SelectItem>
-                      <SelectItem value="telegram" disabled className="text-gray-400">
-                        Telegram (coming soon)
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {!isEditMode && (
+              <FormField
+                control={form.control}
+                name="platformType"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Platform</FormLabel>
+                    <Select 
+                      onValueChange={field.onChange} 
+                      defaultValue={field.value}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a platform" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="discord">Discord</SelectItem>
+                        <SelectItem value="telegram" disabled className="text-gray-400">
+                          Telegram (coming soon)
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
             
             <FormField
               control={form.control}
               name="token"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Bot Token</FormLabel>
+                  <FormLabel>
+                    Bot Token {isEditMode && <span className="text-sm text-gray-500">(optional)</span>}
+                  </FormLabel>
                   <FormControl>
                     <div className="relative">
                     <Input 
-                      placeholder="Enter your bot token" 
+                      placeholder={isEditMode ? "Enter new token to update" : "Enter your bot token"} 
                       type="password"
                       {...field} 
                         onChange={(e) => {
@@ -225,7 +262,7 @@ export default function BotCreationDialog({ open, onOpenChange }: BotCreationDia
                           handleTokenChange(e.target.value);
                         }}
                       />
-                      {form.watch("platformType") === "discord" && field.value && (
+                      {(form.watch("platformType") === "discord" || editBot?.platformType === "discord") && field.value && (
                         <div className="absolute inset-y-0 right-0 flex items-center pr-3">
                           {tokenValidation.isValidating ? (
                             <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
@@ -243,12 +280,17 @@ export default function BotCreationDialog({ open, onOpenChange }: BotCreationDia
                       {tokenValidation.message}
                     </p>
                   )}
+                  {isEditMode && (
+                    <p className="text-xs text-gray-500">
+                      Leave empty to keep current token. Only update if you need to change it.
+                    </p>
+                  )}
                   <FormMessage />
                 </FormItem>
               )}
             />
             
-            {form.watch("platformType") === "discord" && (
+            {(form.watch("platformType") === "discord" || editBot?.platformType === "discord") && !isEditMode && (
               <div className="text-sm text-gray-600 bg-blue-50 p-3 rounded-md">
                 <p className="font-medium mb-1">📖 How to get your Discord bot token:</p>
                 <ol className="list-decimal list-inside space-y-1">
@@ -261,7 +303,7 @@ export default function BotCreationDialog({ open, onOpenChange }: BotCreationDia
               </div>
             )}
             
-            {form.watch("platformType") === "discord" && (
+            {(form.watch("platformType") === "discord" || editBot?.platformType === "discord") && !isEditMode && (
               <FormField
                 control={form.control}
                 name="clientId"
@@ -285,7 +327,9 @@ export default function BotCreationDialog({ open, onOpenChange }: BotCreationDia
               name="personalityContext"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Bot Personality & Context (Optional)</FormLabel>
+                  <FormLabel>
+                    Bot Personality & Context {isEditMode && <span className="text-sm text-gray-500">(optional)</span>}
+                  </FormLabel>
                   <FormControl>
                     <Textarea 
                       placeholder="e.g., You're a friendly moderation bot for a gaming community. Be casual but firm when enforcing rules about toxicity and spam. The server culture is relaxed but professional."
@@ -310,7 +354,10 @@ export default function BotCreationDialog({ open, onOpenChange }: BotCreationDia
                 type="submit"
                 disabled={createBotMutation.isPending}
               >
-                {createBotMutation.isPending ? "Connecting..." : "Connect Bot"}
+                {createBotMutation.isPending 
+                  ? (isEditMode ? "Updating..." : "Connecting...") 
+                  : (isEditMode ? "Update Bot" : "Connect Bot")
+                }
               </Button>
             </DialogFooter>
           </form>

@@ -10,7 +10,6 @@ const COMMANDLESS_API_URL = process.env.COMMANDLESS_API_URL || 'https://commandl
 const CHECK_INTERVAL = 30000; // Check for new bots every 30 seconds
 
 console.log('🚀 Starting Universal Discord Relay Service');
-console.log('⚡ Version: 2.0 - With Discord.js Command Execution');
 console.log('🔗 Commandless API:', COMMANDLESS_API_URL);
 console.log('📡 Supabase URL:', SUPABASE_URL ? 'Configured' : 'Missing');
 
@@ -735,5 +734,4 @@ async function executeDiscordCommand(commandOutput, message) {
       response: `❌ An error occurred while executing the command: ${error.message}`
     };
   }
-} // Force deployment at Tue Jun 24 23:22:29 +04 2025
-console.log('🚀 URS Version 2.1 - FORCED DEPLOYMENT');
+} 

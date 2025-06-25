@@ -163,7 +163,13 @@ function createAnalysisPrompt(message, availableCommands, botPersonality, conver
 
   // Add conversation context if available
   const contextSection = conversationContext 
-    ? `\n\nCONVERSATION CONTEXT:\n${conversationContext}\n`
+    ? `\n\nCONVERSATION CONTEXT:\n${conversationContext}\n\n**CONVERSATION HANDLING:**
+- If user is replying to a previous bot message, consider the conversation flow
+- Maintain context and provide relevant follow-up responses
+- If the reply seems to be continuing a conversation rather than issuing a command, respond conversationally
+- **IMPORTANT: Replies can also contain commands! Treat reply messages the same as mentioned messages for command detection**
+- Look for conversational cues like "thanks", "ok", "got it", "what about", "also", "and", etc.
+- But also look for command cues like "ban", "kick", "warn", "purge", "say", etc. even in replies\n`
     : '';
 
   return `${personalityContext}
@@ -172,6 +178,7 @@ ${contextSection}You are an advanced natural language processor for Discord bot 
 1. **Determine if the user wants to execute a command OR have casual conversation**
 2. **Extract parameters aggressively and intelligently from natural language**
 3. **Be decisive - execute commands when intent is clear, even with informal language**
+4. **Handle help requests and capability questions conversationally**
 
 AVAILABLE COMMANDS:
 ${commandList}
@@ -228,8 +235,14 @@ ${commandList}
 **CASUAL CONVERSATION IF:**
 - ❌ No command-related words or intent
 - ❌ Pure greetings ("hi", "hello", "how are you", "wassup", "what's up")
-- ❌ Questions about the bot's capabilities ("what can you do", "help", "commands")
+- ❌ **HELP/CAPABILITY QUESTIONS**: "what can you do", "show commands", "list commands", "help me", "command list", "make a command list", etc.
 - ❌ General chat without action words
+- ❌ Conversational replies to previous bot messages ("thanks", "ok", "cool", "got it", "im great", "not much", "good", "fine")
+- ❌ Follow-up questions about previous responses
+- ❌ Emotional responses ("lol", "haha", "awesome", "nice", "wow")
+- ❌ Short acknowledgments ("yes", "no", "sure", "maybe", "alright")
+
+**KEY INSIGHT**: Questions about capabilities ("what can you do", "make a command list") = HELP REQUESTS = Conversational response with command information, NOT executing commands!
 
 **CONFIDENCE SCORING:**
 - 90-100: Perfect match with all parameters extracted
@@ -263,9 +276,15 @@ USER MESSAGE: "${message}"
 \`\`\`json
 {
   "isCommand": false,
-  "conversationalResponse": "friendly, helpful response matching bot personality"
+  "conversationalResponse": "friendly, helpful response that maintains conversation flow and references previous context when appropriate. For help requests, provide command information."
 }
 \`\`\`
+
+**EXAMPLES OF CONVERSATION FLOW:**
+- Reply to "wassup?" → "Hey! Not much, just chillin' and ready to help out. What's going on with you? 😎"
+- Reply to "thanks" after command execution → "You're welcome! Happy to help. Anything else you need?"
+- "what can you do?" → List available commands with friendly explanation
+- "what do you do?" → Explain capabilities and show command list
 
 ⚡ **BE BOLD**: If you can extract ANY meaningful parameters and understand the intent, EXECUTE the command. Don't ask for clarification unless truly necessary!`;
 }
@@ -376,15 +395,6 @@ async function processDiscordMessageWithAI(message, guildId, channelId, userId, 
       };
     }
     
-    // For skipMentionCheck (replies), use the original message if cleanMessage is empty
-    const messageToProcess = cleanMessage || (skipMentionCheck ? message : '');
-    if (!messageToProcess) {
-      return {
-        processed: true,
-        conversationalResponse: "Hello! How can I help you today? I can help with moderation commands or just chat!"
-      };
-    }
-    
     // Use the authenticated user ID if provided, otherwise fall back to user ID 1
     const userIdToUse = authenticatedUserId || "user_2yMTRvIng7ljDfRRUlXFvQkWSb5";
 
@@ -402,6 +412,17 @@ async function processDiscordMessageWithAI(message, guildId, channelId, userId, 
       };
     }
 
+    // **EXACT LOCAL IMPLEMENTATION**: Check for help requests BEFORE AI processing
+    const lowerMessage = cleanMessage.toLowerCase();
+    if (lowerMessage.includes('help') || lowerMessage.includes('what can you do') || lowerMessage.includes('commands')) {
+      console.log(`🎯 HELP REQUEST DETECTED: "${cleanMessage}" - Bypassing AI`);
+      const commandNames = commands.map(cmd => cmd.name).slice(0, 5);
+      return {
+        processed: true,
+        conversationalResponse: `I can help with these commands: ${commandNames.join(', ')}. Try using natural language like "execute ${commandNames[0]}" or just mention the command name!`
+      };
+    }
+
     // Get the bot personality context
     const { data: bots, error: botError } = await supabase
       .from('bot_connections')
@@ -413,7 +434,7 @@ async function processDiscordMessageWithAI(message, guildId, channelId, userId, 
     
     // Process the message with enhanced AI logic (EXACT from local system)
     const analysisResult = await analyzeMessageWithAI(
-      messageToProcess, 
+      cleanMessage, 
       commands, 
       bot?.personality_context || undefined,
       conversationContext
@@ -496,7 +517,7 @@ async function processDiscordMessageWithAI(message, guildId, channelId, userId, 
             guildId,
             channelId,
             discordUserId: userId,
-            userMessage: messageToProcess,
+            userMessage: cleanMessage,
             commandOutput: outputCommand
           }
         });
@@ -544,7 +565,7 @@ app.post('/api/discord', async (req, res) => {
     const { action } = req.query;
     
     if (action === 'process-message') {
-      const { message: messageData, botToken, botClientId, skipMentionCheck } = req.body;
+      const { message: messageData, botToken, botClientId } = req.body;
       
       if (!messageData || !botToken) {
         return res.json({
@@ -554,17 +575,53 @@ app.post('/api/discord', async (req, res) => {
       }
 
       console.log(`🔍 Processing message via API: "${messageData.content}" from ${messageData.author.username}`);
-      console.log(`   Skip mention check: ${skipMentionCheck || false}`);
       
-      // Use the EXACT local processing function
+      // BUILD CONVERSATION CONTEXT (MIGRATED FROM LOCAL IMPLEMENTATION)
+      let conversationContext = '';
+      
+      // Check if this is a reply to a previous message
+      if (messageData.referenced_message) {
+        console.log(`🔗 Reply detected to message: ${messageData.referenced_message.id}`);
+        
+        // Build more sophisticated referenced message context
+        if (messageData.referenced_message.author && messageData.referenced_message.author.id === botClientId) {
+          // This is a reply to the bot - build comprehensive conversation context
+          const referencedContent = messageData.referenced_message.content || 'bot response';
+          conversationContext = `Previous bot message context: "${referencedContent}" - User is replying to this bot response`;
+          console.log(`🧠 Adding conversation context for bot reply: ${conversationContext}`);
+        } else if (messageData.referenced_message.author) {
+          // This is a reply to another user
+          const referencedAuthor = messageData.referenced_message.author.username || 'unknown user';
+          const referencedContent = messageData.referenced_message.content || 'message';
+          conversationContext = `Previous message context: ${referencedAuthor}: "${referencedContent}" - User is replying to this message`;
+          console.log(`💬 Adding context for reply to other user: ${conversationContext}`);
+        }
+      }
+      
+      // Enhanced logging for context
+      if (conversationContext) {
+        console.log(`🗣️ Conversation context built: ${conversationContext}`);
+      } else {
+        console.log(`💬 No conversation context - treating as new interaction`);
+      }
+      
+      // **CRITICAL FIX**: Determine if this is a reply to bot (treat same as mention)
+      const isReplyToBot = messageData.referenced_message && 
+                          messageData.referenced_message.author && 
+                          messageData.referenced_message.author.id === botClientId;
+      
+      console.log(`🎯 Message processing: Bot mentioned in content: ${/<@\!?(\d+)>/.test(messageData.content)}, Is reply to bot: ${isReplyToBot}`);
+      
+      // Use the EXACT local processing function with conversation context
+      // **IMPORTANT**: Skip mention check for replies to bot (treat them as direct communication)
       const result = await processDiscordMessageWithAI(
         messageData.content,
         messageData.guild_id,
         messageData.channel_id,
         messageData.author.id,
-        skipMentionCheck || false, // Use skipMentionCheck from request
+        isReplyToBot, // skipMentionCheck = true for bot replies
         "user_2yMTRvIng7ljDfRRUlXFvQkWSb5", // authenticatedUserId
-        undefined // conversationContext
+        conversationContext // ← NOW PASSING CONVERSATION CONTEXT!
       );
       
       if (result.processed && result.conversationalResponse) {

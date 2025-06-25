@@ -1,0 +1,16 @@
+{
+  "name": "commandless-discord-bot",
+  "version": "1.0.0",
+  "description": "Discord bot powered by Commandless AI middleware",
+  "main": "test-discord-bot.js",
+  "scripts": {
+    "start": "node test-discord-bot.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.15.3",
+    "node-fetch": "^2.7.0"
+  },
+  "keywords": ["discord", "bot", "ai", "commandless"],
+  "author": "Commandless",
+  "license": "MIT"
+} 
