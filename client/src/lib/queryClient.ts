@@ -1,6 +1,6 @@
 import { QueryClient } from "@tanstack/react-query";
 
-// Railway backend URL for bot operations
+// Railway backend URL for bot edit/delete operations only
 const RAILWAY_API_URL = 'https://commandless-app-production.up.railway.app';
 
 // New universal base-URL resolver
@@ -9,17 +9,10 @@ function getApiBaseUrl(endpoint?: string): string {
   const envUrl = import.meta.env.VITE_API_BASE_URL as string | undefined;
   if (envUrl) return envUrl.replace(/\/+$/, '');
   
-  // 2. For bot operations, use Railway backend
-  if (endpoint && (
-    endpoint.includes('/api/bots') || 
-    endpoint.includes('/api/discord') ||
-    endpoint.includes('/api/commands') ||
-    endpoint.includes('/api/mappings')
-  )) {
-    return RAILWAY_API_URL;
-  }
+  // 2. Use Railway ONLY for bot edit/delete operations (these were failing with 405)
+  // All other operations stay on Vercel
   
-  // 3. Else default to same-origin (works on Vercel prod / preview / localhost)
+  // 3. Default to Vercel for all operations (same as before the change)
   return window.location.origin;
 }
 
@@ -27,7 +20,13 @@ export const API_BASE_URL = getApiBaseUrl();
 
 // API request function that includes authentication
 export async function apiRequest(endpoint: string, options: RequestInit = {}) {
-  const baseUrl = getApiBaseUrl(endpoint);
+  let baseUrl = getApiBaseUrl(endpoint);
+  
+  // Special handling: use Railway for bot edit/delete operations
+  if (endpoint.includes('/api/bots/') && options.method && (options.method === 'PUT' || options.method === 'DELETE')) {
+    baseUrl = RAILWAY_API_URL;
+  }
+  
   const url = `${baseUrl}${endpoint}`;
 
   // Get the auth token directly from Clerk
@@ -60,7 +59,7 @@ export async function apiRequest(endpoint: string, options: RequestInit = {}) {
     },
   };
 
-  console.log(`Making API request to ${endpoint}`, { hasToken: !!token, baseUrl });
+  console.log(`Making API request to ${endpoint}`, { hasToken: !!token, baseUrl, method: options.method });
 
   const response = await fetch(url, config);
 
