@@ -319,15 +319,6 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
                   <Edit className="mr-2 h-4 w-4" />
                   Edit
                 </DropdownMenuItem>
-                {bot.platformType === "discord" && (
-                  <DropdownMenuItem 
-                    onClick={() => syncCommandsMutation.mutate()}
-                    disabled={syncCommandsMutation.isPending}
-                  >
-                    <SiDiscord className="mr-2 h-4 w-4" />
-                    {syncCommandsMutation.isPending ? "Syncing..." : "Sync Commands"}
-                  </DropdownMenuItem>
-                )}
                 <DropdownMenuItem 
                   onClick={() => setShowDeleteDialog(true)}
                   className="text-red-600 focus:text-red-600"
@@ -341,22 +332,36 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
         </div>
       </CardContent>
       <CardFooter className="bg-gray-50 px-5 py-3 border-t border-gray-200">
-        <div className="text-sm">
-          {bot.isConnected ? (
+        <div className="flex items-center justify-between w-full">
+          <div className="text-sm">
+            {bot.isConnected ? (
+              <button
+                onClick={() => disconnectMutation.mutate()}
+                disabled={disconnectMutation.isPending}
+                className="font-medium text-primary hover:text-primary-600 focus:outline-none"
+              >
+                {disconnectMutation.isPending ? "Disconnecting..." : "Disconnect bot"}
+              </button>
+            ) : (
+              <button
+                onClick={() => connectMutation.mutate()}
+                disabled={connectMutation.isPending}
+                className="font-medium text-primary hover:text-primary-600 focus:outline-none"
+              >
+                {connectMutation.isPending ? "Connecting..." : "Connect bot"}
+              </button>
+            )}
+          </div>
+          
+          {/* Sync Commands Button - only show for Discord bots */}
+          {bot.platformType === "discord" && (
             <button
-              onClick={() => disconnectMutation.mutate()}
-              disabled={disconnectMutation.isPending}
-              className="font-medium text-primary hover:text-primary-600 focus:outline-none"
+              onClick={() => syncCommandsMutation.mutate()}
+              disabled={syncCommandsMutation.isPending}
+              className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {disconnectMutation.isPending ? "Disconnecting..." : "Disconnect bot"}
-            </button>
-          ) : (
-            <button
-              onClick={() => connectMutation.mutate()}
-              disabled={connectMutation.isPending}
-              className="font-medium text-primary hover:text-primary-600 focus:outline-none"
-            >
-              {connectMutation.isPending ? "Connecting..." : "Connect bot"}
+              <SiDiscord className="mr-1.5 h-3.5 w-3.5" />
+              {syncCommandsMutation.isPending ? "Syncing..." : "Sync Commands"}
             </button>
           )}
         </div>
