@@ -99,13 +99,13 @@ export default function BotCreationDialog({ open, onOpenChange, editBot }: BotCr
     }
   }, [editBot, open, form]);
   
-  // Create bot mutation
+  // Create/Update bot mutation
   const createBotMutation = useMutation({
     mutationFn: async (data: z.infer<typeof formSchema>) => {
       if (isEditMode) {
-        // Update existing bot
+        // Update existing bot - only send changed fields
         const updateData: any = { botName: data.botName };
-        if (data.token) updateData.token = data.token;
+        if (data.token && data.token.trim()) updateData.token = data.token;
         if (data.personalityContext !== undefined) updateData.personalityContext = data.personalityContext;
         
         return await apiRequest(`/api/bots/${editBot.id}`, {
@@ -174,7 +174,8 @@ export default function BotCreationDialog({ open, onOpenChange, editBot }: BotCr
     setTokenValidation({ isValidating: false });
     
     // Auto-validate Discord tokens after user stops typing
-    if (form.getValues("platformType") === "discord" && value.length > 50) {
+    const platformType = form.getValues("platformType") || editBot?.platformType;
+    if (platformType === "discord" && value.length > 50) {
       const timeoutId = setTimeout(() => validateDiscordToken(value), 1000);
       return () => clearTimeout(timeoutId);
     }
@@ -192,7 +193,7 @@ export default function BotCreationDialog({ open, onOpenChange, editBot }: BotCr
           <DialogTitle>{isEditMode ? "Edit bot credentials" : "Add a new bot"}</DialogTitle>
           <DialogDescription>
             {isEditMode 
-              ? "Update your bot's credentials. Leave fields empty to keep current values."
+              ? "Update your bot's credentials. Only change the fields you want to update."
               : "Connect a Discord or Telegram bot to start creating conversational interfaces."
             }
           </DialogDescription>
@@ -243,6 +244,14 @@ export default function BotCreationDialog({ open, onOpenChange, editBot }: BotCr
               />
             )}
             
+            {isEditMode && (
+              <div className="p-3 bg-gray-50 rounded-md">
+                <p className="text-sm text-gray-600">
+                  <strong>Platform:</strong> {editBot.platformType.charAt(0).toUpperCase() + editBot.platformType.slice(1)}
+                </p>
+              </div>
+            )}
+            
             <FormField
               control={form.control}
               name="token"
@@ -254,7 +263,7 @@ export default function BotCreationDialog({ open, onOpenChange, editBot }: BotCr
                   <FormControl>
                     <div className="relative">
                     <Input 
-                      placeholder={isEditMode ? "Enter new token to update" : "Enter your bot token"} 
+                      placeholder={isEditMode ? "Enter new token to update (leave empty to keep current)" : "Enter your bot token"} 
                       type="password"
                       {...field} 
                         onChange={(e) => {
@@ -262,7 +271,7 @@ export default function BotCreationDialog({ open, onOpenChange, editBot }: BotCr
                           handleTokenChange(e.target.value);
                         }}
                       />
-                      {(form.watch("platformType") === "discord" || editBot?.platformType === "discord") && field.value && (
+                      {((form.watch("platformType") === "discord") || (editBot?.platformType === "discord")) && field.value && (
                         <div className="absolute inset-y-0 right-0 flex items-center pr-3">
                           {tokenValidation.isValidating ? (
                             <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
@@ -290,7 +299,7 @@ export default function BotCreationDialog({ open, onOpenChange, editBot }: BotCr
               )}
             />
             
-            {(form.watch("platformType") === "discord" || editBot?.platformType === "discord") && !isEditMode && (
+            {((form.watch("platformType") === "discord") || (editBot?.platformType === "discord")) && !isEditMode && (
               <div className="text-sm text-gray-600 bg-blue-50 p-3 rounded-md">
                 <p className="font-medium mb-1">📖 How to get your Discord bot token:</p>
                 <ol className="list-decimal list-inside space-y-1">
@@ -303,7 +312,7 @@ export default function BotCreationDialog({ open, onOpenChange, editBot }: BotCr
               </div>
             )}
             
-            {(form.watch("platformType") === "discord" || editBot?.platformType === "discord") && !isEditMode && (
+            {((form.watch("platformType") === "discord") || (editBot?.platformType === "discord")) && !isEditMode && (
               <FormField
                 control={form.control}
                 name="clientId"
