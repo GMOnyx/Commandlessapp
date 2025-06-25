@@ -677,6 +677,38 @@ app.get('/api/discord', (req, res) => {
   }
 });
 
+// Activities API endpoint for dashboard
+app.get('/api/activities', async (req, res) => {
+  try {
+    const userIdToUse = "user_2yMTRvIng7ljDfRRUlXFvQkWSb5";
+
+    const { data: activities, error } = await supabase
+      .from('activities')
+      .select('*')
+      .eq('user_id', userIdToUse)
+      .order('created_at', { ascending: false })
+      .limit(20);
+
+    if (error) {
+      console.error('Supabase error:', error);
+      return res.status(500).json({ error: 'Failed to fetch activities' });
+    }
+
+    const formattedActivities = activities.map(activity => ({
+      id: activity.id,
+      activityType: activity.activity_type,
+      description: activity.description,
+      metadata: activity.metadata,
+      createdAt: activity.created_at
+    }));
+
+    res.json(formattedActivities);
+  } catch (error) {
+    console.error('Error fetching activities:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Start server
 console.log('✅ Configuration validated successfully');
 
