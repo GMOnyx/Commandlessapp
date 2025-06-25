@@ -1,12 +1,25 @@
 import { QueryClient } from "@tanstack/react-query";
 
+// Railway backend URL for bot operations
+const RAILWAY_API_URL = 'https://commandless-app-production.up.railway.app';
+
 // New universal base-URL resolver
-function getApiBaseUrl(): string {
+function getApiBaseUrl(endpoint?: string): string {
   // 1. If a build-time env var is set (e.g. VITE_API_BASE_URL) use it
   const envUrl = import.meta.env.VITE_API_BASE_URL as string | undefined;
   if (envUrl) return envUrl.replace(/\/+$/, '');
   
-  // 2. Else default to same-origin (works on Vercel prod / preview / localhost)
+  // 2. For bot operations, use Railway backend
+  if (endpoint && (
+    endpoint.includes('/api/bots') || 
+    endpoint.includes('/api/discord') ||
+    endpoint.includes('/api/commands') ||
+    endpoint.includes('/api/mappings')
+  )) {
+    return RAILWAY_API_URL;
+  }
+  
+  // 3. Else default to same-origin (works on Vercel prod / preview / localhost)
   return window.location.origin;
 }
 
@@ -14,12 +27,14 @@ export const API_BASE_URL = getApiBaseUrl();
 
 // API request function that includes authentication
 export async function apiRequest(endpoint: string, options: RequestInit = {}) {
-  const url = `${API_BASE_URL}${endpoint}`;
+  const baseUrl = getApiBaseUrl(endpoint);
+  const url = `${baseUrl}${endpoint}`;
 
   // Get the auth token directly from Clerk
   let token: string | null = null;
   
   console.log('🔍 apiRequest called for:', endpoint);
+  console.log('🔗 Using base URL:', baseUrl);
   
   // Try to get token from Clerk directly
   try {
@@ -45,7 +60,7 @@ export async function apiRequest(endpoint: string, options: RequestInit = {}) {
     },
   };
 
-  console.log(`Making API request to ${endpoint}`, { hasToken: !!token });
+  console.log(`Making API request to ${endpoint}`, { hasToken: !!token, baseUrl });
 
   const response = await fetch(url, config);
 
