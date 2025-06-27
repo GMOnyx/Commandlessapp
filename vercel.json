@@ -5,6 +5,10 @@
       "dest": "/api/$1"
     },
     {
+      "src": "/(sign-in|sign-up|dashboard|mappings|connections)",
+      "dest": "/index.html"
+    },
+    {
       "src": "/(.*)",
       "dest": "/index.html"
     }
@@ -27,5 +31,8 @@
         }
       ]
     }
-  ]
+  ],
+  "env": {
+    "VITE_CLERK_PUBLISHABLE_KEY": "pk_live_Y2xlcmsuY29tbWFuZGxlc3MuYXBwJA"
+  }
 } 
