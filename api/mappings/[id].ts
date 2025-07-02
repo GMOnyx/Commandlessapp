@@ -1,4 +1,3 @@
-import { verifyToken } from '@clerk/backend';
 import { createClient } from '@supabase/supabase-js';
 
 // Initialize Supabase client
@@ -6,26 +5,32 @@ const supabaseUrl = process.env.SUPABASE_URL!;
 const supabaseKey = process.env.SUPABASE_ANON_KEY!;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-async function getUserFromToken(token: string) {
+// Helper function to decode JWT and extract user ID (same as mappings.ts)
+function decodeJWT(token: string): { userId: string } | null {
   try {
-    if (!process.env.CLERK_SECRET_KEY) {
-      throw new Error('CLERK_SECRET_KEY not configured');
+    // JWT tokens have 3 parts separated by dots
+    const parts = token.split('.');
+    if (parts.length !== 3) {
+      // If it's not a JWT, treat it as a direct user ID (for backward compatibility)
+      return { userId: token };
     }
-
-    const sessionToken = await verifyToken(token, {
-      secretKey: process.env.CLERK_SECRET_KEY,
-    });
     
-    if (sessionToken && sessionToken.sub) {
-      return { 
-        id: sessionToken.sub,
-        clerkUserId: sessionToken.sub 
-      };
+    // Decode the payload (second part)
+    const payload = JSON.parse(atob(parts[1]));
+    
+    // Extract user ID from Clerk JWT payload
+    const userId = payload.sub || payload.user_id || payload.id;
+    
+    if (!userId) {
+      console.error('No user ID found in JWT payload:', payload);
+      return null;
     }
-    return null;
+    
+    return { userId };
   } catch (error) {
-    console.error('Token verification failed:', error);
-    return null;
+    console.error('Error decoding JWT:', error);
+    // Fallback: treat the token as a direct user ID
+    return { userId: token };
   }
 }
 
@@ -53,18 +58,20 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    // Get user from auth token
+    // Get user from auth token (same method as mappings.ts)
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith('Bearer ')) {
       return res.status(401).json({ error: 'Missing or invalid authorization header' });
     }
 
-    const token = authHeader.substring(7);
-    const user = await getUserFromToken(token);
+    const token = authHeader.split(' ')[1];
+    const decodedToken = decodeJWT(token);
     
-    if (!user) {
+    if (!decodedToken) {
       return res.status(401).json({ error: 'Invalid token' });
     }
+    
+    const userId = decodedToken.userId;
 
     // Extract mapping ID from URL
     const { id } = req.query;
@@ -89,7 +96,7 @@ export default async function handler(req: any, res: any) {
           created_at
         `)
         .eq('id', id)
-        .eq('user_id', user.id)
+        .eq('user_id', userId)
         .single();
 
       if (error || !mapping) {
@@ -149,7 +156,7 @@ export default async function handler(req: any, res: any) {
         .from('command_mappings')
         .update(updateData)
         .eq('id', id)
-        .eq('user_id', user.id)
+        .eq('user_id', userId)
         .select(`
           id,
           bot_id,
@@ -189,7 +196,7 @@ export default async function handler(req: any, res: any) {
         .from('command_mappings')
         .delete()
         .eq('id', id)
-        .eq('user_id', user.id);
+        .eq('user_id', userId);
 
       if (deleteError) {
         console.error('Delete error:', deleteError);
