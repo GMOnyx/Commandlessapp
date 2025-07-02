@@ -3,7 +3,6 @@ import { useState } from "react";
 import { Bot, CommandMapping } from "@shared/schema";
 import ConnectionCard from "@/components/ConnectionCard";
 import CommandMappingItem from "@/components/CommandMappingItem";
-import ActivityFeed from "@/components/ActivityFeed";
 import CommandMappingBuilder from "@/components/CommandMappingBuilder";
 import { Button } from "@/components/ui/button";
 import { PlusIcon, BotIcon, CheckCircleIcon, XCircleIcon, SparklesIcon, WandIcon } from "lucide-react";
@@ -174,14 +173,6 @@ export default function Dashboard() {
             </div>
           </div>
         )}
-      </div>
-      
-      {/* Recent Activity */}
-      <div>
-        <h2 className="text-lg font-medium text-gray-900 mb-4">Recent Activity</h2>
-        <div className="bg-white shadow-sm rounded-lg border border-gray-100">
-          <ActivityFeed />
-        </div>
       </div>
     </div>
   );

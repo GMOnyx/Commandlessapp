@@ -30,6 +30,9 @@ export default function CommandMappingDetail() {
   const [, navigate] = useLocation();
   const [showEditModal, setShowEditModal] = useState(false);
   
+  // Debug logging
+  console.log('CommandMappingDetail - ID from params:', id);
+  
   // Edit form state
   const [editForm, setEditForm] = useState({
     name: "",
@@ -48,6 +51,15 @@ export default function CommandMappingDetail() {
   } = useQuery<CommandMapping>({
     queryKey: [`/api/mappings/${id}`],
     enabled: !!id,
+  });
+  
+  // Debug logging
+  console.log('CommandMappingDetail - Query state:', {
+    mapping,
+    isLoadingMapping,
+    mappingError,
+    queryKey: `/api/mappings/${id}`,
+    enabled: !!id
   });
   
   // Fetch bots to get bot details

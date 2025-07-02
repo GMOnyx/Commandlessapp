@@ -68,22 +68,6 @@ export const insertCommandMappingSchema = createInsertSchema(commandMappings).pi
   status: true,
 });
 
-export const activities = pgTable("activities", {
-  id: text("id").primaryKey(),
-  userId: text("user_id").notNull(),
-  activityType: text("activity_type").notNull(), // 'command_used', 'command_created', 'bot_connected', etc.
-  description: text("description").notNull(),
-  metadata: jsonb("metadata"),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-export const insertActivitySchema = createInsertSchema(activities).pick({
-  userId: true,
-  activityType: true,
-  description: true,
-  metadata: true,
-});
-
 // Type definitions
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -94,6 +78,3 @@ export type InsertBot = z.infer<typeof insertBotSchema>;
 
 export type CommandMapping = typeof commandMappings.$inferSelect;
 export type InsertCommandMapping = z.infer<typeof insertCommandMappingSchema>;
-
-export type Activity = typeof activities.$inferSelect;
-export type InsertActivity = z.infer<typeof insertActivitySchema>;

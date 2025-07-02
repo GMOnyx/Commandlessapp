@@ -45,7 +45,7 @@ export const insertCommandMappingSchema = z.object({
   bot_id: z.string(),
   command_name: z.string().min(1),
   description: z.string().optional(),
-  action_type: z.enum(["moderation", "utility", "fun", "info", "custom"]),
+  action_type: z.enum(["moderation", "utility", "fun", "info" , "custom"]),
   parameters: z.record(z.any()).optional(),
   response_template: z.string().optional(),
   user_id: z.string(),
@@ -61,22 +61,5 @@ export type CommandMapping = {
   responseTemplate?: string;
   userId: string;
   usageCount: number;
-  createdAt: string;
-};
-
-// Activity schemas
-export const insertActivitySchema = z.object({
-  user_id: z.string(),
-  activity_type: z.string(),
-  description: z.string(),
-  metadata: z.record(z.any()).optional(),
-});
-
-export type Activity = {
-  id: string;
-  userId: string;
-  activityType: string;
-  description: string;
-  metadata?: Record<string, any>;
   createdAt: string;
 }; 
