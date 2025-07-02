@@ -412,6 +412,44 @@ async function processDiscordMessageWithAI(message, guildId, channelId, userId, 
       };
     }
 
+    // **CRITICAL PREPROCESSING**: Check for conversational input BEFORE AI
+    // This matches the sophisticated local TypeScript system
+    if (isConversationalInput(cleanMessage)) {
+      console.log(`🎯 CONVERSATIONAL INPUT DETECTED: "${cleanMessage}" - Bypassing aggressive AI`);
+      
+      // Return appropriate conversational response based on input
+      const lowerMessage = cleanMessage.toLowerCase();
+      
+      if (lowerMessage.includes('wassup') || lowerMessage.includes('what\'s up') || lowerMessage.includes('whats up')) {
+        return {
+          processed: true,
+          conversationalResponse: "Hey! Not much, just chillin' and ready to help out. What's going on with you? 😎"
+        };
+      } else if (lowerMessage.includes('how') && (lowerMessage.includes('going') || lowerMessage.includes('doing'))) {
+        return {
+          processed: true,
+          conversationalResponse: "I'm doing great! Running smooth and ready for action. How about you? Need help with anything? 🚀"
+        };
+      } else if (lowerMessage.includes('hello') || lowerMessage.includes('hi') || lowerMessage.includes('hey')) {
+        return {
+          processed: true,
+          conversationalResponse: "Hello! I'm your AI Discord bot. You can give me natural language commands and I'll execute them intelligently."
+        };
+      } else if (lowerMessage.includes('help')) {
+        const commandNames = commands.map(cmd => cmd.name).slice(0, 5);
+        return {
+          processed: true,
+          conversationalResponse: `I can help with these commands: ${commandNames.join(', ')}. Try using natural language like "execute ${commandNames[0]}" or just mention the command name!`
+        };
+      } else {
+        // Default conversational response for other patterns
+        return {
+          processed: true,
+          conversationalResponse: "Hey! What's up? I'm here and ready to help with whatever you need!"
+        };
+      }
+    }
+
     // **EXACT LOCAL IMPLEMENTATION**: Check for help requests BEFORE AI processing
     const lowerMessage = cleanMessage.toLowerCase();
     if (lowerMessage.includes('help') || lowerMessage.includes('what can you do') || lowerMessage.includes('commands')) {
@@ -505,22 +543,6 @@ async function processDiscordMessageWithAI(message, guildId, channelId, userId, 
         .from('command_mappings')
         .update({ usage_count: (command.usage_count || 0) + 1 })
         .eq('id', command.id);
-      
-      // Log activity
-      await supabase
-        .from('activities')
-        .insert({
-          user_id: userIdToUse,
-          activity_type: 'command_used',
-          description: `Command mapping '${command.name}' was used via Discord`,
-          metadata: {
-            guildId,
-            channelId,
-            discordUserId: userId,
-            userMessage: cleanMessage,
-            commandOutput: outputCommand
-          }
-        });
       
       return {
         processed: true,
@@ -674,38 +696,6 @@ app.get('/api/discord', (req, res) => {
       processed: false,
       reason: 'Unknown action'
     });
-  }
-});
-
-// Activities API endpoint for dashboard
-app.get('/api/activities', async (req, res) => {
-  try {
-    const userIdToUse = "user_2yMTRvIng7ljDfRRUlXFvQkWSb5";
-
-    const { data: activities, error } = await supabase
-      .from('activities')
-      .select('*')
-      .eq('user_id', userIdToUse)
-      .order('created_at', { ascending: false })
-      .limit(20);
-
-    if (error) {
-      console.error('Supabase error:', error);
-      return res.status(500).json({ error: 'Failed to fetch activities' });
-    }
-
-    const formattedActivities = activities.map(activity => ({
-      id: activity.id,
-      activityType: activity.activity_type,
-      description: activity.description,
-      metadata: activity.metadata,
-      createdAt: activity.created_at
-    }));
-
-    res.json(formattedActivities);
-  } catch (error) {
-    console.error('Error fetching activities:', error);
-    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
