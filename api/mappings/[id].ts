@@ -80,33 +80,30 @@ export default async function handler(req: any, res: any) {
       return res.status(400).json({ error: 'Mapping ID is required' });
     }
 
+    console.log('🔍 Dynamic route handler:', {
+      method: req.method,
+      mappingId: id,
+      userId: userId
+    });
+
     if (req.method === 'GET') {
       // Get specific mapping
       const { data: mapping, error } = await supabase
         .from('command_mappings')
-        .select(`
-          id,
-          bot_id,
-          name,
-          natural_language_pattern,
-          command_output,
-          personality_context,
-          status,
-          usage_count,
-          created_at
-        `)
+        .select('id, bot_id, name, natural_language_pattern, command_output, status, usage_count, created_at')
         .eq('id', id)
         .eq('user_id', userId)
         .single();
 
       if (error || !mapping) {
+        console.log('🔍 Mapping not found:', { error, mappingId: id, userId });
         return res.status(404).json({ error: 'Mapping not found' });
       }
 
-      // Get bot information separately
+      // Get bot information separately (including personality_context)
       const { data: bot } = await supabase
         .from('bots')
-        .select('id, bot_name, platform_type')
+        .select('id, bot_name, platform_type, personality_context')
         .eq('id', mapping.bot_id)
         .single();
 
@@ -116,7 +113,7 @@ export default async function handler(req: any, res: any) {
         name: mapping.name,
         naturalLanguagePattern: mapping.natural_language_pattern,
         commandOutput: mapping.command_output,
-        personalityContext: mapping.personality_context,
+        personalityContext: bot?.personality_context || null,
         status: mapping.status,
         usageCount: mapping.usage_count,
         createdAt: mapping.created_at,
@@ -131,12 +128,13 @@ export default async function handler(req: any, res: any) {
     }
 
     if (req.method === 'PUT') {
+      console.log('🔍 PUT request body:', req.body);
+      
       // Update mapping
       const { 
         name,
         naturalLanguagePattern,
         commandOutput,
-        personalityContext,
         status 
       } = req.body;
 
@@ -145,8 +143,9 @@ export default async function handler(req: any, res: any) {
       if (name !== undefined) updateData.name = name;
       if (naturalLanguagePattern !== undefined) updateData.natural_language_pattern = naturalLanguagePattern;
       if (commandOutput !== undefined) updateData.command_output = commandOutput;
-      if (personalityContext !== undefined) updateData.personality_context = personalityContext;
       if (status !== undefined) updateData.status = status;
+
+      console.log('🔍 Update data prepared:', updateData);
 
       if (Object.keys(updateData).length === 0) {
         return res.status(400).json({ error: 'No fields to update' });
@@ -157,23 +156,15 @@ export default async function handler(req: any, res: any) {
         .update(updateData)
         .eq('id', id)
         .eq('user_id', userId)
-        .select(`
-          id,
-          bot_id,
-          name,
-          natural_language_pattern,
-          command_output,
-          personality_context,
-          status,
-          usage_count,
-          created_at
-        `)
+        .select('id, bot_id, name, natural_language_pattern, command_output, status, usage_count, created_at')
         .single();
 
       if (updateError || !updatedMapping) {
-        console.error('Update error:', updateError);
+        console.error('�� Update error:', updateError);
         return res.status(404).json({ error: 'Failed to update mapping or mapping not found' });
       }
+
+      console.log('🔍 Update successful:', updatedMapping.id);
 
       const response = {
         id: updatedMapping.id,
@@ -181,7 +172,6 @@ export default async function handler(req: any, res: any) {
         name: updatedMapping.name,
         naturalLanguagePattern: updatedMapping.natural_language_pattern,
         commandOutput: updatedMapping.command_output,
-        personalityContext: updatedMapping.personality_context,
         status: updatedMapping.status,
         usageCount: updatedMapping.usage_count,
         createdAt: updatedMapping.created_at
@@ -211,4 +201,4 @@ export default async function handler(req: any, res: any) {
     console.error('Mapping detail API error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
-} 
+}

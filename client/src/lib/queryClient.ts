@@ -34,17 +34,22 @@ export const API_BASE_URL = getApiBaseUrl();
 export const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
   const token = await getAuthToken();
   
+  // Build the full URL
+  const fullUrl = endpoint.startsWith('http') ? endpoint : `${API_BASE_URL}${endpoint}`;
+  
   // Debug logging for command mapping requests
   if (endpoint.includes('/mappings/')) {
     console.log('🔍 API Request Debug:', {
       endpoint,
+      fullUrl,
+      API_BASE_URL,
       hasToken: !!token,
       tokenLength: token?.length,
       options
     });
   }
   
-  const response = await fetch(endpoint, {
+  const response = await fetch(fullUrl, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -57,10 +62,21 @@ export const apiRequest = async (endpoint: string, options: RequestInit = {}) =>
   if (endpoint.includes('/mappings/')) {
     console.log('🔍 API Response Debug:', {
       endpoint,
+      fullUrl,
       status: response.status,
       statusText: response.statusText,
-      ok: response.ok
+      ok: response.ok,
+      contentType: response.headers.get('content-type'),
+      headers: Object.fromEntries(response.headers.entries())
     });
+    
+    // If we get HTML instead of JSON, log the response body
+    if (response.headers.get('content-type')?.includes('text/html')) {
+      const clonedResponse = response.clone();
+      clonedResponse.text().then(html => {
+        console.log('🔍 HTML Response (first 500 chars):', html.substring(0, 500));
+      });
+    }
   }
 
   if (!response.ok) {
@@ -78,7 +94,17 @@ export const apiRequest = async (endpoint: string, options: RequestInit = {}) =>
 // Default query function for React Query
 const defaultQueryFn = async ({ queryKey }: { queryKey: readonly unknown[] }) => {
   const [url] = queryKey as [string];
-  const response = await apiRequest(url);
+  
+  // Convert dynamic route URLs to query parameter format for mappings
+  let actualUrl = url;
+  const mappingDetailMatch = url.match(/^\/api\/mappings\/(\d+)$/);
+  if (mappingDetailMatch) {
+    const mappingId = mappingDetailMatch[1];
+    actualUrl = `/api/mappings?id=${mappingId}`;
+    console.log('🔄 Converting dynamic route to query param:', { original: url, converted: actualUrl });
+  }
+  
+  const response = await apiRequest(actualUrl);
   return response.json();
 };
 
