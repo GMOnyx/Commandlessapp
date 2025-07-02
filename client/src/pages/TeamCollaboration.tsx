@@ -162,49 +162,6 @@ const projects = [
   }
 ];
 
-const recentActivity = [
-  {
-    id: 1,
-    user: "user1",
-    action: "completed task",
-    target: "Campaign strategy document",
-    project: "Q3 Marketing Campaign",
-    timestamp: "2 hours ago"
-  },
-  {
-    id: 2,
-    user: "user3",
-    action: "commented on",
-    target: "Content creation",
-    project: "Q3 Marketing Campaign",
-    timestamp: "4 hours ago"
-  },
-  {
-    id: 3,
-    user: "user2",
-    action: "uploaded file",
-    target: "Website wireframes v2.pdf",
-    project: "Website Redesign",
-    timestamp: "Yesterday at 3:45 PM"
-  },
-  {
-    id: 4,
-    user: "user5",
-    action: "created task",
-    target: "Social media calendar",
-    project: "Q3 Marketing Campaign",
-    timestamp: "Yesterday at 11:30 AM"
-  },
-  {
-    id: 5,
-    user: "user4",
-    action: "updated status",
-    target: "Design mockups",
-    project: "Website Redesign",
-    timestamp: "2 days ago"
-  }
-];
-
 export default function TeamCollaboration() {
   const [activeTab, setActiveTab] = useState("projects");
   const [searchTerm, setSearchTerm] = useState("");
