@@ -1,5 +1,23 @@
 import { QueryClient } from "@tanstack/react-query";
 
+// Get auth token from Clerk
+async function getAuthToken(): Promise<string | null> {
+  try {
+    // Check if Clerk is available on window
+    const clerk = (window as any)?.Clerk;
+    
+    if (clerk && clerk.session) {
+      const token = await clerk.session.getToken();
+      return token;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error("Failed to get auth token from Clerk:", error);
+    return null;
+  }
+}
+
 // New universal base-URL resolver
 function getApiBaseUrl(endpoint?: string): string {
   // 1. If a build-time env var is set (e.g. VITE_API_BASE_URL) use it
@@ -13,59 +31,55 @@ function getApiBaseUrl(endpoint?: string): string {
 export const API_BASE_URL = getApiBaseUrl();
 
 // API request function that includes authentication
-export async function apiRequest(endpoint: string, options: RequestInit = {}) {
-  const baseUrl = getApiBaseUrl(endpoint);
-  const url = `${baseUrl}${endpoint}`;
-
-  // Get the auth token directly from Clerk
-  let token: string | null = null;
+export const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
+  const token = await getAuthToken();
   
-  console.log('🔍 apiRequest called for:', endpoint);
-  console.log('🔗 Using base URL:', baseUrl);
-  
-  // Try to get token from Clerk directly
-  try {
-    // Check if Clerk is available on window (it should be after Clerk loads)
-    const clerk = (window as any)?.Clerk;
-    
-    if (clerk && clerk.session) {
-      token = await clerk.session.getToken();
-      console.log('🔑 Got token from Clerk session:', token ? 'Token exists' : 'No token');
-    } else {
-      console.log('❌ No Clerk session available');
-    }
-  } catch (error) {
-    console.error("Failed to get auth token from Clerk:", error);
+  // Debug logging for command mapping requests
+  if (endpoint.includes('/mappings/')) {
+    console.log('🔍 API Request Debug:', {
+      endpoint,
+      hasToken: !!token,
+      tokenLength: token?.length,
+      options
+    });
   }
-
-  const config: RequestInit = {
+  
+  const response = await fetch(endpoint, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
       ...(token && { Authorization: `Bearer ${token}` }),
       ...options.headers,
     },
-  };
+  });
 
-  console.log(`Making API request to ${endpoint}`, { hasToken: !!token, baseUrl, method: options.method });
-
-  const response = await fetch(url, config);
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error(`API Error ${response.status}:`, errorText);
-    throw new Error(`HTTP ${response.status}: ${errorText}`);
+  // Debug logging for command mapping responses
+  if (endpoint.includes('/mappings/')) {
+    console.log('🔍 API Response Debug:', {
+      endpoint,
+      status: response.status,
+      statusText: response.statusText,
+      ok: response.ok
+    });
   }
 
-  const data = await response.json();
-  console.log(`API response from ${endpoint}:`, data);
-  return data;
-}
+  if (!response.ok) {
+    if (endpoint.includes('/mappings/')) {
+      const errorText = await response.text();
+      console.log('🔍 API Error Response:', errorText);
+      throw new Error(`API request failed: ${response.status} ${response.statusText} - ${errorText}`);
+    }
+    throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+  }
+
+  return response;
+};
 
 // Default query function for React Query
 const defaultQueryFn = async ({ queryKey }: { queryKey: readonly unknown[] }) => {
   const [url] = queryKey as [string];
-  return apiRequest(url);
+  const response = await apiRequest(url);
+  return response.json();
 };
 
 // Create the query client with our custom default query function
