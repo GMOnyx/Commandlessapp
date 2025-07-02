@@ -3,7 +3,6 @@ import Layout from "@/components/Layout";
 import Dashboard from "@/pages/Dashboard";
 import Login from "@/pages/Login";
 import SignUp from "@/pages/SignUp";
-import Landing from "@/pages/Landing";
 import CommandMappings from "@/pages/CommandMappings";
 import CommandMappingDetail from "@/pages/CommandMappingDetail";
 import BotConnections from "@/pages/BotConnections";
@@ -98,20 +97,11 @@ function AppContent() {
         <Route path="/sign-up">
           <SignUp />
         </Route>
-        <Route>
-          <Redirect to="/" />
-        </Route>
         <Route path="/sign-in">
           <Login />
         </Route>
         <Route>
-          <Redirect to="/" />
-        </Route>
-        <Route path="/">
-          <Landing />
-        </Route>
-        <Route>
-          <Redirect to="/" />
+          <Redirect to="/sign-in" />
         </Route>
       </Switch>
     );
