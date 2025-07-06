@@ -6,7 +6,7 @@ import express from 'express';
 // Configuration
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
-const COMMANDLESS_API_URL = process.env.COMMANDLESS_API_URL || 'https://commandless-app-production.up.railway.app';
+const COMMANDLESS_API_URL = process.env.COMMANDLESS_API_URL || 'https://commandless.app';
 const CHECK_INTERVAL = 30000; // Check for new bots every 30 seconds
 
 console.log('🚀 Starting Universal Discord Relay Service');
@@ -181,7 +181,7 @@ async function createDiscordClient(bot) {
         await message.channel.sendTyping();
 
         // Send to Commandless AI API
-        const response = await fetch(`${COMMANDLESS_API_URL}/api/discord?action=process-message`, {
+        const response = await fetch(`${COMMANDLESS_API_URL}/api/discord`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(messageData)
@@ -192,549 +192,171 @@ async function createDiscordClient(bot) {
         if (result.processed && result.response) {
           console.log(`🤖 [${bot.bot_name}] AI Response: ${result.response}`);
           
-          // Check if this is a command that needs execution
-          const isCommandExecution = result.response.startsWith('Command executed:');
+          const botMessage = await message.reply(result.response);
           
-          if (isCommandExecution) {
-            console.log(`⚡ [${bot.bot_name}] Executing Discord command: ${result.response}`);
-            
-            // Execute the actual Discord command
-            const executionResult = await executeDiscordCommand(result.response, message);
-            
-            if (executionResult.success) {
-              // Send the execution result if there's a response
-              if (executionResult.response) {
-                const botMessage = await message.reply(executionResult.response);
-                
-                // Track bot message for reply detection
-                if (botMessage) {
-                  botMessageIds.add(botMessage.id);
-                  messageContextManager.addMessage(
-                    message.channelId,
-                    botMessage.id,
-                    executionResult.response,
-                    client.user.tag,
-                    true
-                  );
-                }
-              }
-              
-              console.log(`✅ [${bot.bot_name}] Command executed successfully`);
-            } else {
-              // Send error message
-              const errorMessage = await message.reply(executionResult.response);
-              
-              // Track bot message for reply detection
-              if (errorMessage) {
-                botMessageIds.add(errorMessage.id);
-                messageContextManager.addMessage(
-                  message.channelId,
-                  errorMessage.id,
-                  executionResult.response,
-                  client.user.tag,
-                  true
-                );
-              }
-              
-              console.log(`❌ [${bot.bot_name}] Command execution failed: ${executionResult.response}`);
-            }
-          } else {
-            // This is a regular conversational response
-            const botMessage = await message.reply(result.response);
-            
-            // Track bot message for reply detection
-            if (botMessage) {
-              botMessageIds.add(botMessage.id);
-              messageContextManager.addMessage(
-                message.channelId,
-                botMessage.id,
-                result.response,
-                client.user.tag,
-                true
-              );
-            }
-          }
-          
-          // Clean up old message IDs (keep last 1000)
-          if (botMessageIds.size > 1000) {
-            const oldestIds = Array.from(botMessageIds).slice(0, botMessageIds.size - 1000);
-            oldestIds.forEach(id => botMessageIds.delete(id));
+          // Track bot message for reply detection
+          if (botMessage) {
+            botMessageIds.add(botMessage.id);
+            messageContextManager.addMessage(
+              message.channelId,
+              botMessage.id,
+              result.response,
+              client.user.tag,
+              true
+            );
           }
 
-          if (result.execution) {
-            console.log(`⚡ [${bot.bot_name}] Command executed: ${result.execution.success ? 'Success' : 'Failed'}`);
-            if (result.execution.error) {
-              console.log(`❌ [${bot.bot_name}] Error: ${result.execution.error}`);
-            }
-          }
         } else {
-          console.log(`⏭️ [${bot.bot_name}] Not processed: ${result.reason || 'Unknown reason'}`);
+          console.error(`❌ [${bot.bot_name}] AI API call failed or returned no response:`, result);
         }
-
       } catch (error) {
-        console.error(`❌ [${bot.bot_name}] Error processing message:`, error);
+        console.error(`❌ [${bot.bot_name}] Error handling message:`, error);
+        
         try {
-          await message.reply('Sorry, I encountered an error. Please try again.');
+          // Attempt to send a generic error message
+          await message.reply("Sorry, I encountered an error while processing your request. Please try again later.");
         } catch (replyError) {
           console.error(`❌ [${bot.bot_name}] Failed to send error reply:`, replyError);
         }
       }
     });
 
-    // Error handling
-    client.on(Events.Error, (error) => {
-      console.error(`❌ [${bot.bot_name}] Discord client error:`, error);
-    });
-
-    // Login to Discord
-    await client.login(bot.token);
-    
-    return { client, botInfo: bot };
-    
+    return client;
   } catch (error) {
-    console.error(`❌ Failed to create client for ${bot.bot_name}:`, error);
+    console.error(`❌ Exception creating Discord client for ${bot.bot_name}:`, error);
     return null;
   }
 }
 
-// Start a bot client
+// Start a bot
 async function startBot(bot) {
-  try {
-    // Check if bot is already running
-    if (activeClients.has(bot.token)) {
-      console.log(`⚠️ Bot ${bot.bot_name} is already running`);
-      return true;
-    }
+  if (!bot || !bot.token) {
+    console.error('❌ Cannot start bot without token:', bot.bot_name);
+    return;
+  }
 
-    const clientData = await createDiscordClient(bot);
-    if (clientData) {
-      activeClients.set(bot.token, clientData);
-      console.log(`✅ Started bot: ${bot.bot_name} for user ${bot.user_id}`);
-      return true;
+  // If client already exists, do nothing
+  if (activeClients.has(bot.token)) return;
+
+  const client = await createDiscordClient(bot);
+  if (client) {
+    try {
+      await client.login(bot.token);
+      activeClients.set(bot.token, { client, botInfo: bot });
+    } catch (error) {
+      console.error(`❌ Failed to login for ${bot.bot_name}:`, error);
+      // Clean up failed client
+      if (client.readyTimestamp) {
+        await client.destroy();
+      }
     }
-    
-    return false;
-    
-  } catch (error) {
-    console.error(`❌ Failed to start bot ${bot.bot_name}:`, error);
-    return false;
   }
 }
 
-// Stop a bot client
+// Stop a bot
 async function stopBot(token) {
-  try {
-    const clientData = activeClients.get(token);
-    if (clientData) {
-      await clientData.client.destroy();
-      activeClients.delete(token);
-      console.log(`🛑 Stopped bot: ${clientData.botInfo.bot_name}`);
-      return true;
-    }
-    return false;
-  } catch (error) {
-    console.error(`❌ Failed to stop bot:`, error);
-    return false;
+  const clientData = activeClients.get(token);
+  if (clientData) {
+    console.log(`🔌 Stopping bot: ${clientData.botInfo.bot_name}`);
+    await clientData.client.destroy();
+    activeClients.delete(token);
   }
 }
 
 // Sync bots with database
 async function syncBots() {
-  try {
-    const connectedBots = await loadConnectedBots();
-    const currentTokens = new Set(activeClients.keys());
-    const shouldBeRunning = new Set(connectedBots.map(bot => bot.token));
+  console.log('🔄 Syncing bots with database...');
+  const connectedBots = await loadConnectedBots();
+  const connectedTokens = new Set(connectedBots.map(bot => bot.token));
+  const activeTokens = new Set(activeClients.keys());
 
-    // Start new bots
-    for (const bot of connectedBots) {
-      if (!currentTokens.has(bot.token)) {
-        console.log(`🆕 Starting new bot: ${bot.bot_name}`);
-        await startBot(bot);
-      }
+  // Start new bots
+  for (const bot of connectedBots) {
+    if (!activeTokens.has(bot.token)) {
+      await startBot(bot);
     }
-
-    // Stop removed bots
-    for (const token of currentTokens) {
-      if (!shouldBeRunning.has(token)) {
-        console.log(`🗑️ Stopping removed bot`);
-        await stopBot(token);
-      }
-    }
-
-    console.log(`🔄 Sync complete. Running bots: ${activeClients.size}`);
-    
-  } catch (error) {
-    console.error('❌ Error during bot sync:', error);
   }
+
+  // Stop disconnected bots
+  for (const token of activeTokens) {
+    if (!connectedTokens.has(token)) {
+      await stopBot(token);
+    }
+  }
+
+  console.log(`✨ Sync complete. Running bots: ${activeClients.size}`);
 }
 
-// Health check endpoint (for Railway)
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'healthy',
-    activeBots: activeClients.size,
-    uptime: process.uptime(),
-    timestamp: new Date().toISOString()
-  });
-});
-
-app.get('/status', (req, res) => {
-  const botStatus = Array.from(activeClients.values()).map(({ botInfo, client }) => ({
-    botName: botInfo.bot_name,
-    userId: botInfo.user_id,
-    isReady: client.readyAt !== null,
-    guilds: client.guilds.cache.size
-  }));
-
-  res.json({
-    totalBots: activeClients.size,
-    bots: botStatus,
-    uptime: process.uptime()
-  });
-});
-
-app.listen(PORT, () => {
-  console.log(`🌐 Health check server running on port ${PORT}`);
-});
-
-// Main startup
+// Main function
 async function main() {
-  console.log('🚀 Universal Discord Relay Service starting...');
-  
-  // Initial bot sync
-  await syncBots();
-  
-  // Periodic sync for new/removed bots
-  setInterval(syncBots, CHECK_INTERVAL);
-  
-  console.log('✅ Universal Discord Relay Service is running');
-  console.log(`🔄 Checking for bot changes every ${CHECK_INTERVAL / 1000} seconds`);
+  try {
+    // Initial sync
+    await syncBots();
+
+    // Periodically sync bots
+    setInterval(syncBots, CHECK_INTERVAL);
+
+    console.log('✅ Universal Relay Service is fully operational');
+  } catch (error) {
+    console.error('❌ A critical error occurred in the main function:', error);
+    process.exit(1);
+  }
 }
 
 // Graceful shutdown
-process.on('SIGINT', async () => {
-  console.log('🛑 Shutting down gracefully...');
-  
-  // Stop all bots
+process.on('SIGTERM', async () => {
+  console.log('🔌 SIGTERM received, shutting down gracefully...');
   for (const token of activeClients.keys()) {
     await stopBot(token);
   }
-  
-  console.log('👋 Universal Discord Relay Service stopped');
   process.exit(0);
 });
 
-// Error handling
-process.on('unhandledRejection', (error) => {
-  console.error('❌ Unhandled promise rejection:', error);
-});
-
-process.on('uncaughtException', (error) => {
-  console.error('❌ Uncaught exception:', error);
-  process.exit(1);
-});
-
-// Start the service
-main().catch(error => {
-  console.error('❌ Failed to start service:', error);
-  process.exit(1);
-});
-
-// Discord.js Command Execution Function
-async function executeDiscordCommand(commandOutput, message) {
-  try {
-    // Extract the command name from the command output (e.g., "/pin" from "Command executed: /pin")
-    const commandMatch = commandOutput.match(/^(?:Command executed:\s*)?\/([a-zA-Z0-9_-]+)/);
-    if (!commandMatch) {
-      return {
-        success: false,
-        response: `❌ Invalid command format: ${commandOutput}`
-      };
-    }
-
-    const command = commandMatch[1].toLowerCase();
-    const botMember = message.guild?.members?.me;
-    
-    if (!botMember) {
-      return {
-        success: false,
-        response: "❌ Bot is not in a guild"
-      };
-    }
-
-    console.log(`⚡ Executing Discord command: ${command}`);
-
-    switch (command) {
-      case 'pin':
-        try {
-          if (!botMember.permissions.has(PermissionFlagsBits.ManageMessages)) {
-            return { success: false, response: "❌ I don't have permission to pin messages" };
-          }
-
-          // Pin the message that the user replied to, or the user's message if no reply
-          let messageToPin = message;
-          
-          // Check if this is a reply and pin the original message
-          if (message.reference?.messageId) {
-            try {
-              const referencedMessage = await message.channel.messages.fetch(message.reference.messageId);
-              if (referencedMessage) {
-                messageToPin = referencedMessage;
-              }
-            } catch (error) {
-              // If we can't fetch the referenced message, pin the command message
-            }
-          }
-          
-          await messageToPin.pin();
-          
-          return {
-            success: true,
-            response: `📌 **Message pinned**\n**Pinned by:** ${message.author.username}`
-          };
-        } catch (error) {
-          return { success: false, response: `❌ Failed to pin message: ${error.message}` };
-        }
-
-      case 'ping':
-        const ping = message.client.ws.ping;
-        return { success: true, response: `🏓 **Pong!** Latency: ${ping}ms` };
-
-      case 'say':
-        try {
-          // Extract message from command output
-          const sayMatch = commandOutput.match(/say\s+(.+)/i) || commandOutput.match(/\{message\}\s*(.+)/i);
-          const messageContent = sayMatch ? sayMatch[1] : 'Hello everyone!';
-          
-          await message.channel.send(messageContent);
-          await message.delete(); // Delete the command message
-          
-          return { success: true, response: '' }; // Empty response since we handled it above
-        } catch (error) {
-          return { success: false, response: `❌ Failed to send message: ${error.message}` };
-        }
-
-      case 'purge':
-        try {
-          if (!botMember.permissions.has(PermissionFlagsBits.ManageMessages)) {
-            return { success: false, response: "❌ I don't have permission to manage messages" };
-          }
-
-          // Extract amount from command output or default to 1
-          const amountMatch = commandOutput.match(/(\d+)/);
-          const amount = amountMatch ? Math.min(parseInt(amountMatch[1]), 100) : 1;
-          
-          if (!message.channel.isTextBased() || message.channel.isDMBased()) {
-            return { success: false, response: "❌ This command can only be used in server text channels" };
-          }
-          
-          await message.delete(); // Delete the command message
-          
-          if ('bulkDelete' in message.channel) {
-            const deleted = await message.channel.bulkDelete(amount, true);
-            
-            const response = await message.channel.send(`🗑️ **Purged ${deleted.size} message(s)**`);
-            // Auto-delete the confirmation after 5 seconds
-            setTimeout(() => response.delete().catch(() => {}), 5000);
-            
-            return { success: true, response: '' }; // Empty response since we handled it above
-          } else {
-            return { success: false, response: "❌ This channel doesn't support bulk delete" };
-          }
-        } catch (error) {
-          return { success: false, response: `❌ Failed to purge messages: ${error.message}` };
-        }
-
-      case 'ban':
-        try {
-          if (!botMember.permissions.has(PermissionFlagsBits.BanMembers)) {
-            return { success: false, response: "❌ I don't have permission to ban members" };
-          }
-
-          // Extract user ID from command output or mentions
-          let userId = null;
-          const userMatch = commandOutput.match(/<@!?(\d+)>/) || commandOutput.match(/(\d{17,19})/);
-          if (userMatch) {
-            userId = userMatch[1];
-          } else if (message.mentions.users.size > 0) {
-            userId = message.mentions.users.first().id;
-          }
-
-          if (!userId) {
-            return { success: false, response: "❌ Please specify a valid user to ban" };
-          }
-
-          if (userId === message.client.user?.id) {
-            return { success: false, response: "❌ I cannot ban myself!" };
-          }
-
-          // Extract reason
-          const reasonMatch = commandOutput.match(/reason:?\s*(.+)/) || 
-                             commandOutput.match(/for\s+(.+)/) ||
-                             commandOutput.match(/\{reason\}\s*(.+)/);
-          const reason = reasonMatch ? reasonMatch[1] : 'No reason provided';
-
-          await message.guild.bans.create(userId, { 
-            reason: `${reason} (Banned by ${message.author.username})` 
-          });
-          
-          return {
-            success: true,
-            response: `🔨 **User banned**\n**User:** <@${userId}>\n**Reason:** ${reason}\n**Banned by:** ${message.author.username}`
-          };
-        } catch (error) {
-          return { success: false, response: `❌ Failed to ban user: ${error.message}` };
-        }
-
-      case 'kick':
-        try {
-          if (!botMember.permissions.has(PermissionFlagsBits.KickMembers)) {
-            return { success: false, response: "❌ I don't have permission to kick members" };
-          }
-
-          // Extract user ID
-          let userId = null;
-          const userMatch = commandOutput.match(/<@!?(\d+)>/) || commandOutput.match(/(\d{17,19})/);
-          if (userMatch) {
-            userId = userMatch[1];
-          } else if (message.mentions.users.size > 0) {
-            userId = message.mentions.users.first().id;
-          }
-
-          if (!userId) {
-            return { success: false, response: "❌ Please specify a valid user to kick" };
-          }
-
-          if (userId === message.client.user?.id) {
-            return { success: false, response: "❌ I cannot kick myself!" };
-          }
-
-          const reasonMatch = commandOutput.match(/reason:?\s*(.+)/) || 
-                             commandOutput.match(/for\s+(.+)/);
-          const reason = reasonMatch ? reasonMatch[1] : 'No reason provided';
-
-          const member = await message.guild.members.fetch(userId);
-          await member.kick(`${reason} (Kicked by ${message.author.username})`);
-          
-          return {
-            success: true,
-            response: `👢 **User kicked**\n**User:** ${member.displayName}\n**Reason:** ${reason}\n**Kicked by:** ${message.author.username}`
-          };
-        } catch (error) {
-          return { success: false, response: `❌ Failed to kick user: ${error.message}` };
-        }
-
-      case 'mute':
-        try {
-          if (!botMember.permissions.has(PermissionFlagsBits.ModerateMembers)) {
-            return { success: false, response: "❌ I don't have permission to timeout members" };
-          }
-
-          // Extract user ID
-          let userId = null;
-          const userMatch = commandOutput.match(/<@!?(\d+)>/) || commandOutput.match(/(\d{17,19})/);
-          if (userMatch) {
-            userId = userMatch[1];
-          } else if (message.mentions.users.size > 0) {
-            userId = message.mentions.users.first().id;
-          }
-
-          if (!userId) {
-            return { success: false, response: "❌ Please specify a valid user to mute" };
-          }
-
-          if (userId === message.client.user?.id) {
-            return { success: false, response: "❌ I cannot mute myself!" };
-          }
-
-          // Extract duration (default 10 minutes)
-          const durationMatch = commandOutput.match(/(\d+)\s*([mhd])/i);
-          let duration = 10 * 60 * 1000; // 10 minutes default
-          
-          if (durationMatch) {
-            const amount = parseInt(durationMatch[1]);
-            const unit = durationMatch[2].toLowerCase();
-            switch (unit) {
-              case 'm': duration = amount * 60 * 1000; break;
-              case 'h': duration = amount * 60 * 60 * 1000; break;
-              case 'd': duration = amount * 24 * 60 * 60 * 1000; break;
-            }
-          }
-
-          const reasonMatch = commandOutput.match(/reason:?\s*(.+)/) || 
-                             commandOutput.match(/for\s+(.+)/);
-          const reason = reasonMatch ? reasonMatch[1] : 'No reason provided';
-
-          const member = await message.guild.members.fetch(userId);
-          const timeoutUntil = new Date(Date.now() + duration);
-          
-          await member.timeout(duration, `${reason} (Muted by ${message.author.username})`);
-          
-          return {
-            success: true,
-            response: `🔇 **User muted**\n**User:** ${member.displayName}\n**Duration:** until ${timeoutUntil.toLocaleString()}\n**Reason:** ${reason}\n**Muted by:** ${message.author.username}`
-          };
-        } catch (error) {
-          return { success: false, response: `❌ Failed to mute user: ${error.message}` };
-        }
-
-      case 'warn':
-        try {
-          // Extract user ID
-          let userId = null;
-          const userMatch = commandOutput.match(/<@!?(\d+)>/) || commandOutput.match(/(\d{17,19})/);
-          if (userMatch) {
-            userId = userMatch[1];
-          } else if (message.mentions.users.size > 0) {
-            userId = message.mentions.users.first().id;
-          }
-
-          if (!userId) {
-            return { success: false, response: "❌ Please specify a valid user to warn" };
-          }
-
-          if (userId === message.client.user?.id) {
-            return { success: false, response: "❌ I cannot warn myself!" };
-          }
-
-          const reasonMatch = commandOutput.match(/reason:?\s*(.+)/) || 
-                             commandOutput.match(/for\s+(.+)/);
-          const reason = reasonMatch ? reasonMatch[1] : 'No reason provided';
-
-          const member = await message.guild.members.fetch(userId);
-          
-          // Send warning in channel
-          const warningResponse = `⚠️ **User warned**\n**User:** ${member.displayName}\n**Reason:** ${reason}\n**Warned by:** ${message.author.username}`;
-          
-          // Try to DM the user
-          try {
-            await member.send(`⚠️ **Warning from ${message.guild.name}**\n**Reason:** ${reason}\n**Warned by:** ${message.author.username}`);
-          } catch (dmError) {
-            // If DM fails, that's okay
-          }
-          
-          return {
-            success: true,
-            response: warningResponse
-          };
-        } catch (error) {
-          return { success: false, response: `❌ Failed to warn user: ${error.message}` };
-        }
-
-      default:
-        return {
-          success: false,
-          response: `❌ Unknown command: ${command}`
-        };
-    }
-  } catch (error) {
-    console.error(`❌ Error executing Discord command:`, error);
-    return {
-      success: false,
-      response: `❌ An error occurred while executing the command: ${error.message}`
-    };
+process.on('SIGINT', async () => {
+  console.log('🔌 SIGINT received, shutting down gracefully...');
+  for (const token of activeClients.keys()) {
+    await stopBot(token);
   }
-} 
+  process.exit(0);
+});
+
+// Unhandled error handling
+process.on('uncaughtException', (error) => {
+  console.error('🔥 Uncaught Exception:', error);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('🔥 Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+// --- Health Check and Web Server ---
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Basic root endpoint
+app.get('/', (req, res) => {
+  res.status(200).send('Universal Relay Service is running.');
+});
+
+// Detailed health check
+app.get('/health', (req, res) => {
+  const runningBots = Array.from(activeClients.values());
+  if (runningBots.length > 0) {
+    res.status(200).json({
+      status: 'ok',
+      runningBots: runningBots.length,
+      botDetails: runningBots.map(bot => ({
+        name: bot.botInfo.bot_name,
+        readyAt: bot.client.readyAt
+      }))
+    });
+  } else {
+    res.status(503).json({ status: 'error', message: 'No active bots running' });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`🏥 Health check endpoint running on port ${PORT}`);
+  // Start the main bot logic ONLY after the server is ready
+  main();
+});
