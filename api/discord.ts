@@ -150,7 +150,7 @@ function calculatePhrasePatternScore(input: string, commandName: string): number
 
 // Calculate string similarity using Levenshtein distance
 function calculateSimilarity(str1: string, str2: string): number {
-  const matrix = [];
+  const matrix: number[][] = [];
   const len1 = str1.length;
   const len2 = str2.length;
   
