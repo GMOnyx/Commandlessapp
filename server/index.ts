@@ -92,10 +92,10 @@ app.use((req, res, next) => {
     serveStatic(app);
   }
 
-  // Use the PORT environment variable from the hosting provider, or 5001 for local development
-  const port = process.env.PORT || 5001;
+  // Using port 5001 to avoid conflict with port 5000 which is already in use
+  const port = 5001;
   server.listen({
-    port: Number(port),
+    port,
     host: "0.0.0.0",
     reusePort: true,
   }, () => {

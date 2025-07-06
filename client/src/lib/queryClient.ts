@@ -1,23 +1,5 @@
 import { QueryClient } from "@tanstack/react-query";
 
-// Get auth token from Clerk
-async function getAuthToken(): Promise<string | null> {
-  try {
-    // Check if Clerk is available on window
-    const clerk = (window as any)?.Clerk;
-    
-    if (clerk && clerk.session) {
-      const token = await clerk.session.getToken();
-      return token;
-    }
-    
-    return null;
-  } catch (error) {
-    console.error("Failed to get auth token from Clerk:", error);
-    return null;
-  }
-}
-
 // New universal base-URL resolver
 function getApiBaseUrl(endpoint?: string): string {
   // 1. If a build-time env var is set (e.g. VITE_API_BASE_URL) use it
@@ -31,81 +13,59 @@ function getApiBaseUrl(endpoint?: string): string {
 export const API_BASE_URL = getApiBaseUrl();
 
 // API request function that includes authentication
-export const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
-  const token = await getAuthToken();
+export async function apiRequest(endpoint: string, options: RequestInit = {}) {
+  const baseUrl = getApiBaseUrl(endpoint);
+  const url = `${baseUrl}${endpoint}`;
+
+  // Get the auth token directly from Clerk
+  let token: string | null = null;
   
-  // Build the full URL
-  const fullUrl = endpoint.startsWith('http') ? endpoint : `${API_BASE_URL}${endpoint}`;
+  console.log('🔍 apiRequest called for:', endpoint);
+  console.log('🔗 Using base URL:', baseUrl);
   
-  // Debug logging for command mapping requests
-  if (endpoint.includes('/mappings/')) {
-    console.log('🔍 API Request Debug:', {
-      endpoint,
-      fullUrl,
-      API_BASE_URL,
-      hasToken: !!token,
-      tokenLength: token?.length,
-      options
-    });
+  // Try to get token from Clerk directly
+  try {
+    // Check if Clerk is available on window (it should be after Clerk loads)
+    const clerk = (window as any)?.Clerk;
+    
+    if (clerk && clerk.session) {
+      token = await clerk.session.getToken();
+      console.log('🔑 Got token from Clerk session:', token ? 'Token exists' : 'No token');
+    } else {
+      console.log('❌ No Clerk session available');
+    }
+  } catch (error) {
+    console.error("Failed to get auth token from Clerk:", error);
   }
-  
-  const response = await fetch(fullUrl, {
+
+  const config: RequestInit = {
     ...options,
     headers: {
       'Content-Type': 'application/json',
       ...(token && { Authorization: `Bearer ${token}` }),
       ...options.headers,
     },
-  });
+  };
 
-  // Debug logging for command mapping responses
-  if (endpoint.includes('/mappings/')) {
-    console.log('🔍 API Response Debug:', {
-      endpoint,
-      fullUrl,
-      status: response.status,
-      statusText: response.statusText,
-      ok: response.ok,
-      contentType: response.headers.get('content-type'),
-      headers: Object.fromEntries(response.headers.entries())
-    });
-    
-    // If we get HTML instead of JSON, log the response body
-    if (response.headers.get('content-type')?.includes('text/html')) {
-      const clonedResponse = response.clone();
-      clonedResponse.text().then(html => {
-        console.log('🔍 HTML Response (first 500 chars):', html.substring(0, 500));
-      });
-    }
-  }
+  console.log(`Making API request to ${endpoint}`, { hasToken: !!token, baseUrl, method: options.method });
+
+  const response = await fetch(url, config);
 
   if (!response.ok) {
-    if (endpoint.includes('/mappings/')) {
-      const errorText = await response.text();
-      console.log('🔍 API Error Response:', errorText);
-      throw new Error(`API request failed: ${response.status} ${response.statusText} - ${errorText}`);
-    }
-    throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+    const errorText = await response.text();
+    console.error(`API Error ${response.status}:`, errorText);
+    throw new Error(`HTTP ${response.status}: ${errorText}`);
   }
 
-  return response;
-};
+  const data = await response.json();
+  console.log(`API response from ${endpoint}:`, data);
+  return data;
+}
 
 // Default query function for React Query
 const defaultQueryFn = async ({ queryKey }: { queryKey: readonly unknown[] }) => {
   const [url] = queryKey as [string];
-  
-  // Convert dynamic route URLs to query parameter format for mappings
-  let actualUrl = url;
-  const mappingDetailMatch = url.match(/^\/api\/mappings\/(\d+)$/);
-  if (mappingDetailMatch) {
-    const mappingId = mappingDetailMatch[1];
-    actualUrl = `/api/mappings?id=${mappingId}`;
-    console.log('🔄 Converting dynamic route to query param:', { original: url, converted: actualUrl });
-  }
-  
-  const response = await apiRequest(actualUrl);
-  return response.json();
+  return apiRequest(url);
 };
 
 // Create the query client with our custom default query function

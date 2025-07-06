@@ -1,54 +1,11 @@
 {
-  "functions": {
-    "api/mappings/[id].ts": {
-      "maxDuration": 10
-    },
-    "api/mappings/[id]/test.ts": {
-      "maxDuration": 10
-    },
-    "api/mappings/[id]/use.ts": {
-      "maxDuration": 10
-    }
-  },
   "rewrites": [
-    {
-      "source": "/api/mappings/:id",
-      "destination": "/api/mappings/[id]"
-    },
-    {
-      "source": "/api/mappings/:id/test",
-      "destination": "/api/mappings/[id]/test"
-    },
-    {
-      "source": "/api/mappings/:id/use",
-      "destination": "/api/mappings/[id]/use"
-    },
     {
       "source": "/api/(.*)",
       "destination": "/api/$1"
     },
     {
-      "source": "/sign-in",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/sign-up",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/dashboard",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/mappings",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/connections",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/mappings/(.*)",
+      "source": "/(sign-in|sign-up|dashboard|mappings|connections)",
       "destination": "/index.html"
     },
     {
