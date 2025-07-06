@@ -594,7 +594,7 @@ export default async function handler(req: any, res: any) {
 
             // Automatically configure Discord webhook endpoint
             try {
-              const webhookUrl = `https://commandless.app/api/discord?action=webhook`;
+              const webhookUrl = `https://commandless.app/api/discord-webhook`;
               
               console.log(`🔗 Setting webhook URL for ${bot.bot_name}: ${webhookUrl}`);
               
