@@ -7,7 +7,8 @@
     "build": "vite build",
     "build:frontend": "vite build",
     "preview": "vite preview",
-    "vercel-build": "vite build"
+    "vercel-build": "vite build",
+    "start": "node server/simple-index.js"
   },
   "dependencies": {
     "@clerk/clerk-react": "^5.32.0",
