@@ -6,11 +6,10 @@ import express from 'express';
 // Configuration
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
-const COMMANDLESS_API_URL = process.env.COMMANDLESS_API_URL || 'https://commandless.app';
+const COMMANDLESS_API_URL = process.env.COMMANDLESS_API_URL || 'https://commandless-app-production.up.railway.app';
 const CHECK_INTERVAL = 30000; // Check for new bots every 30 seconds
 
 console.log('🚀 Starting Universal Discord Relay Service');
-console.log('⚡ Version: 2.0 - With Discord.js Command Execution');
 console.log('🔗 Commandless API:', COMMANDLESS_API_URL);
 console.log('📡 Supabase URL:', SUPABASE_URL ? 'Configured' : 'Missing');
 
@@ -177,6 +176,9 @@ async function createDiscordClient(bot) {
           botToken: bot.token,
           botClientId: client.user.id
         };
+
+        // Show "Bot is typing..." indicator
+        await message.channel.sendTyping();
 
         // Send to Commandless AI API
         const response = await fetch(`${COMMANDLESS_API_URL}/api/discord?action=process-message`, {
@@ -735,5 +737,4 @@ async function executeDiscordCommand(commandOutput, message) {
       response: `❌ An error occurred while executing the command: ${error.message}`
     };
   }
-} // Force deployment at Tue Jun 24 23:22:29 +04 2025
-console.log('🚀 URS Version 2.1 - FORCED DEPLOYMENT');
+} 
