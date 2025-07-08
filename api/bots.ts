@@ -890,7 +890,13 @@ export default async function handler(req: any, res: any) {
     if (req.method === 'PUT' && req.query.botId) {
       // Update individual bot credentials
       const { botId } = req.query;
+      console.log('PUT request with botId:', botId);
+      
       const { botName, token: botToken, personalityContext } = req.body;
+
+      if (!botId) {
+        return res.status(400).json({ error: 'Bot ID is required' });
+      }
 
       if (!botName && !botToken && personalityContext === undefined) {
         return res.status(400).json({ error: 'At least one field must be provided for update' });
@@ -988,6 +994,11 @@ export default async function handler(req: any, res: any) {
     if (req.method === 'DELETE' && req.query.botId) {
       // Delete individual bot
       const { botId } = req.query;
+      console.log('DELETE request with botId:', botId);
+
+      if (!botId) {
+        return res.status(400).json({ error: 'Bot ID is required' });
+      }
 
       // Get bot to verify ownership and get details
       const { data: bot, error: fetchError } = await supabase
