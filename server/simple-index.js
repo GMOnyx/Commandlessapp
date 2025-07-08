@@ -1100,6 +1100,210 @@ app.post('/api/mappings/:id/use', async (req, res) => {
   }
 });
 
+// Update/Edit bot
+app.put('/api/bots/:id', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    const decodedToken = decodeJWT(token);
+    
+    if (!decodedToken) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    const { id: botId } = req.params;
+    const { botName, token: botToken, personalityContext } = req.body;
+
+    if (!botId) {
+      return res.status(400).json({ error: 'Bot ID is required' });
+    }
+
+    // Get existing bot to verify ownership
+    const { data: existingBot, error: fetchError } = await supabase
+      .from('bots')
+      .select('*')
+      .eq('id', botId)
+      .eq('user_id', decodedToken.userId)
+      .single();
+
+    if (fetchError || !existingBot) {
+      return res.status(404).json({ error: 'Bot not found' });
+    }
+
+    // Prepare update data
+    const updateData = {};
+    if (botName) updateData.bot_name = botName;
+    if (botToken) updateData.token = botToken;
+    if (personalityContext !== undefined) updateData.personality_context = personalityContext;
+
+    // If token is being updated, check for conflicts
+    if (botToken && botToken !== existingBot.token) {
+      const { data: conflictBot, error: conflictError } = await supabase
+        .from('bots')
+        .select('id, bot_name, user_id')
+        .eq('token', botToken)
+        .neq('id', botId)
+        .single();
+
+      if (conflictError && conflictError.code !== 'PGRST116') {
+        console.error('Error checking for token conflict:', conflictError);
+        return res.status(500).json({ error: 'Failed to validate token' });
+      }
+
+      if (conflictBot) {
+        return res.status(409).json({ 
+          error: 'Token already in use',
+          details: 'This Discord bot token is already being used by another bot.',
+          suggestion: 'Please use a different Discord bot token.'
+        });
+      }
+
+      // If token is being changed and bot is connected, disconnect it first
+      if (existingBot.is_connected) {
+        updateData.is_connected = false;
+      }
+    }
+
+    // Update the bot
+    const { data: updatedBot, error: updateError } = await supabase
+      .from('bots')
+      .update(updateData)
+      .eq('id', botId)
+      .eq('user_id', decodedToken.userId)
+      .select()
+      .single();
+
+    if (updateError) {
+      console.error('Error updating bot:', updateError);
+      return res.status(500).json({ 
+        error: 'Failed to update bot',
+        details: 'There was an error updating your bot. Please try again.'
+      });
+    }
+
+    // Create activity log
+    await supabase
+      .from('activities')
+      .insert({
+        user_id: decodedToken.userId,
+        activity_type: 'bot_updated',
+        description: `Bot "${updatedBot.bot_name}" was updated`,
+        metadata: { 
+          botId: updatedBot.id,
+          changes: Object.keys(updateData)
+        }
+      });
+
+    res.json({
+      id: updatedBot.id,
+      botName: updatedBot.bot_name,
+      platformType: updatedBot.platform_type,
+      personalityContext: updatedBot.personality_context,
+      isConnected: updatedBot.is_connected,
+      createdAt: updatedBot.created_at,
+      message: `${updatedBot.bot_name} has been updated successfully.`
+    });
+
+  } catch (error) {
+    console.error('Error updating bot:', error);
+    res.status(500).json({ 
+      error: 'Internal server error',
+      details: 'An unexpected error occurred while updating your bot.'
+    });
+  }
+});
+
+// Delete bot
+app.delete('/api/bots/:id', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    const decodedToken = decodeJWT(token);
+    
+    if (!decodedToken) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    const { id: botId } = req.params;
+
+    if (!botId) {
+      return res.status(400).json({ error: 'Bot ID is required' });
+    }
+
+    // Get bot to verify ownership and get details
+    const { data: bot, error: fetchError } = await supabase
+      .from('bots')
+      .select('*')
+      .eq('id', botId)
+      .eq('user_id', decodedToken.userId)
+      .single();
+
+    if (fetchError || !bot) {
+      return res.status(404).json({ error: 'Bot not found' });
+    }
+
+    // Delete associated command mappings first
+    const { error: mappingsError } = await supabase
+      .from('command_mappings')
+      .delete()
+      .eq('bot_id', botId);
+
+    if (mappingsError) {
+      console.error('Error deleting command mappings:', mappingsError);
+      // Continue with bot deletion even if mappings deletion fails
+    }
+
+    // Delete the bot
+    const { error: deleteError } = await supabase
+      .from('bots')
+      .delete()
+      .eq('id', botId)
+      .eq('user_id', decodedToken.userId);
+
+    if (deleteError) {
+      console.error('Error deleting bot:', deleteError);
+      return res.status(500).json({ 
+        error: 'Failed to delete bot',
+        details: 'There was an error deleting your bot. Please try again.'
+      });
+    }
+
+    // Create activity log
+    await supabase
+      .from('activities')
+      .insert({
+        user_id: decodedToken.userId,
+        activity_type: 'bot_deleted',
+        description: `Bot "${bot.bot_name}" was deleted`,
+        metadata: { 
+          botId: bot.id,
+          botName: bot.bot_name,
+          platformType: bot.platform_type
+        }
+      });
+
+    res.json({
+      success: true,
+      message: `${bot.bot_name} has been deleted successfully.`
+    });
+
+  } catch (error) {
+    console.error('Error deleting bot:', error);
+    res.status(500).json({ 
+      error: 'Internal server error',
+      details: 'An unexpected error occurred while deleting your bot.'
+    });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`🚀 Commandless server running on port ${PORT}`);
   console.log(`🤖 Gemini AI initialized`);
