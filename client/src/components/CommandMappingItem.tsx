@@ -1,5 +1,4 @@
 import { CommandMapping, Bot } from "@shared/schema";
-import { Link } from "wouter";
 import { SiDiscord, SiTelegram } from "react-icons/si";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -54,54 +53,52 @@ export default function CommandMappingItem({ mapping, bots }: CommandMappingItem
   
   return (
     <li>
-      <Link href={`/mappings/${mapping.id}`}>
-        <a className="block hover:bg-gray-50 transition-colors">
-          <div className="px-4 py-4 sm:px-6">
-            {/* Mobile-first layout */}
-            <div className="space-y-3">
-              {/* Header row */}
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-primary truncate">
-                    {mapping.name}
-                  </p>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className={cn(
-                      "px-2 py-1 text-xs leading-4 font-semibold rounded-full",
-                      getStatusColor(mapping.status || "active")
-                    )}>
-                      {(mapping.status || "active").charAt(0).toUpperCase() + (mapping.status || "active").slice(1)}
-                    </span>
-                    <span className="flex items-center text-xs text-gray-500">
-                      {renderPlatformIcon()}
-                      {bot?.platformType === "discord" ? "Discord" : "Telegram"}
-                    </span>
-                  </div>
-                </div>
-                
-                {/* Usage stats - always visible on the right */}
-                <div className="flex-shrink-0 text-right">
-                  <div className={cn("flex items-center gap-1", usageInfo.color)}>
-                    <UsageIcon className="h-3 w-3" />
-                    <span className="text-xs font-medium">{usageInfo.text}</span>
-                  </div>
-                  {usageCount > 0 && (
-                    <p className="text-xs text-gray-400 mt-0.5">this week</p>
-                  )}
+      <div className="block bg-gray-50/50 transition-colors">
+        <div className="px-4 py-4 sm:px-6">
+          {/* Mobile-first layout */}
+          <div className="space-y-3">
+            {/* Header row */}
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-700 truncate">
+                  {mapping.name}
+                </p>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className={cn(
+                    "px-2 py-1 text-xs leading-4 font-semibold rounded-full",
+                    getStatusColor(mapping.status || "active")
+                  )}>
+                    {(mapping.status || "active").charAt(0).toUpperCase() + (mapping.status || "active").slice(1)}
+                  </span>
+                  <span className="flex items-center text-xs text-gray-500">
+                    {renderPlatformIcon()}
+                    {bot?.platformType === "discord" ? "Discord" : "Telegram"}
+                  </span>
                 </div>
               </div>
               
-              {/* Natural language pattern */}
-              <div className="flex items-start gap-2">
-                <MessageCircleIcon className="flex-shrink-0 h-4 w-4 text-gray-400 mt-0.5" />
-                <p className="text-sm text-gray-600 break-words">
-                  "{mapping.naturalLanguagePattern}"
-                </p>
+              {/* Usage stats - always visible on the right */}
+              <div className="flex-shrink-0 text-right">
+                <div className={cn("flex items-center gap-1", usageInfo.color)}>
+                  <UsageIcon className="h-3 w-3" />
+                  <span className="text-xs font-medium">{usageInfo.text}</span>
+                </div>
+                {usageCount > 0 && (
+                  <p className="text-xs text-gray-400 mt-0.5">this week</p>
+                )}
               </div>
             </div>
+            
+            {/* Natural language pattern */}
+            <div className="flex items-start gap-2">
+              <MessageCircleIcon className="flex-shrink-0 h-4 w-4 text-gray-400 mt-0.5" />
+              <p className="text-sm text-gray-600 break-words">
+                "{mapping.naturalLanguagePattern}"
+              </p>
+            </div>
           </div>
-        </a>
-      </Link>
+        </div>
+      </div>
     </li>
   );
 }

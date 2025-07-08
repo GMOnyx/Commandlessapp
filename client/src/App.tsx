@@ -4,7 +4,6 @@ import Dashboard from "@/pages/Dashboard";
 import Login from "@/pages/Login";
 import SignUp from "@/pages/SignUp";
 import CommandMappings from "@/pages/CommandMappings";
-import CommandMappingDetail from "@/pages/CommandMappingDetail";
 import BotConnections from "@/pages/BotConnections";
 import NotFound from "@/pages/not-found";
 import AuthProvider from "@/components/AuthProvider";
@@ -114,7 +113,6 @@ function AppContent() {
         <Route path="/" component={Dashboard} />
         <Route path="/dashboard" component={Dashboard} />
         <Route path="/mappings" component={CommandMappings} />
-        <Route path="/mappings/:id" component={CommandMappingDetail} />
         <Route path="/connections" component={BotConnections} />
         <Route component={NotFound} />
       </Switch>

@@ -6,8 +6,8 @@ function getApiBaseUrl(endpoint?: string): string {
   const envUrl = import.meta.env.VITE_API_BASE_URL as string | undefined;
   if (envUrl) return envUrl.replace(/\/+$/, '');
   
-  // 2. Use Railway backend API for production
-  return 'https://commandless-app-production.up.railway.app';
+  // 2. Default to Vercel for all operations
+  return window.location.origin;
 }
 
 export const API_BASE_URL = getApiBaseUrl();
