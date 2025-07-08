@@ -903,7 +903,14 @@ export default async function handler(req: any, res: any) {
     console.log('botId from query:', req.query.botId);
     console.log('Type of botId:', typeof req.query.botId);
     
+    console.log('Checking PUT condition...');
+    console.log('req.method === "PUT":', req.method === 'PUT');
+    console.log('!!req.query:', !!req.query);
+    console.log('!!req.query.botId:', !!req.query.botId);
+    
     if (req.method === 'PUT' && req.query && req.query.botId) {
+      console.log('✅ PUT condition matched! Entering bot update logic...');
+      
       // Update individual bot credentials
       let { botId } = req.query;
       
