@@ -181,7 +181,7 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
 
   const deleteMutation = useMutation({
     mutationFn: async () => {
-      await apiRequest(`/api/bots/${bot.id}`, {
+      await apiRequest(`/api/bots?botId=${bot.id}`, {
         method: "DELETE",
       });
     },
