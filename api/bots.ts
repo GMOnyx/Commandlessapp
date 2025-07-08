@@ -887,9 +887,20 @@ export default async function handler(req: any, res: any) {
 
     // WORKAROUND: Handle individual bot operations via query params
     // This is a temporary fix while Vercel deployment issues are resolved
-    if (req.method === 'PUT' && req.query.botId) {
+    console.log('Request method:', req.method);
+    console.log('Query params:', JSON.stringify(req.query));
+    console.log('botId from query:', req.query.botId);
+    console.log('Type of botId:', typeof req.query.botId);
+    
+    if (req.method === 'PUT' && req.query && req.query.botId) {
       // Update individual bot credentials
-      const { botId } = req.query;
+      let { botId } = req.query;
+      
+      // Handle case where query param might be an array
+      if (Array.isArray(botId)) {
+        botId = botId[0];
+      }
+      
       console.log('PUT request with botId:', botId);
       
       const { botName, token: botToken, personalityContext } = req.body;
@@ -991,9 +1002,15 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json(formattedBot);
     }
 
-    if (req.method === 'DELETE' && req.query.botId) {
+    if (req.method === 'DELETE' && req.query && req.query.botId) {
       // Delete individual bot
-      const { botId } = req.query;
+      let { botId } = req.query;
+      
+      // Handle case where query param might be an array
+      if (Array.isArray(botId)) {
+        botId = botId[0];
+      }
+      
       console.log('DELETE request with botId:', botId);
 
       if (!botId) {
