@@ -912,18 +912,16 @@ export default async function handler(req: any, res: any) {
       console.log('✅ PUT condition matched! Entering bot update logic...');
       
       // Update individual bot credentials
-      let { botId } = req.query;
-      
-      // Handle case where query param might be an array
-      if (Array.isArray(botId)) {
-        botId = botId[0];
-      }
+      const botId = Array.isArray(req.query.botId) ? req.query.botId[0] : req.query.botId;
       
       console.log('PUT request with botId:', botId);
+      console.log('botId is truthy:', !!botId);
+      console.log('botId type after extraction:', typeof botId);
       
       const { botName, token: botToken, personalityContext } = req.body;
 
       if (!botId) {
+        console.log('ERROR: botId is falsy!', { botId, query: req.query });
         return res.status(400).json({ error: 'Bot ID is required' });
       }
 
