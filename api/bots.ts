@@ -35,25 +35,19 @@ function decodeJWT(token: string): { userId: string } | null {
 }
 
 export default async function handler(req: any, res: any) {
-  // Universal CORS headers - accept custom domain or any Vercel URL
-  const origin = req.headers.origin;
-  const isAllowedOrigin = origin && (
-    origin === 'https://www.commandless.app' ||
-    origin === 'https://commandless.app' ||
-    origin === 'http://localhost:5173' ||
-    origin.endsWith('.vercel.app')
-  );
-  
-  if (isAllowedOrigin) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  } else {
+  console.log('=== BOTS API REQUEST START ===');
+  console.log('Method:', req.method);
+  console.log('URL:', req.url);
+  console.log('Query:', JSON.stringify(req.query));
+  console.log('Headers:', JSON.stringify(req.headers));
+  console.log('Body:', JSON.stringify(req.body));
+  console.log('=== BOTS API REQUEST DATA ===');
+
+  // Set CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
-  }
-  
-  res.setHeader('Access-Control-Allow-Methods', 'GET, PUT, DELETE, OPTIONS, POST');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
