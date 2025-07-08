@@ -53,20 +53,37 @@ export default async function handler(req: any, res: any) {
   }
 
   const { action } = req.query;
+  
+  // Authentication
   const authHeader = req.headers.authorization;
+  console.log('Auth header present:', !!authHeader);
   
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    console.log('No auth header or invalid format');
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
   const token = authHeader.split(' ')[1];
+  console.log('Token extracted:', token.substring(0, 20) + '...');
+  
   const decodedToken = decodeJWT(token);
+  console.log('Decoded token:', !!decodedToken);
   
   if (!decodedToken) {
+    console.log('Token decode failed');
     return res.status(401).json({ error: 'Invalid token' });
   }
-  
+
   const userId = decodedToken.userId;
+  console.log('User ID extracted:', userId);
+
+  console.log('=== AUTHENTICATION COMPLETE ===');
+  console.log('About to check request method and query...');
+  console.log('req.method:', req.method);
+  console.log('req.query:', JSON.stringify(req.query));
+  console.log('req.query.botId:', req.query.botId);
+  console.log('botId type:', typeof req.query.botId);
+  console.log('=== CHECKING CONDITIONS ===');
 
   try {
     // Ensure user exists in database (auto-create if needed) for all requests
