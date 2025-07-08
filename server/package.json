@@ -4,10 +4,9 @@
   "description": "Commandless Discord Bot Server",
   "main": "universal-relay-service.js",
   "scripts": {
-    "start": "node simple-index.js",
-    "dev": "node simple-index.js",
-    "backend": "node simple-index.js",
-    "relay": "node universal-relay-service.js"
+    "start": "node universal-relay-service.js",
+    "dev": "node universal-relay-service.js",
+    "backend": "node simple-index.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

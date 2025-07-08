@@ -1,6 +1,5 @@
 const express = require('express');
 const cors = require('cors');
-const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 require('dotenv').config();
@@ -11,9 +10,6 @@ const PORT = process.env.PORT || 5001;
 // Middleware
 app.use(cors());
 app.use(express.json());
-
-// Serve static files from the built frontend
-app.use(express.static(path.join(__dirname, '../dist')));
 
 // Initialize Supabase
 const supabase = createClient(
@@ -806,20 +802,6 @@ app.get('/api/mappings/:id', async (req, res) => {
       return res.status(400).json({ error: 'Mapping ID is required' });
     }
 
-    console.log(`🔍 Individual mapping request - ID: ${id}, User ID: ${decodedToken.userId}`);
-
-    // First, let's check if the mapping exists at all (without user filter)
-    const { data: allMappings, error: allError } = await supabase
-      .from('command_mappings')
-      .select('id, user_id, name')
-      .eq('id', id);
-
-    console.log(`🔍 All mappings with ID ${id}:`, allMappings);
-    
-    if (allError) {
-      console.error('Error checking all mappings:', allError);
-    }
-
     // Get specific mapping
     const { data: mapping, error } = await supabase
       .from('command_mappings')
@@ -829,26 +811,23 @@ app.get('/api/mappings/:id', async (req, res) => {
         name,
         natural_language_pattern,
         command_output,
+        personality_context,
         status,
         usage_count,
-        created_at,
-        user_id
+        created_at
       `)
       .eq('id', id)
       .eq('user_id', decodedToken.userId)
       .single();
 
-    console.log(`🔍 Filtered mapping result:`, mapping);
-    console.log(`🔍 Supabase error:`, error);
-
     if (error || !mapping) {
       return res.status(404).json({ error: 'Mapping not found' });
     }
 
-    // Get bot information and personality context separately
+    // Get bot information separately
     const { data: bot } = await supabase
       .from('bots')
-      .select('id, bot_name, platform_type, personality_context')
+      .select('id, bot_name, platform_type')
       .eq('id', mapping.bot_id)
       .single();
 
@@ -858,7 +837,7 @@ app.get('/api/mappings/:id', async (req, res) => {
       name: mapping.name,
       naturalLanguagePattern: mapping.natural_language_pattern,
       commandOutput: mapping.command_output,
-      personalityContext: bot?.personality_context || null,
+      personalityContext: mapping.personality_context,
       status: mapping.status,
       usageCount: mapping.usage_count,
       createdAt: mapping.created_at,
@@ -909,9 +888,10 @@ app.put('/api/mappings/:id', async (req, res) => {
     if (name !== undefined) updateData.name = name;
     if (naturalLanguagePattern !== undefined) updateData.natural_language_pattern = naturalLanguagePattern;
     if (commandOutput !== undefined) updateData.command_output = commandOutput;
+    if (personalityContext !== undefined) updateData.personality_context = personalityContext;
     if (status !== undefined) updateData.status = status;
 
-    if (Object.keys(updateData).length === 0 && personalityContext === undefined) {
+    if (Object.keys(updateData).length === 0) {
       return res.status(400).json({ error: 'No fields to update' });
     }
 
@@ -926,6 +906,7 @@ app.put('/api/mappings/:id', async (req, res) => {
         name,
         natural_language_pattern,
         command_output,
+        personality_context,
         status,
         usage_count,
         created_at
@@ -937,37 +918,13 @@ app.put('/api/mappings/:id', async (req, res) => {
       return res.status(404).json({ error: 'Failed to update mapping or mapping not found' });
     }
 
-    // Update personality_context in bots table if provided
-    let botPersonalityContext = null;
-    if (personalityContext !== undefined) {
-      const { data: botUpdate, error: botUpdateError } = await supabase
-        .from('bots')
-        .update({ personality_context: personalityContext })
-        .eq('id', updatedMapping.bot_id)
-        .eq('user_id', decodedToken.userId)
-        .select('personality_context')
-        .single();
-      
-      if (!botUpdateError && botUpdate) {
-        botPersonalityContext = botUpdate.personality_context;
-      }
-    } else {
-      // Get existing personality context from bot
-      const { data: bot } = await supabase
-        .from('bots')
-        .select('personality_context')
-        .eq('id', updatedMapping.bot_id)
-        .single();
-      botPersonalityContext = bot?.personality_context || null;
-    }
-
     const response = {
       id: updatedMapping.id,
       botId: updatedMapping.bot_id,
       name: updatedMapping.name,
       naturalLanguagePattern: updatedMapping.natural_language_pattern,
       commandOutput: updatedMapping.command_output,
-      personalityContext: botPersonalityContext,
+      personalityContext: updatedMapping.personality_context,
       status: updatedMapping.status,
       usageCount: updatedMapping.usage_count,
       createdAt: updatedMapping.created_at
@@ -1143,21 +1100,9 @@ app.post('/api/mappings/:id/use', async (req, res) => {
   }
 });
 
-// SPA fallback route - must be last
-app.get('*', (req, res) => {
-  // Don't interfere with API routes
-  if (req.path.startsWith('/api/')) {
-    return res.status(404).json({ error: 'API endpoint not found' });
-  }
-  
-  // Serve the React app for all other routes
-  res.sendFile(path.join(__dirname, '../dist/index.html'));
-});
-
 app.listen(PORT, () => {
   console.log(`🚀 Commandless server running on port ${PORT}`);
   console.log(`🤖 Gemini AI initialized`);
-  console.log(`📱 Frontend served from: ${path.join(__dirname, '../dist')}`);
 });
 
 // Graceful shutdown
