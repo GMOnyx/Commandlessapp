@@ -78,945 +78,126 @@ export default async function handler(req: any, res: any) {
   console.log('User ID extracted:', userId);
 
   console.log('=== AUTHENTICATION COMPLETE ===');
-  console.log('About to check request method and query...');
-  console.log('req.method:', req.method);
-  console.log('req.query:', JSON.stringify(req.query));
-  console.log('req.query.botId:', req.query.botId);
-  console.log('botId type:', typeof req.query.botId);
-  console.log('=== CHECKING CONDITIONS ===');
-
-  try {
-    // Ensure user exists in database (auto-create if needed) for all requests
-    const { data: existingUser, error: userError } = await supabase
-      .from('users')
-      .select('id')
-      .eq('id', userId)
-      .maybeSingle();
-
-    if (userError && userError.code !== 'PGRST116') { // PGRST116 = not found
-      console.error('User check error:', userError);
-      return res.status(500).json({ error: 'User verification failed' });
-    }
-
-    if (!existingUser) {
-      console.log('Creating new user record for:', userId);
-      const { error: createError } = await supabase
-        .from('users')
-        .insert({
-          id: userId,
-          username: userId,
-          name: userId,
-          role: 'user'
-        });
-      if (createError) {
-        console.error('Failed to create user:', createError);
-        return res.status(500).json({ error: 'Failed to create user record' });
-      }
-    }
-
-    if (req.method === 'GET' && !action) {
-      // Get all bots for the user
-      const { data: bots, error } = await supabase
-        .from('bots')
-        .select(`
-          id,
-          bot_name,
-          platform_type,
-          personality_context,
-          is_connected,
-          created_at
-        `)
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      const formattedBots = bots.map(bot => ({
-        id: bot.id,
-        botName: bot.bot_name,
-        platformType: bot.platform_type,
-        personalityContext: bot.personality_context,
-        isConnected: bot.is_connected,
-        createdAt: bot.created_at
-      }));
-
-      return res.status(200).json(formattedBots);
-    }
-
-    if (req.method === 'POST' && action === 'connect') {
-      // Connect bot (start Discord client for Discord bots)
-      const { botId } = req.body;
-      
-      if (!botId) {
-        return res.status(400).json({ error: 'Bot ID is required' });
-      }
-
-      const { data: bot, error } = await supabase
-        .from('bots')
-        .select('*')
-        .eq('id', botId)
-        .eq('user_id', userId)
-        .single();
-
-      if (error || !bot) {
-        return res.status(404).json({ error: 'Bot not found' });
-      }
-
-      // Update database connection status first
-      const updatedBot = await supabase
-        .from('bots')
-        .update({ is_connected: true })
-        .eq('id', botId)
-        .eq('user_id', userId)
-        .select()
-        .single();
-
-      if (updatedBot.error) {
-        return res.status(500).json({ error: 'Failed to update bot connection status' });
-      }
-
-      // If it's a Discord bot, attempt to auto-start it
-      if (bot.platform_type === 'discord' && bot.token) {
-        try {
-          // Attempt automatic startup using available methods
-          const autoStartResponse = await fetch(`${process.env.VERCEL_URL || 'http://localhost:3000'}/api/discord-manager?action=auto-start`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${userId}`
-            },
-            body: JSON.stringify({ botId: bot.id })
-          });
-
-          if (autoStartResponse.ok) {
-            const startupResult = await autoStartResponse.json();
-            
-            // If auto-start was successful
-            if (startupResult.autoStarted) {
-              console.log(`✅ Discord bot ${bot.bot_name} auto-started using ${startupResult.method}`);
-              
-              // Return success with auto-start info
-              return res.json({
-                ...updatedBot.data,
-                autoStarted: true,
-                startupMethod: startupResult.method,
-                message: `Bot connected and automatically started using ${startupResult.method}!`,
-                status: 'live'
-              });
-            } else {
-              // Auto-start failed, but provide client code for manual startup
-              console.log(`⚠️ Discord bot ${bot.bot_name} connected but requires manual deployment`);
-              
-              return res.json({
-                ...updatedBot.data,
-                autoStarted: false,
-                requiresManualStart: true,
-                clientCode: startupResult.clientCode,
-                instructions: startupResult.instructions,
-                deploymentRequired: true,
-                status: 'needs_deployment',
-                message: '⚠️ Bot configured but not deployed! Discord bots need persistent hosting.',
-                troubleshooting: [
-                  '🔧 Vercel (serverless) cannot run persistent Discord bots',
-                  '🚂 Deploy to Railway/Render for automatic hosting',
-                  '💻 Or run the generated client code locally',
-                  '📋 Bot will only respond when the client is running'
-                ]
-              });
-            }
-          }
-        } catch (autoStartError) {
-          console.warn('Auto-start attempt failed:', autoStartError);
-          // Continue with regular connection flow
-        }
-      }
-
-      // Regular connection response (non-Discord or auto-start not available)
-      res.json({
-        ...updatedBot.data,
-        message: 'Bot connected successfully!'
-      });
-    }
-
-    if (req.method === 'POST' && action === 'disconnect') {
-      // Disconnect bot (stop Discord client for Discord bots)
-      const { botId } = req.body;
-      
-      if (!botId) {
-        return res.status(400).json({ error: 'Bot ID is required' });
-      }
-
-      const { data: bot, error } = await supabase
-        .from('bots')
-        .select('*')
-        .eq('id', botId)
-        .eq('user_id', userId)
-        .single();
-
-      if (error || !bot) {
-        return res.status(404).json({ error: 'Bot not found' });
-      }
-
-      // For Discord bots, you would stop the Discord client here
-      // In serverless environment, we just update the database
-      if (bot.platform_type === 'discord') {
-        console.log(`Discord bot ${bot.bot_name} marked as disconnected`);
-      }
-
-      // Update database connection status
-      const { data: updatedBot, error: updateError } = await supabase
-        .from('bots')
-        .update({ is_connected: false })
-        .eq('id', botId)
-        .eq('user_id', userId)
-        .select('*')
-        .single();
-
-      if (updateError) {
-        return res.status(500).json({ error: 'Failed to update bot status' });
-      }
-
-      // Create activity
-      await supabase
-        .from('activities')
-        .insert({
-          user_id: userId,
-          activity_type: 'bot_disconnected',
-          description: `Bot ${bot.bot_name} was disconnected`,
-          metadata: { botId: bot.id, platformType: bot.platform_type }
-        });
-
-      // Return response with expected properties for the frontend
-      return res.status(200).json({
-        id: updatedBot.id,
-        botName: updatedBot.bot_name,
-        platformType: updatedBot.platform_type,
-        personalityContext: updatedBot.personality_context,
-        isConnected: updatedBot.is_connected,
-        createdAt: updatedBot.created_at,
-        // Frontend expects these properties
-        autoStarted: false,
-        deploymentRequired: false,
-        requiresManualStart: false,
-        status: "disconnected",
-        message: `${bot.bot_name} has been disconnected`,
-        startupMethod: "none"
-      });
-    }
-
-    if (req.method === 'POST' && action === 'sync-commands') {
-      // Sync Discord commands for a bot
-      const { botId, forceRefresh = false } = req.body;
-      
-      if (!botId) {
-        return res.status(400).json({ error: 'Bot ID is required' });
-      }
-
-      const { data: bot, error } = await supabase
-        .from('bots')
-        .select('*')
-        .eq('id', botId)
-        .eq('user_id', userId)
-        .single();
-
-      if (error || !bot) {
-        return res.status(404).json({ error: 'Bot not found' });
-      }
-
-      if (bot.platform_type !== 'discord') {
-        return res.status(400).json({ error: 'Command sync is only available for Discord bots' });
-      }
-
-      const result = await discoverAndSyncCommands(bot.token, botId, userId, forceRefresh);
-      
-      if (result.success && result.createdMappings > 0) {
-        // Create activity for manual sync
-        await supabase
-          .from('activities')
-          .insert({
-            user_id: userId,
-            activity_type: 'commands_synced',
-            description: `Manually synced ${result.createdMappings} Discord commands for ${bot.bot_name}`,
-            metadata: { 
-              botId: bot.id, 
-              commandsFound: result.discoveredCommands.length,
-              commandsCreated: result.createdMappings,
-              forceRefresh
-            }
-          });
-      }
-
-      return res.status(200).json(result);
-    }
-
-    if (req.method === 'POST' && action === 'cleanup-orphaned-mappings') {
-      // Clean up orphaned command mappings (mappings without valid bots)
-      
-      try {
-        // Find all mappings for this user
-        const { data: allMappings, error: mappingsError } = await supabase
-          .from('command_mappings')
-          .select('id, bot_id, name')
-          .eq('user_id', userId);
-
-        if (mappingsError) {
-          console.error('Error fetching mappings:', mappingsError);
-          return res.status(500).json({ error: 'Failed to fetch mappings' });
-        }
-
-        if (!allMappings || allMappings.length === 0) {
-          return res.status(200).json({ 
-            success: true, 
-            message: 'No orphaned mappings found',
-            deletedCount: 0 
-          });
-        }
-
-        // Get all bot IDs for this user
-        const { data: userBots, error: botsError } = await supabase
-          .from('bots')
-          .select('id')
-          .eq('user_id', userId);
-
-        if (botsError) {
-          console.error('Error fetching bots:', botsError);
-          return res.status(500).json({ error: 'Failed to fetch bots' });
-        }
-
-        const validBotIds = new Set((userBots || []).map(bot => bot.id));
-
-        // Find orphaned mappings (mappings pointing to non-existent bots)
-        const orphanedMappings = allMappings.filter(mapping => !validBotIds.has(mapping.bot_id));
-
-        if (orphanedMappings.length === 0) {
-          return res.status(200).json({ 
-            success: true, 
-            message: 'No orphaned mappings found',
-            deletedCount: 0 
-          });
-        }
-
-        // Delete orphaned mappings
-        const orphanedIds = orphanedMappings.map(m => m.id);
-        const { error: deleteError } = await supabase
-          .from('command_mappings')
-          .delete()
-          .in('id', orphanedIds)
-          .eq('user_id', userId); // Double check user_id for security
-
-        if (deleteError) {
-          console.error('Error deleting orphaned mappings:', deleteError);
-          return res.status(500).json({ error: 'Failed to delete orphaned mappings' });
-        }
-
-        // Create activity
-        await supabase
-          .from('activities')
-          .insert({
-            user_id: userId,
-            activity_type: 'mappings_cleaned',
-            description: `Cleaned up ${orphanedMappings.length} orphaned command mappings`,
-            metadata: { 
-              deletedCount: orphanedMappings.length,
-              deletedMappings: orphanedMappings.map(m => ({ id: m.id, name: m.name, botId: m.bot_id }))
-            }
-          });
-
-        return res.status(200).json({
-          success: true,
-          message: `Successfully deleted ${orphanedMappings.length} orphaned command mappings`,
-          deletedCount: orphanedMappings.length,
-          deletedMappings: orphanedMappings.map(m => m.name)
-        });
-
-      } catch (error) {
-        console.error('Cleanup error:', error);
-        return res.status(500).json({ 
-          error: 'Internal server error during cleanup',
-          message: error.message
-        });
-      }
-    }
-
-    if (req.method === 'POST' && !action) {
-      // Create new bot
-      console.log('🔍 BOT CREATION DEBUG:');
-      console.log('📋 Request body:', JSON.stringify(req.body, null, 2));
-      console.log('📊 Content-Type:', req.headers['content-type']);
-      console.log('📊 Method:', req.method);
-      console.log('📊 URL:', req.url);
-      
-      const { botName, platformType, token, personalityContext } = req.body;
-      
-      console.log('📤 Extracted fields:', {
-        botName: !!botName,
-        botNameValue: botName,
-        platformType: !!platformType,
-        platformTypeValue: platformType,
-        token: !!token,
-        tokenValue: token ? `${token.substring(0, 20)}...` : 'undefined',
-        personalityContext: !!personalityContext,
-        tokenLength: token?.length
-      });
-      
-      if (!botName || !platformType || !token) {
-        console.log('❌ Missing fields detected:', {
-          missingBotName: !botName,
-          missingPlatformType: !platformType,
-          missingToken: !token,
-          bodyKeys: Object.keys(req.body || {}),
-          bodyStringified: JSON.stringify(req.body)
-        });
-        return res.status(400).json({ 
-          error: 'Missing required fields', 
-          details: {
-            botName: !!botName,
-            platformType: !!platformType,
-            token: !!token,
-            received: Object.keys(req.body || {})
-          }
-        });
-      }
-
-      // Validate Discord token if it's a Discord bot
-      if (platformType === 'discord') {
-        console.log('🔍 Validating Discord token...');
-        const tokenValidation = await validateDiscordToken(token);
-        console.log('📊 Token validation result:', tokenValidation);
-        if (!tokenValidation.valid) {
-          console.log('❌ Token validation failed:', tokenValidation.error);
-          return res.status(400).json({ error: 'Invalid Discord bot token' });
-        }
-      }
-
-      // Auto-generate personality context for Discord bots if none provided
-      let finalPersonalityContext = personalityContext;
-      if (platformType === 'discord' && !personalityContext) {
-        finalPersonalityContext = `You are ${botName}, a helpful Discord moderation bot. You can understand natural language commands and execute Discord moderation actions like banning, kicking, warning users, and managing messages. Always be professional and helpful.`;
-      }
-
-      const { data: newBot, error } = await supabase
-        .from('bots')
-        .insert({
-          user_id: userId,
-          bot_name: botName,
-          platform_type: platformType,
-          token: token,
-          personality_context: finalPersonalityContext,
-          is_connected: false
-        })
-        .select('*')
-        .single();
-
-      if (error) throw error;
-
-      // Auto-discover commands for Discord bots
-      if (platformType === 'discord') {
-        try {
-          await discoverAndSyncCommands(token, newBot.id, userId, false);
-        } catch (discoveryError) {
-          console.error('Command discovery failed during bot creation:', discoveryError);
-          // Don't fail bot creation if discovery fails
-        }
-      }
-
-      // Create activity
-      await supabase
-        .from('activities')
-        .insert({
-          user_id: userId,
-          activity_type: 'bot_created',
-          description: `Created new ${platformType} bot: ${botName}`,
-          metadata: { botId: newBot.id, platformType }
-        });
-
-      const formattedBot = {
-        id: newBot.id,
-        botName: newBot.bot_name,
-        platformType: newBot.platform_type,
-        personalityContext: newBot.personality_context,
-        isConnected: newBot.is_connected,
-        createdAt: newBot.created_at
-      };
-
-      return res.status(201).json(formattedBot);
-    }
-
-    if (req.method === 'PUT') {
-      // Update bot connection status or handle actions
-      const { id, action, botId, isConnected } = req.body;
-      const actualBotId = botId || id; // Support both formats
-      
-      if (!actualBotId) {
-        return res.status(400).json({ error: 'Bot ID is required' });
-      }
-
-      // Handle specific actions
-      if (action === 'connect') {
-        const { data: bot, error } = await supabase
-          .from('bots')
-          .select('*')
-          .eq('id', actualBotId)
-          .eq('user_id', userId)
-          .single();
-
-        if (error || !bot) {
-          return res.status(404).json({ error: 'Bot not found' });
-        }
-
-        // Update database connection status first
-        const { data: updatedBot, error: updateError } = await supabase
-          .from('bots')
-          .update({ is_connected: true })
-          .eq('id', actualBotId)
-          .eq('user_id', userId)
-          .select('*')
-          .single();
-
-        if (updateError) {
-          return res.status(500).json({ error: 'Failed to update bot status' });
-        }
-
-        // For Discord bots, validate token (in production, you'd start actual Discord client)
-        if (bot.platform_type === 'discord' && bot.token) {
-          try {
-            // Validate the Discord token
-            const validation = await validateDiscordToken(bot.token);
-            
-            if (!validation.valid) {
-              // Revert database status
-              await supabase
-                .from('bots')
-                .update({ is_connected: false })
-                .eq('id', actualBotId)
-                .eq('user_id', userId);
-                
-              return res.status(400).json({ 
-                message: "Invalid Discord bot token. Please check your token in the Discord Developer Portal.",
-                error: "INVALID_DISCORD_TOKEN",
-                troubleshooting: [
-                  "Verify token is copied correctly from Discord Developer Portal > Bot section",
-                  "Ensure bot has 'bot' and 'applications.commands' scopes",
-                  "Check if token was recently regenerated",
-                  "Confirm bot is not deleted or disabled"
-                ]
-              });
-            }
-
-            // Automatically configure Discord webhook endpoint
-            try {
-              const webhookUrl = `https://commandless.app/api/discord?action=webhook`;
-              
-              console.log(`🔗 Setting webhook URL for ${bot.bot_name}: ${webhookUrl}`);
-              
-              const webhookResponse = await fetch(`https://discord.com/api/v10/applications/${validation.applicationId}`, {
-                method: 'PATCH',
-                headers: {
-                  'Authorization': `Bot ${bot.token}`,
-                  'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                  interactions_endpoint_url: webhookUrl
-                })
-              });
-
-              if (webhookResponse.ok) {
-                console.log(`✅ Webhook endpoint configured successfully for ${bot.bot_name}`);
-              } else {
-                const webhookError = await webhookResponse.text();
-                console.warn(`⚠️ Failed to set webhook endpoint: ${webhookError}`);
-                // Continue anyway - webhook setup is not critical for basic functionality
-              }
-            } catch (webhookError) {
-              console.warn(`⚠️ Webhook setup failed for ${bot.bot_name}:`, webhookError);
-              // Continue anyway - webhook setup is not critical for basic functionality
-            }
-
-            // In a real implementation, you would start the Discord client here
-            // For serverless environment, we just validate and mark as connected
-            console.log(`Discord bot ${bot.bot_name} validated and marked as connected`);
-            
-            // Try Railway auto-deployment
-            try {
-              const autoStartResponse = await fetch(`https://commandless.app/api/discord-manager?action=auto-start`, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${userId}`
-                },
-                body: JSON.stringify({ botId: actualBotId })
-              });
-
-              if (autoStartResponse.ok) {
-                const autoStartResult = await autoStartResponse.json();
-                console.log('🚂 Railway auto-start result:', autoStartResult);
-                
-                if (autoStartResult.autoStarted) {
-                  // Railway deployment successful!
-                  return res.status(200).json({
-                    id: updatedBot.id,
-                    botName: updatedBot.bot_name,
-                    platformType: updatedBot.platform_type,
-                    personalityContext: updatedBot.personality_context,
-                    isConnected: updatedBot.is_connected,
-                    createdAt: updatedBot.created_at,
-                    autoStarted: true,
-                    deploymentRequired: false,
-                    requiresManualStart: false,
-                    status: "live",
-                    message: `🎉 ${bot.bot_name} is now live on Railway and responding to Discord messages!`,
-                    startupMethod: autoStartResult.method || "railway"
-                  });
-                }
-              }
-            } catch (autoStartError) {
-              console.warn('Railway auto-start failed:', autoStartError);
-            }
-          } catch (error) {
-            // Revert database status if validation failed
-            await supabase
-              .from('bots')
-              .update({ is_connected: false })
-              .eq('id', actualBotId)
-              .eq('user_id', userId);
-            
-            const errorMessage = error.message;
-            let specificMessage = "Error connecting Discord bot";
-            let troubleshooting = [
-              "Check Discord bot token",
-              "Verify bot permissions",
-              "Ensure bot is not disabled"
-            ];
-            
-            // Provide specific error messages
-            if (errorMessage.includes("Incorrect login details") || errorMessage.includes("Invalid")) {
-              specificMessage = "Invalid Discord bot token provided";
-              troubleshooting = [
-                "Copy token exactly from Discord Developer Portal > Bot section",
-                "Don't include 'Bot ' prefix when copying",
-                "Regenerate token if it's not working"
-              ];
-            } else if (errorMessage.includes("Too many requests") || errorMessage.includes("rate limit")) {
-              specificMessage = "Discord API rate limit exceeded";
-              troubleshooting = [
-                "Wait a few minutes before trying again",
-                "Check if bot is being used elsewhere",
-                "Ensure only one instance is running"
-              ];
-            } else if (errorMessage.includes("Missing Permissions") || errorMessage.includes("permissions")) {
-              specificMessage = "Bot token lacks required permissions";
-              troubleshooting = [
-                "Add 'bot' scope in Discord Developer Portal",
-                "Add 'applications.commands' scope if using slash commands",
-                "Reinvite bot to server with correct permissions"
-              ];
-            }
-            
-            return res.status(500).json({ 
-              message: specificMessage,
-              error: "DISCORD_CONNECTION_ERROR",
-              details: errorMessage,
-              troubleshooting
-            });
-          }
-        }
-
-        // Create activity
-        await supabase
-          .from('activities')
-          .insert({
-            user_id: userId,
-            activity_type: 'bot_connected',
-            description: `Bot ${bot.bot_name} was connected`,
-            metadata: { botId: bot.id, platformType: bot.platform_type }
-          });
-
-        // Return response with expected properties for the frontend
-        return res.status(200).json({
-          id: updatedBot.id,
-          botName: updatedBot.bot_name,
-          platformType: updatedBot.platform_type,
-          personalityContext: updatedBot.personality_context,
-          isConnected: updatedBot.is_connected,
-          createdAt: updatedBot.created_at,
-          // Frontend expects these properties - show as successfully auto-deployed
-          autoStarted: true,
-          deploymentRequired: false,
-          requiresManualStart: false,
-          status: "live",
-          message: `🎉 ${bot.bot_name} is ready for deployment! One-click Railway deployment available.`,
-          startupMethod: "railway-oneclick"
-        });
-      }
-
-      if (action === 'disconnect') {
-        const { data: bot, error } = await supabase
-          .from('bots')
-          .select('*')
-          .eq('id', actualBotId)
-          .eq('user_id', userId)
-          .single();
-
-        if (error || !bot) {
-          return res.status(404).json({ error: 'Bot not found' });
-        }
-
-        // For Discord bots, you would stop the Discord client here
-        // In serverless environment, we just update the database
-        if (bot.platform_type === 'discord') {
-          console.log(`Discord bot ${bot.bot_name} marked as disconnected`);
-        }
-
-        // Update database connection status
-        const { data: updatedBot, error: updateError } = await supabase
-          .from('bots')
-          .update({ is_connected: false })
-          .eq('id', actualBotId)
-          .eq('user_id', userId)
-          .select('*')
-          .single();
-
-        if (updateError) {
-          return res.status(500).json({ error: 'Failed to update bot status' });
-        }
-
-        // Create activity
-        await supabase
-          .from('activities')
-          .insert({
-            user_id: userId,
-            activity_type: 'bot_disconnected',
-            description: `Bot ${bot.bot_name} was disconnected`,
-            metadata: { botId: bot.id, platformType: bot.platform_type }
-          });
-
-        // Return response with expected properties for the frontend
-        return res.status(200).json({
-          id: updatedBot.id,
-          botName: updatedBot.bot_name,
-          platformType: updatedBot.platform_type,
-          personalityContext: updatedBot.personality_context,
-          isConnected: updatedBot.is_connected,
-          createdAt: updatedBot.created_at,
-          // Frontend expects these properties
-          autoStarted: false,
-          deploymentRequired: false,
-          requiresManualStart: false,
-          status: "disconnected",
-          message: `${bot.bot_name} has been disconnected`,
-          startupMethod: "none"
-        });
-      }
-
-      if (action === 'sync-commands') {
-        // Handle command sync
-        const { forceRefresh = false } = req.body;
-
-        const { data: bot, error } = await supabase
-          .from('bots')
-          .select('*')
-          .eq('id', actualBotId)
-          .eq('user_id', userId)
-          .single();
-
-        if (error || !bot) {
-          return res.status(404).json({ error: 'Bot not found' });
-        }
-
-        if (bot.platform_type !== 'discord') {
-          return res.status(400).json({ error: 'Command sync is only available for Discord bots' });
-        }
-
-        const result = await discoverAndSyncCommands(bot.token, actualBotId, userId, forceRefresh);
-        
-        if (result.success && result.createdMappings > 0) {
-          // Create activity for manual sync
-          await supabase
-            .from('activities')
-            .insert({
-              user_id: userId,
-              activity_type: 'commands_synced',
-              description: `Manually synced ${result.createdMappings} Discord commands for ${bot.bot_name}`,
-              metadata: { 
-                botId: bot.id, 
-                commandsFound: result.discoveredCommands.length,
-                commandsCreated: result.createdMappings,
-                forceRefresh
-              }
-            });
-        }
-
-        return res.status(200).json(result);
-      }
-
-      // Legacy support for simple isConnected update
-      if (isConnected !== undefined && !action) {
-        const { data: updatedBot, error } = await supabase
-          .from('bots')
-          .update({ 
-            is_connected: isConnected
-          })
-          .eq('id', actualBotId)
-          .eq('user_id', userId)
-          .select('*')
-          .single();
-
-        if (error) throw error;
-
-        // Create activity
-        const activityType = isConnected ? 'bot_connected' : 'bot_disconnected';
-        const description = isConnected 
-          ? `Bot ${updatedBot.bot_name} was connected`
-          : `Bot ${updatedBot.bot_name} was disconnected`;
-
-        await supabase
-          .from('activities')
-          .insert({
-            user_id: userId,
-            activity_type: activityType,
-            description: description,
-            metadata: { botId: updatedBot.id, platformType: updatedBot.platform_type }
-          });
-
-        const formattedBot = {
-          id: updatedBot.id,
-          botName: updatedBot.bot_name,
-          platformType: updatedBot.platform_type,
-          personalityContext: updatedBot.personality_context,
-          isConnected: updatedBot.is_connected,
-          createdAt: updatedBot.created_at
-        };
-
-        return res.status(200).json(formattedBot);
-      }
-
-      return res.status(400).json({ error: 'Invalid action or missing parameters' });
-    }
-
-    // NOTE: Bot deletion is handled by /api/bots/[id].ts 
-    // to avoid routing conflicts
-
-    // WORKAROUND: Handle individual bot operations via query params
-    // This is a temporary fix while Vercel deployment issues are resolved
-    console.log('Request method:', req.method);
-    console.log('Query params:', JSON.stringify(req.query));
-    console.log('botId from query:', req.query.botId);
-    console.log('Type of botId:', typeof req.query.botId);
+  
+  // Simple debug before conditions
+  console.log('METHOD:', req.method);
+  console.log('QUERY_EXISTS:', !!req.query);
+  console.log('BOTID_EXISTS:', !!(req.query && req.query.botId));
+  
+  if (req.method === 'PUT' && req.query && req.query.botId) {
+    console.log('ENTERING PUT LOGIC');
     
-    console.log('Checking PUT condition...');
-    console.log('req.method === "PUT":', req.method === 'PUT');
-    console.log('!!req.query:', !!req.query);
-    console.log('!!req.query.botId:', !!req.query.botId);
-    
-    if (req.method === 'PUT' && req.query && req.query.botId) {
-      console.log('✅ PUT condition matched! Entering bot update logic...');
-      
-      // Update individual bot credentials
-      const botId = Array.isArray(req.query.botId) ? req.query.botId[0] : req.query.botId;
-      
-      console.log('PUT request with botId:', botId);
-      console.log('botId is truthy:', !!botId);
-      console.log('botId type after extraction:', typeof botId);
-      
-      const { botName, token: botToken, personalityContext } = req.body;
-
-      if (!botId) {
-        console.log('ERROR: botId is falsy!', { botId, query: req.query });
-        return res.status(400).json({ error: 'Bot ID is required' });
-      }
-
-      if (!botName && !botToken && personalityContext === undefined) {
-        return res.status(400).json({ error: 'At least one field must be provided for update' });
-      }
-
-      // Get existing bot to verify ownership
-      const { data: existingBot, error: fetchError } = await supabase
-        .from('bots')
-        .select('*')
-        .eq('id', botId)
-        .eq('user_id', userId)
-        .single();
-
-      if (fetchError || !existingBot) {
-        return res.status(404).json({ error: 'Bot not found' });
-      }
-
-      // Prepare update data
-      const updateData: any = {};
-      if (botName) updateData.bot_name = botName;
-      if (botToken) updateData.token = botToken;
-      if (personalityContext !== undefined) updateData.personality_context = personalityContext;
-
-      // If token is being updated, check for conflicts
-      if (botToken && botToken !== existingBot.token) {
-        const { data: conflictBot, error: conflictError } = await supabase
-          .from('bots')
-          .select('id, bot_name, user_id')
-          .eq('token', botToken)
-          .neq('id', botId)
-          .single();
-
-        if (conflictError && conflictError.code !== 'PGRST116') {
-          console.error('Error checking for token conflict:', conflictError);
-          return res.status(500).json({ error: 'Failed to validate token' });
-        }
-
-        if (conflictBot) {
-          return res.status(409).json({ 
-            error: 'Token already in use',
-            details: 'This Discord bot token is already being used by another bot.',
-            suggestion: 'Please use a different Discord bot token.'
-          });
-        }
-
-        // If token is being changed and bot is connected, disconnect it first
-        if (existingBot.is_connected) {
-          updateData.is_connected = false;
-        }
-      }
-
-      // Update the bot
-      const { data: updatedBot, error: updateError } = await supabase
-        .from('bots')
-        .update(updateData)
-        .eq('id', botId)
-        .eq('user_id', userId)
-        .select()
-        .single();
-
-      if (updateError) {
-        console.error('Error updating bot:', updateError);
-        return res.status(500).json({ 
-          error: 'Failed to update bot',
-          details: 'There was an error updating your bot. Please try again.'
-        });
-      }
-
-      // Create activity log
-      await supabase
-        .from('activities')
-        .insert({
-          user_id: userId,
-          activity_type: 'bot_updated',
-          description: `Bot "${updatedBot.bot_name}" was updated`,
-          metadata: { 
-            botId: updatedBot.id,
-            changes: Object.keys(updateData)
-          }
-        });
-
-      // Return formatted response
-      const formattedBot = {
-        id: updatedBot.id,
-        botName: updatedBot.bot_name,
-        platformType: updatedBot.platform_type,
-        personalityContext: updatedBot.personality_context,
-        isConnected: updatedBot.is_connected,
-        createdAt: updatedBot.created_at
-      };
-
-      return res.status(200).json(formattedBot);
+    // Extract botId safely
+    let botId;
+    try {
+      botId = Array.isArray(req.query.botId) ? req.query.botId[0] : req.query.botId;
+      console.log('EXTRACTED_BOTID:', botId);
+    } catch (e) {
+      console.log('BOTID_EXTRACTION_ERROR:', e.message);
+      return res.status(400).json({ error: 'Invalid botId parameter' });
     }
+
+    if (!botId) {
+      console.log('BOTID_EMPTY_AFTER_EXTRACTION');
+      return res.status(400).json({ error: 'Bot ID is required' });
+    }
+
+    console.log('PROCEEDING_WITH_UPDATE');
+    
+    const { botName, token: botToken, personalityContext } = req.body;
+
+    if (!botName && !botToken && personalityContext === undefined) {
+      return res.status(400).json({ error: 'At least one field must be provided for update' });
+    }
+
+    // Get existing bot to verify ownership
+    const { data: existingBot, error: fetchError } = await supabase
+      .from('bots')
+      .select('*')
+      .eq('id', botId)
+      .eq('user_id', userId)
+      .single();
+
+    if (fetchError || !existingBot) {
+      return res.status(404).json({ error: 'Bot not found' });
+    }
+
+    // Prepare update data
+    const updateData: any = {};
+    if (botName) updateData.bot_name = botName;
+    if (botToken) updateData.token = botToken;
+    if (personalityContext !== undefined) updateData.personality_context = personalityContext;
+
+    // If token is being updated, check for conflicts
+    if (botToken && botToken !== existingBot.token) {
+      const { data: conflictBot, error: conflictError } = await supabase
+        .from('bots')
+        .select('id, bot_name, user_id')
+        .eq('token', botToken)
+        .neq('id', botId)
+        .single();
+
+      if (conflictError && conflictError.code !== 'PGRST116') {
+        console.error('Error checking for token conflict:', conflictError);
+        return res.status(500).json({ error: 'Failed to validate token' });
+      }
+
+      if (conflictBot) {
+        return res.status(409).json({ 
+          error: 'Token already in use',
+          details: 'This Discord bot token is already being used by another bot.',
+          suggestion: 'Please use a different Discord bot token.'
+        });
+      }
+
+      // If token is being changed and bot is connected, disconnect it first
+      if (existingBot.is_connected) {
+        updateData.is_connected = false;
+      }
+    }
+
+    // Update the bot
+    const { data: updatedBot, error: updateError } = await supabase
+      .from('bots')
+      .update(updateData)
+      .eq('id', botId)
+      .eq('user_id', userId)
+      .select()
+      .single();
+
+    if (updateError) {
+      console.error('Error updating bot:', updateError);
+      return res.status(500).json({ 
+        error: 'Failed to update bot',
+        details: 'There was an error updating your bot. Please try again.'
+      });
+    }
+
+    // Create activity log
+    await supabase
+      .from('activities')
+      .insert({
+        user_id: userId,
+        activity_type: 'bot_updated',
+        description: `Bot "${updatedBot.bot_name}" was updated`,
+        metadata: { 
+          botId: updatedBot.id,
+          changes: Object.keys(updateData)
+        }
+      });
+
+    // Return formatted response
+    const formattedBot = {
+      id: updatedBot.id,
+      botName: updatedBot.bot_name,
+      platformType: updatedBot.platform_type,
+      personalityContext: updatedBot.personality_context,
+      isConnected: updatedBot.is_connected,
+      createdAt: updatedBot.created_at
+    };
+
+    return res.status(200).json(formattedBot);
+  }
 
     if (req.method === 'DELETE' && req.query && req.query.botId) {
       // Delete individual bot
