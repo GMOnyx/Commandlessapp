@@ -443,6 +443,19 @@ async function processDiscordMessageWithAI(message, guildId, channelId, userId, 
       };
     }
 
+    // **CRITICAL FIX**: Get the bot personality context FIRST, before any processing
+    const { data: bots, error: botError } = await supabase
+      .from('bots')
+      .select('personality_context')
+      .eq('user_id', userIdToUse)
+      .limit(1);
+
+    const personalityContext = bots && bots[0] ? bots[0].personality_context : null;
+    console.log('🎭 PERSONALITY CONTEXT LOADED:', personalityContext ? 'YES' : 'NO');
+    if (personalityContext) {
+      console.log('🎭 PERSONALITY PREVIEW:', personalityContext.substring(0, 100) + '...');
+    }
+
     // **CRITICAL PREPROCESSING**: Check for conversational input BEFORE AI
     // This matches the sophisticated local TypeScript system
     if (isConversationalInput(cleanMessage)) {
