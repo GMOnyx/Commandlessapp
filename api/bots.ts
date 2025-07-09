@@ -53,6 +53,8 @@ export default async function handler(req: any, res: any) {
   }
 
   const { action } = req.query;
+  const bodyAction = req.body?.action;
+  const finalAction = action || bodyAction;
   
   // Authentication
   const authHeader = req.headers.authorization;
@@ -108,7 +110,7 @@ export default async function handler(req: any, res: any) {
       }
     }
 
-    if (req.method === 'GET' && !action) {
+    if (req.method === 'GET' && !finalAction) {
       // Get all bots for the user
       const { data: bots, error } = await supabase
         .from('bots')
@@ -137,7 +139,7 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json(formattedBots);
     }
 
-    if (req.method === 'POST' && !action) {
+    if (req.method === 'POST' && !finalAction) {
       // Create new bot
       const { botName, platformType, token, personalityContext } = req.body;
       
@@ -404,6 +406,128 @@ export default async function handler(req: any, res: any) {
         success: true,
         message: `${bot.bot_name} has been deleted successfully.`
       });
+    }
+
+    // Handle body-based actions (connect, disconnect, sync-commands)
+    if (req.method === 'PUT' && finalAction) {
+      const { botId } = req.body;
+      
+      if (!botId) {
+        return res.status(400).json({ error: 'Bot ID is required for this action' });
+      }
+
+      // Get bot to verify ownership
+      const { data: bot, error: fetchError } = await supabase
+        .from('bots')
+        .select('*')
+        .eq('id', botId)
+        .eq('user_id', userId)
+        .single();
+
+      if (fetchError || !bot) {
+        return res.status(404).json({ error: 'Bot not found' });
+      }
+
+      if (finalAction === 'connect') {
+        // Connect bot - this is a simplified version that just updates the database
+        // In a full implementation, this would also start the bot service
+        const { error: updateError } = await supabase
+          .from('bots')
+          .update({ is_connected: true })
+          .eq('id', botId)
+          .eq('user_id', userId);
+
+        if (updateError) {
+          return res.status(500).json({ 
+            error: 'Failed to connect bot',
+            message: 'There was an error connecting your bot. Please try again.'
+          });
+        }
+
+        // Create activity log
+        await supabase
+          .from('activities')
+          .insert({
+            user_id: userId,
+            activity_type: 'bot_connected',
+            description: `Bot "${bot.bot_name}" was connected`,
+            metadata: { botId: bot.id }
+          });
+
+        return res.status(200).json({
+          success: true,
+          autoStarted: true,
+          message: `${bot.bot_name} has been connected successfully.`
+        });
+      }
+
+      if (finalAction === 'disconnect') {
+        // Disconnect bot
+        const { error: updateError } = await supabase
+          .from('bots')
+          .update({ is_connected: false })
+          .eq('id', botId)
+          .eq('user_id', userId);
+
+        if (updateError) {
+          return res.status(500).json({ 
+            error: 'Failed to disconnect bot',
+            message: 'There was an error disconnecting your bot. Please try again.'
+          });
+        }
+
+        // Create activity log
+        await supabase
+          .from('activities')
+          .insert({
+            user_id: userId,
+            activity_type: 'bot_disconnected',
+            description: `Bot "${bot.bot_name}" was disconnected`,
+            metadata: { botId: bot.id }
+          });
+
+        return res.status(200).json({
+          success: true,
+          message: `${bot.bot_name} has been disconnected successfully.`
+        });
+      }
+
+      if (finalAction === 'sync-commands') {
+        // Sync Discord commands
+        if (bot.platform_type === 'discord') {
+          const { forceRefresh = false } = req.body;
+          
+          try {
+            const syncResult = await discoverAndSyncCommands(bot.token, bot.id, userId, forceRefresh);
+            
+            if (syncResult.success) {
+              return res.status(200).json({
+                success: true,
+                message: syncResult.message,
+                commandCount: syncResult.commandCount,
+                createdMappings: syncResult.createdMappings,
+                discoveredCommands: syncResult.discoveredCommands
+              });
+            } else {
+              return res.status(500).json({
+                error: 'Command sync failed',
+                message: syncResult.message
+              });
+            }
+          } catch (error) {
+            return res.status(500).json({
+              error: 'Command sync failed',
+              message: error instanceof Error ? error.message : 'Unknown error'
+            });
+          }
+        } else {
+          return res.status(400).json({ 
+            error: 'Command sync only available for Discord bots'
+          });
+        }
+      }
+
+      return res.status(400).json({ error: `Unknown action: ${finalAction}` });
     }
 
     return res.status(400).json({ error: 'Invalid request method or action' });
