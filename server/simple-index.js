@@ -448,134 +448,37 @@ async function processDiscordMessageWithAI(message, guildId, channelId, userId, 
     if (isConversationalInput(cleanMessage)) {
       console.log(`🎯 CONVERSATIONAL INPUT DETECTED: "${cleanMessage}" - Using personality for response`);
       
-      // Return appropriate conversational response based on input WITH personality
-      const lowerMessage = cleanMessage.toLowerCase();
-      
-      if (lowerMessage.includes('wassup') || lowerMessage.includes('what\'s up') || lowerMessage.includes('whats up')) {
-        console.log(`🎯 WASSUP DETECTED: Using personality context for "${cleanMessage}"`);
-        if (personalityContext) {
-          // Use AI to generate personality-based response for conversational input
-          try {
-            const conversationalPrompt = `${personalityContext}
+      // ALWAYS use AI with personality context for conversational responses
+      if (personalityContext) {
+        try {
+          const conversationalPrompt = `${personalityContext}
 
 The user just said: "${cleanMessage}"
 
 Respond in character as described above. Keep it conversational and friendly, matching your personality. Be brief but engaging.`;
 
-            const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
-            const result = await model.generateContent(conversationalPrompt);
-            const response = await result.response;
-            const personalityResponse = response.text();
-            
-            if (personalityResponse) {
-              console.log(`🎭 PERSONALITY RESPONSE: ${personalityResponse}`);
-              return {
-                processed: true,
-                conversationalResponse: personalityResponse.trim()
-              };
-            }
-          } catch (error) {
-            console.log(`🎭 PERSONALITY AI ERROR: ${error.message}`);
+          const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+          const result = await model.generateContent(conversationalPrompt);
+          const response = await result.response;
+          const personalityResponse = response.text();
+          
+          if (personalityResponse) {
+            console.log(`🎭 PERSONALITY RESPONSE: ${personalityResponse}`);
+            return {
+              processed: true,
+              conversationalResponse: personalityResponse.trim()
+            };
           }
+        } catch (error) {
+          console.log(`🎭 PERSONALITY AI ERROR: ${error.message}`);
         }
-        
-        // Fallback if no personality or AI fails
-        return {
-          processed: true,
-          conversationalResponse: "Hey! Not much, just chillin' and ready to help out. What's going on with you? 😎"
-        };
-      } else if (lowerMessage.includes('how') && (lowerMessage.includes('going') || lowerMessage.includes('doing'))) {
-        if (personalityContext) {
-          try {
-            const conversationalPrompt = `${personalityContext}
-
-The user just asked: "${cleanMessage}"
-
-Respond in character as described above. Keep it conversational and friendly, matching your personality. Be brief but engaging.`;
-
-            const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
-            const result = await model.generateContent(conversationalPrompt);
-            const response = await result.response;
-            const personalityResponse = response.text();
-            
-            if (personalityResponse) {
-              return {
-                processed: true,
-                conversationalResponse: personalityResponse.trim()
-              };
-            }
-          } catch (error) {
-            console.log(`🎭 PERSONALITY AI ERROR: ${error.message}`);
-          }
-        }
-        return {
-          processed: true,
-          conversationalResponse: "I'm doing great! Running smooth and ready for action. How about you? Need help with anything? 🚀"
-        };
-      } else if (lowerMessage.includes('hello') || lowerMessage.includes('hi') || lowerMessage.includes('hey')) {
-        if (personalityContext) {
-          try {
-            const conversationalPrompt = `${personalityContext}
-
-The user just said: "${cleanMessage}"
-
-Respond in character as described above. Introduce yourself briefly and be welcoming. Keep it conversational and match your personality.`;
-
-            const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
-            const result = await model.generateContent(conversationalPrompt);
-            const response = await result.response;
-            const personalityResponse = response.text();
-            
-            if (personalityResponse) {
-              return {
-                processed: true,
-                conversationalResponse: personalityResponse.trim()
-              };
-            }
-          } catch (error) {
-            console.log(`🎭 PERSONALITY AI ERROR: ${error.message}`);
-          }
-        }
-        return {
-          processed: true,
-          conversationalResponse: "Hello! I'm your AI Discord bot. You can give me natural language commands and I'll execute them intelligently."
-        };
-      } else if (lowerMessage.includes('help')) {
-        const commandNames = commands.map(cmd => cmd.name).slice(0, 5);
-        return {
-          processed: true,
-          conversationalResponse: `I can help with these commands: ${commandNames.join(', ')}. Try using natural language like "execute ${commandNames[0]}" or just mention the command name!`
-        };
-      } else {
-        // Default conversational response for other patterns
-        if (personalityContext) {
-          try {
-            const conversationalPrompt = `${personalityContext}
-
-The user just said: "${cleanMessage}"
-
-Respond in character as described above. Keep it conversational and friendly, matching your personality. Be brief but engaging.`;
-
-            const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
-            const result = await model.generateContent(conversationalPrompt);
-            const response = await result.response;
-            const personalityResponse = response.text();
-            
-            if (personalityResponse) {
-              return {
-                processed: true,
-                conversationalResponse: personalityResponse.trim()
-              };
-            }
-          } catch (error) {
-            console.log(`🎭 PERSONALITY AI ERROR: ${error.message}`);
-          }
-        }
-        return {
-          processed: true,
-          conversationalResponse: "Hey! What's up? I'm here and ready to help with whatever you need!"
-        };
       }
+      
+      // Only fallback to generic if no personality context exists
+      return {
+        processed: true,
+        conversationalResponse: "Hi there! I'm here to help. What can I do for you?"
+      };
     } else {
       console.log(`🎯 NOT CONVERSATIONAL: "${cleanMessage}" - Proceeding to AI analysis`);
     }
@@ -583,11 +486,39 @@ Respond in character as described above. Keep it conversational and friendly, ma
     // **EXACT LOCAL IMPLEMENTATION**: Check for help requests BEFORE AI processing
     const lowerMessage = cleanMessage.toLowerCase();
     if (lowerMessage.includes('help') || lowerMessage.includes('what can you do') || lowerMessage.includes('commands')) {
-      console.log(`🎯 HELP REQUEST DETECTED: "${cleanMessage}" - Bypassing AI`);
+      console.log(`🎯 HELP REQUEST DETECTED: "${cleanMessage}" - Using AI with personality`);
+      
+      // Use AI with personality for help responses too
+      if (personalityContext) {
+        try {
+          const commandNames = commands.map(cmd => cmd.name).slice(0, 5);
+          const helpPrompt = `${personalityContext}
+
+The user is asking for help or wants to know what you can do. Here are your available commands: ${commandNames.join(', ')}
+
+Respond in character as described above. Explain your capabilities and available commands in your personality style. Be helpful and engaging.`;
+
+          const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+          const result = await model.generateContent(helpPrompt);
+          const response = await result.response;
+          const personalityResponse = response.text();
+          
+          if (personalityResponse) {
+            return {
+              processed: true,
+              conversationalResponse: personalityResponse.trim()
+            };
+          }
+        } catch (error) {
+          console.log(`🎭 PERSONALITY AI ERROR: ${error.message}`);
+        }
+      }
+      
+      // Fallback only if no personality
       const commandNames = commands.map(cmd => cmd.name).slice(0, 5);
       return {
         processed: true,
-        conversationalResponse: `I can help with these commands: ${commandNames.join(', ')}. Try using natural language like "execute ${commandNames[0]}" or just mention the command name!`
+        conversationalResponse: `I can help with these commands: ${commandNames.join(', ')}. Try using natural language!`
       };
     }
 
@@ -651,6 +582,32 @@ Respond in character as described above. Keep it conversational and friendly, ma
       
       // Only ask for clarification if confidence is very low (< 0.6)
       if (analysisResult.bestMatch.confidence < 0.6) {
+        // Use AI with personality for clarification too
+        if (personalityContext) {
+          try {
+            const clarificationPrompt = `${personalityContext}
+
+The user said: "${cleanMessage}"
+
+I think they want to execute a command, but I'm not confident about the details. Respond in character and ask for clarification in your personality style. Be helpful and specific about what information you need.`;
+
+            const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+            const result = await model.generateContent(clarificationPrompt);
+            const response = await result.response;
+            const personalityResponse = response.text();
+            
+            if (personalityResponse) {
+              return {
+                processed: true,
+                needsClarification: true,
+                clarificationQuestion: personalityResponse.trim()
+              };
+            }
+          } catch (error) {
+            console.log(`🎭 PERSONALITY AI ERROR: ${error.message}`);
+          }
+        }
+        
         return {
           processed: true,
           needsClarification: true,
@@ -679,6 +636,30 @@ Respond in character as described above. Keep it conversational and friendly, ma
     
   } catch (error) {
     console.log(`Error processing Discord message with AI: ${error.message}`);
+    
+    // Use AI with personality for error messages too
+    if (personalityContext) {
+      try {
+        const errorPrompt = `${personalityContext}
+
+I encountered a technical error while processing the user's request. Respond in character and apologize for the issue in your personality style. Ask them to try again and be supportive.`;
+
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+        const result = await model.generateContent(errorPrompt);
+        const response = await result.response;
+        const personalityResponse = response.text();
+        
+        if (personalityResponse) {
+          return {
+            processed: true,
+            conversationalResponse: personalityResponse.trim()
+          };
+        }
+      } catch (aiError) {
+        console.log(`🎭 PERSONALITY AI ERROR IN ERROR HANDLER: ${aiError.message}`);
+      }
+    }
+    
     return {
       processed: true,
       conversationalResponse: "Sorry, I had some trouble processing that. Could you try again?"
