@@ -500,7 +500,39 @@ export default async function handler(req: any, res: any) {
           try {
             const syncResult = await discoverAndSyncCommands(bot.token, bot.id, userId, forceRefresh);
             
-            if (syncResult.success) {
+            if (syncResult.success && syncResult.discoveredCommands && syncResult.discoveredCommands.length > 0) {
+              // Generate AI examples for the synced commands
+              try {
+                console.log('🎯 Generating AI examples for synced commands...');
+                const aiExamples = await generateAIExamples(syncResult.discoveredCommands);
+                
+                // Cache the AI examples in the bot record
+                const { error: updateError } = await supabase
+                  .from('bots')
+                  .update({ ai_examples: aiExamples })
+                  .eq('id', bot.id)
+                  .eq('user_id', userId);
+                
+                if (updateError) {
+                  console.error('❌ Failed to cache AI examples:', updateError);
+                  // Don't fail the sync if AI examples fail - it's not critical
+                } else {
+                  console.log('✅ AI examples generated and cached successfully');
+                }
+              } catch (aiError) {
+                console.error('❌ AI example generation failed:', aiError);
+                // Don't fail the sync if AI examples fail
+              }
+              
+              return res.status(200).json({
+                success: true,
+                message: syncResult.message,
+                commandCount: syncResult.commandCount,
+                createdMappings: syncResult.createdMappings,
+                discoveredCommands: syncResult.discoveredCommands,
+                aiExamplesGenerated: true
+              });
+            } else if (syncResult.success) {
               return res.status(200).json({
                 success: true,
                 message: syncResult.message,
@@ -538,6 +570,64 @@ export default async function handler(req: any, res: any) {
       error: 'Internal server error',
       message: error.message
     });
+  }
+}
+
+// AI Example Generation Function
+async function generateAIExamples(commands: any[]): Promise<string> {
+  try {
+    console.log('🎯 Generating AI examples for', commands.length, 'commands');
+    
+    const commandList = commands.map(cmd => 
+      `- ${cmd.name}: ${cmd.description || 'Discord command'}`
+    ).join('\n');
+    
+    const prompt = `Generate natural language examples for these Discord bot commands. Each command should have 2-3 natural phrases that users might say to trigger it.
+
+Commands:
+${commandList}
+
+Format: "natural phrase → COMMAND_NAME"
+Examples:
+- "ban john from the server" → BAN
+- "remove this user" → BAN  
+- "kick him out" → KICK
+- "warn about spam" → WARN
+- "give warning to user" → WARN
+
+Generate examples for ALL commands above. Be creative with natural language variations:`;
+
+    // Use fetch to call Gemini API directly (since we're in Vercel environment)
+    const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=' + process.env.GEMINI_API_KEY, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{
+            text: prompt
+          }]
+        }]
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Gemini API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const examples = data.candidates[0].content.parts[0].text;
+    
+    console.log('✅ Generated AI examples:', examples.substring(0, 200) + '...');
+    return examples;
+    
+  } catch (error) {
+    console.error('❌ Error generating AI examples:', error);
+    // Return fallback examples if AI fails
+    return commands.map(cmd => 
+      `"execute ${cmd.name}" → ${cmd.name.toUpperCase()}`
+    ).join('\n');
   }
 }
 

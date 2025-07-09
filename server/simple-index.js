@@ -183,7 +183,7 @@ function decodeJWT(token) {
 /**
  * Create a comprehensive prompt for AI analysis (EXACT from local TypeScript)
  */
-function createAnalysisPrompt(message, availableCommands, botPersonality, conversationContext) {
+function createAnalysisPrompt(message, availableCommands, botPersonality, conversationContext, aiExamples) {
   const commandList = availableCommands.map(cmd => 
     `- ID: ${cmd.id}, Name: ${cmd.name}, Pattern: ${cmd.natural_language_pattern}, Output: ${cmd.command_output}`
   ).join('\n');
@@ -202,6 +202,11 @@ function createAnalysisPrompt(message, availableCommands, botPersonality, conver
 - Look for conversational cues like "thanks", "ok", "got it", "what about", "also", "and", etc.
 - But also look for command cues like "ban", "kick", "warn", "purge", "say", etc. even in replies\n`
     : '';
+
+  // Use dynamic AI examples if available, otherwise fallback to basic examples
+  const exampleSection = aiExamples 
+    ? `\n🎯 **DYNAMIC COMMAND EXAMPLES** (Generated for this bot's specific commands):\n${aiExamples}\n`
+    : `\n🎯 **BASIC COMMAND EXAMPLES**:\n- "ban john from the server" → BAN\n- "remove this user" → BAN\n- "kick him out" → KICK\n- "warn about spam" → WARN\n- "give warning to user" → WARN\n- "delete 5 messages" → PURGE\n- "tell everyone meeting starts now" → SAY\n`;
 
   return `${personalityContext}
 
@@ -237,6 +242,7 @@ ${contextSection}You are an advanced natural language processor for Discord bot 
 
 AVAILABLE COMMANDS:
 ${commandList}
+${exampleSection}
 
 🎯 **PARAMETER EXTRACTION MASTERY:**
 
@@ -376,7 +382,7 @@ function parseAIResponse(content) {
 /**
  * Analyze a message with AI for command/conversational intent (EXACT from local TypeScript)
  */
-async function analyzeMessageWithAI(message, availableCommands, botPersonality, conversationContext) {
+async function analyzeMessageWithAI(message, availableCommands, botPersonality, conversationContext, aiExamples) {
   try {
     // Preprocess message to extract Discord mentions
     const { cleanMessage, extractedMentions } = preprocessDiscordMessage(message);
@@ -387,7 +393,7 @@ async function analyzeMessageWithAI(message, availableCommands, botPersonality, 
       enhancedMessage += `\n\nEXTRACTED_MENTIONS: ${JSON.stringify(extractedMentions)}`;
     }
     
-    const prompt = createAnalysisPrompt(enhancedMessage, availableCommands, botPersonality, conversationContext);
+    const prompt = createAnalysisPrompt(enhancedMessage, availableCommands, botPersonality, conversationContext, aiExamples);
     
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
     const result = await model.generateContent(prompt);
@@ -470,14 +476,19 @@ async function processDiscordMessageWithAI(message, guildId, channelId, userId, 
     // **CRITICAL FIX**: Get the bot personality context FIRST, before any processing
     const { data: bots, error: botError } = await supabase
       .from('bots')
-      .select('personality_context')
+      .select('personality_context, ai_examples')
       .eq('user_id', userIdToUse)
       .limit(1);
 
     const personalityContext = bots && bots[0] ? bots[0].personality_context : null;
+    const aiExamples = bots && bots[0] ? bots[0].ai_examples : null;
     console.log('🎭 PERSONALITY CONTEXT LOADED:', personalityContext ? 'YES' : 'NO');
+    console.log('🎯 AI EXAMPLES LOADED:', aiExamples ? 'YES' : 'NO');
     if (personalityContext) {
       console.log('🎭 PERSONALITY PREVIEW:', personalityContext.substring(0, 100) + '...');
+    }
+    if (aiExamples) {
+      console.log('🎯 AI EXAMPLES PREVIEW:', aiExamples.substring(0, 100) + '...');
     }
 
     // **CRITICAL PREPROCESSING**: Check for conversational input BEFORE AI
@@ -564,7 +575,8 @@ Respond in character as described above. Explain your capabilities and available
       cleanMessage, 
       commands, 
       personalityContext,
-      conversationContext
+      conversationContext,
+      aiExamples
     );
     
     // Handle different types of responses (EXACT from local system)
@@ -701,6 +713,47 @@ I encountered a technical error while processing the user's request. Respond in 
       processed: true,
       conversationalResponse: "Sorry, I had some trouble processing that. Could you try again?"
     };
+  }
+}
+
+// AI Example Generation Function
+async function generateCommandExamples(commands) {
+  try {
+    console.log('🎯 Generating AI examples for', commands.length, 'commands');
+    
+    const commandList = commands.map(cmd => 
+      `- ${cmd.name}: ${cmd.description || 'Discord command'}`
+    ).join('\n');
+    
+    const prompt = `Generate natural language examples for these Discord bot commands. Each command should have 2-3 natural phrases that users might say to trigger it.
+
+Commands:
+${commandList}
+
+Format: "natural phrase → COMMAND_NAME"
+Examples:
+- "ban john from the server" → BAN
+- "remove this user" → BAN  
+- "kick him out" → KICK
+- "warn about spam" → WARN
+- "give warning to user" → WARN
+
+Generate examples for ALL commands above. Be creative with natural language variations:`;
+
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const examples = response.text();
+    
+    console.log('✅ Generated AI examples:', examples.substring(0, 200) + '...');
+    return examples;
+    
+  } catch (error) {
+    console.error('❌ Error generating AI examples:', error);
+    // Return fallback examples if AI fails
+    return commands.map(cmd => 
+      `"execute ${cmd.name}" → ${cmd.name.toUpperCase()}`
+    ).join('\n');
   }
 }
 
