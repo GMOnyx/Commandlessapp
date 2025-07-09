@@ -2,10 +2,10 @@
   "name": "commandless-server",
   "version": "1.0.0",
   "description": "Commandless Discord Bot Server",
-  "main": "universal-relay-service.js",
+  "main": "simple-index.js",
   "scripts": {
-    "start": "node universal-relay-service.js",
-    "dev": "node universal-relay-service.js",
+    "start": "node simple-index.js",
+    "dev": "node simple-index.js",
     "backend": "node simple-index.js"
   },
   "dependencies": {
