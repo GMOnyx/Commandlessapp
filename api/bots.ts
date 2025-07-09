@@ -79,10 +79,143 @@ export default async function handler(req: any, res: any) {
 
   console.log('=== AUTHENTICATION COMPLETE ===');
   
-  // Simple debug before conditions
-  console.log('METHOD:', req.method);
-  console.log('QUERY_EXISTS:', !!req.query);
-  console.log('BOTID_EXISTS:', !!(req.query && req.query.botId));
+  try {
+    // Ensure user exists in database
+    const { data: existingUser, error: userError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('id', userId)
+      .maybeSingle();
+
+    if (userError && userError.code !== 'PGRST116') { // PGRST116 = not found
+      console.error('User check error:', userError);
+      return res.status(500).json({ error: 'User verification failed' });
+    }
+
+    if (!existingUser) {
+      console.log('Creating new user record for:', userId);
+      const { error: createError } = await supabase
+        .from('users')
+        .insert({
+          id: userId,
+          username: userId,
+          name: userId,
+          role: 'user'
+        });
+      if (createError) {
+        console.error('Failed to create user:', createError);
+        return res.status(500).json({ error: 'Failed to create user record' });
+      }
+    }
+
+    if (req.method === 'GET' && !action) {
+      // Get all bots for the user
+      const { data: bots, error } = await supabase
+        .from('bots')
+        .select(`
+          id,
+          bot_name,
+          platform_type,
+          personality_context,
+          is_connected,
+          created_at
+        `)
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      const formattedBots = bots.map(bot => ({
+        id: bot.id,
+        botName: bot.bot_name,
+        platformType: bot.platform_type,
+        personalityContext: bot.personality_context,
+        isConnected: bot.is_connected,
+        createdAt: bot.created_at
+      }));
+
+      return res.status(200).json(formattedBots);
+    }
+
+    if (req.method === 'POST' && !action) {
+      // Create new bot
+      const { botName, platformType, token, personalityContext } = req.body;
+      
+      if (!botName || !platformType || !token) {
+        return res.status(400).json({ 
+          error: 'Missing required fields', 
+          details: {
+            botName: !!botName,
+            platformType: !!platformType,
+            token: !!token
+          }
+        });
+      }
+
+      // Validate Discord token if it's a Discord bot
+      if (platformType === 'discord') {
+        const tokenValidation = await validateDiscordToken(token);
+        if (!tokenValidation.valid) {
+          return res.status(400).json({ error: 'Invalid Discord bot token' });
+        }
+      }
+
+      // Auto-generate personality context for Discord bots if none provided
+      let finalPersonalityContext = personalityContext;
+      if (platformType === 'discord' && !personalityContext) {
+        finalPersonalityContext = `You are ${botName}, a helpful Discord moderation bot. You can understand natural language commands and execute Discord moderation actions like banning, kicking, warning users, and managing messages. Always be professional and helpful.`;
+      }
+
+      const { data: newBot, error } = await supabase
+        .from('bots')
+        .insert({
+          user_id: userId,
+          bot_name: botName,
+          platform_type: platformType,
+          token: token,
+          personality_context: finalPersonalityContext,
+          is_connected: false
+        })
+        .select('*')
+        .single();
+
+      if (error) throw error;
+
+      // Auto-discover commands for Discord bots
+      if (platformType === 'discord') {
+        try {
+          await discoverAndSyncCommands(token, newBot.id, userId, false);
+        } catch (discoveryError) {
+          console.error('Command discovery failed during bot creation:', discoveryError);
+        }
+      }
+
+      // Create activity
+      await supabase
+        .from('activities')
+        .insert({
+          user_id: userId,
+          activity_type: 'bot_created',
+          description: `Created new ${platformType} bot: ${botName}`,
+          metadata: { botId: newBot.id, platformType }
+        });
+
+      const formattedBot = {
+        id: newBot.id,
+        botName: newBot.bot_name,
+        platformType: newBot.platform_type,
+        personalityContext: newBot.personality_context,
+        isConnected: newBot.is_connected,
+        createdAt: newBot.created_at
+      };
+
+      return res.status(201).json(formattedBot);
+    }
+  
+    // Simple debug before conditions
+    console.log('METHOD:', req.method);
+    console.log('QUERY_EXISTS:', !!req.query);
+    console.log('BOTID_EXISTS:', !!(req.query && req.query.botId));
   
   if (req.method === 'PUT' && req.query && req.query.botId) {
     console.log('ENTERING PUT LOGIC');
