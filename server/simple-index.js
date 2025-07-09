@@ -497,7 +497,7 @@ async function processDiscordMessageWithAI(message, guildId, channelId, userId, 
 
     // Get the bot personality context
     const { data: bots, error: botError } = await supabase
-      .from('bot_connections')
+      .from('bots')
       .select('personality_context')
       .eq('user_id', userIdToUse)
       .limit(1);
