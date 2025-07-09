@@ -446,23 +446,96 @@ async function processDiscordMessageWithAI(message, guildId, channelId, userId, 
     // **CRITICAL PREPROCESSING**: Check for conversational input BEFORE AI
     // This matches the sophisticated local TypeScript system
     if (isConversationalInput(cleanMessage)) {
-      console.log(`🎯 CONVERSATIONAL INPUT DETECTED: "${cleanMessage}" - Bypassing aggressive AI`);
+      console.log(`🎯 CONVERSATIONAL INPUT DETECTED: "${cleanMessage}" - Using personality for response`);
       
-      // Return appropriate conversational response based on input
+      // Return appropriate conversational response based on input WITH personality
       const lowerMessage = cleanMessage.toLowerCase();
       
       if (lowerMessage.includes('wassup') || lowerMessage.includes('what\'s up') || lowerMessage.includes('whats up')) {
-        console.log(`🎯 WASSUP DETECTED: Returning conversational response for "${cleanMessage}"`);
+        console.log(`🎯 WASSUP DETECTED: Using personality context for "${cleanMessage}"`);
+        if (personalityContext) {
+          // Use AI to generate personality-based response for conversational input
+          try {
+            const conversationalPrompt = `${personalityContext}
+
+The user just said: "${cleanMessage}"
+
+Respond in character as described above. Keep it conversational and friendly, matching your personality. Be brief but engaging.`;
+
+            const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+            const result = await model.generateContent(conversationalPrompt);
+            const response = await result.response;
+            const personalityResponse = response.text();
+            
+            if (personalityResponse) {
+              console.log(`🎭 PERSONALITY RESPONSE: ${personalityResponse}`);
+              return {
+                processed: true,
+                conversationalResponse: personalityResponse.trim()
+              };
+            }
+          } catch (error) {
+            console.log(`🎭 PERSONALITY AI ERROR: ${error.message}`);
+          }
+        }
+        
+        // Fallback if no personality or AI fails
         return {
           processed: true,
           conversationalResponse: "Hey! Not much, just chillin' and ready to help out. What's going on with you? 😎"
         };
       } else if (lowerMessage.includes('how') && (lowerMessage.includes('going') || lowerMessage.includes('doing'))) {
+        if (personalityContext) {
+          try {
+            const conversationalPrompt = `${personalityContext}
+
+The user just asked: "${cleanMessage}"
+
+Respond in character as described above. Keep it conversational and friendly, matching your personality. Be brief but engaging.`;
+
+            const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+            const result = await model.generateContent(conversationalPrompt);
+            const response = await result.response;
+            const personalityResponse = response.text();
+            
+            if (personalityResponse) {
+              return {
+                processed: true,
+                conversationalResponse: personalityResponse.trim()
+              };
+            }
+          } catch (error) {
+            console.log(`🎭 PERSONALITY AI ERROR: ${error.message}`);
+          }
+        }
         return {
           processed: true,
           conversationalResponse: "I'm doing great! Running smooth and ready for action. How about you? Need help with anything? 🚀"
         };
       } else if (lowerMessage.includes('hello') || lowerMessage.includes('hi') || lowerMessage.includes('hey')) {
+        if (personalityContext) {
+          try {
+            const conversationalPrompt = `${personalityContext}
+
+The user just said: "${cleanMessage}"
+
+Respond in character as described above. Introduce yourself briefly and be welcoming. Keep it conversational and match your personality.`;
+
+            const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+            const result = await model.generateContent(conversationalPrompt);
+            const response = await result.response;
+            const personalityResponse = response.text();
+            
+            if (personalityResponse) {
+              return {
+                processed: true,
+                conversationalResponse: personalityResponse.trim()
+              };
+            }
+          } catch (error) {
+            console.log(`🎭 PERSONALITY AI ERROR: ${error.message}`);
+          }
+        }
         return {
           processed: true,
           conversationalResponse: "Hello! I'm your AI Discord bot. You can give me natural language commands and I'll execute them intelligently."
@@ -475,6 +548,29 @@ async function processDiscordMessageWithAI(message, guildId, channelId, userId, 
         };
       } else {
         // Default conversational response for other patterns
+        if (personalityContext) {
+          try {
+            const conversationalPrompt = `${personalityContext}
+
+The user just said: "${cleanMessage}"
+
+Respond in character as described above. Keep it conversational and friendly, matching your personality. Be brief but engaging.`;
+
+            const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+            const result = await model.generateContent(conversationalPrompt);
+            const response = await result.response;
+            const personalityResponse = response.text();
+            
+            if (personalityResponse) {
+              return {
+                processed: true,
+                conversationalResponse: personalityResponse.trim()
+              };
+            }
+          } catch (error) {
+            console.log(`🎭 PERSONALITY AI ERROR: ${error.message}`);
+          }
+        }
         return {
           processed: true,
           conversationalResponse: "Hey! What's up? I'm here and ready to help with whatever you need!"
@@ -495,20 +591,11 @@ async function processDiscordMessageWithAI(message, guildId, channelId, userId, 
       };
     }
 
-    // Get the bot personality context
-    const { data: bots, error: botError } = await supabase
-      .from('bots')
-      .select('personality_context')
-      .eq('user_id', userIdToUse)
-      .limit(1);
-    
-    const bot = bots && bots.length > 0 ? bots[0] : null;
-    
     // Process the message with enhanced AI logic (EXACT from local system)
     const analysisResult = await analyzeMessageWithAI(
       cleanMessage, 
       commands, 
-      bot?.personality_context || undefined,
+      personalityContext,
       conversationContext
     );
     
