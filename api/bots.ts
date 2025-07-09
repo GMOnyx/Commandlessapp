@@ -550,7 +550,7 @@ async function discoverAndSyncCommands(botToken: string, botId: string, userId: 
     }
 
     // Create command mappings for each discovered command (reference data for AI)
-    const commandMappings = [];
+    const commandMappings: any[] = [];
     
     for (const command of commands) {
       console.log(`🔧 Processing command: ${command.name} (ID: ${command.id})`);
