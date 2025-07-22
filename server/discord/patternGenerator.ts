@@ -242,10 +242,114 @@ export class PatternGenerator {
         continue;
       }
       
-      output += ` ${option.name}:{${option.name}}`;
+      // **CRITICAL FIX**: Use normalized parameter names instead of raw Discord names
+      // This prevents issues with bots that use non-standard parameter names like {add}, {remove}, {target}, etc.
+      const normalizedParam = this.getNormalizedParameterName(option);
+      output += ` ${option.name}:${normalizedParam}`;
     }
     
     return output;
+  }
+  
+  /**
+   * Get normalized parameter name for command output
+   * This ensures consistent parameter naming across all Discord bots
+   */
+  private getNormalizedParameterName(option: DiscordCommandOption): string {
+    const { name, type } = option;
+    const lowerName = name.toLowerCase();
+    
+    // Map Discord parameter names to standardized ones for command output
+    const parameterMapping: Record<string, string> = {
+      // User-related parameters
+      'user': '{user}',
+      'member': '{user}',
+      'target': '{user}',
+      'person': '{user}',
+      'player': '{user}',
+      'add': '{user}',        // Common in mute/ban commands
+      'remove': '{user}',     // Sometimes used for user parameter
+      
+      // Reason-related parameters  
+      'reason': '{reason}',
+      'message': '{reason}',  // Often used for reason
+      'description': '{reason}',
+      'cause': '{reason}',
+      
+      // Role-related parameters
+      'role': '{role}',
+      'rank': '{role}',
+      
+      // Channel-related parameters
+      'channel': '{channel}',
+      'room': '{channel}',
+      
+      // Duration-related parameters
+      'duration': '{duration}',
+      'time': '{duration}',
+      'timeout': '{duration}',
+      'length': '{duration}',
+      
+      // Amount-related parameters
+      'amount': '{amount}',
+      'number': '{amount}',
+      'count': '{amount}',
+      'quantity': '{amount}',
+      
+      // Text/content parameters
+      'text': '{message}',
+      'content': '{message}',
+      'msg': '{message}',
+      
+      // Name parameters
+      'name': '{name}',
+      'title': '{name}'
+    };
+    
+    // First try exact name match
+    if (parameterMapping[lowerName]) {
+      return parameterMapping[lowerName];
+    }
+    
+    // Then try Discord type-based mapping
+    switch (type) {
+      case DISCORD_OPTION_TYPES.USER:
+        return '{user}';
+      case DISCORD_OPTION_TYPES.CHANNEL:
+        return '{channel}';
+      case DISCORD_OPTION_TYPES.ROLE:
+        return '{role}';
+      case DISCORD_OPTION_TYPES.STRING:
+        // For strings, infer based on name patterns
+        if (lowerName.includes('reason') || lowerName.includes('why') || lowerName.includes('cause')) {
+          return '{reason}';
+        }
+        if (lowerName.includes('message') || lowerName.includes('text') || lowerName.includes('content')) {
+          return '{message}';
+        }
+        if (lowerName.includes('duration') || lowerName.includes('time') || lowerName.includes('length')) {
+          return '{duration}';
+        }
+        if (lowerName.includes('name') || lowerName.includes('title')) {
+          return '{name}';
+        }
+        // Default for unrecognized string parameters
+        return '{message}';
+      case DISCORD_OPTION_TYPES.INTEGER:
+      case DISCORD_OPTION_TYPES.NUMBER:
+        if (lowerName.includes('amount') || lowerName.includes('count') || lowerName.includes('number') || lowerName.includes('quantity')) {
+          return '{amount}';
+        }
+        if (lowerName.includes('duration') || lowerName.includes('time') || lowerName.includes('length')) {
+          return '{duration}';
+        }
+        return '{amount}';
+      case DISCORD_OPTION_TYPES.BOOLEAN:
+        return `{${name}}`;
+      default:
+        // Fallback to the original parameter name if we can't normalize it
+        return `{${name}}`;
+    }
   }
   
   /**
