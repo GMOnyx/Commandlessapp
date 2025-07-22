@@ -724,6 +724,38 @@ async function executeDiscordCommand(commandOutput, message) {
           return { success: false, response: `❌ Failed to warn user: ${error.message}` };
         }
 
+      case 'slowmode':
+        try {
+          if (!botMember.permissions.has(PermissionFlagsBits.ManageChannels)) {
+            return { success: false, response: "❌ I don't have permission to manage channels" };
+          }
+
+          // Extract duration in seconds (default 30 seconds)
+          const durationMatch = commandOutput.match(/(\d+)/);
+          const duration = durationMatch ? Math.min(parseInt(durationMatch[1]), 21600) : 30; // Max 6 hours
+          
+          if (!message.channel.isTextBased() || message.channel.isDMBased()) {
+            return { success: false, response: "❌ This command can only be used in server text channels" };
+          }
+
+          if ('setRateLimitPerUser' in message.channel) {
+            await message.channel.setRateLimitPerUser(duration, `Slowmode set by ${message.author.username}`);
+            
+            const formattedDuration = duration === 0 ? 'disabled' : 
+              duration >= 3600 ? `${Math.floor(duration / 3600)}h ${Math.floor((duration % 3600) / 60)}m` :
+              duration >= 60 ? `${Math.floor(duration / 60)}m ${duration % 60}s` : `${duration}s`;
+            
+            return {
+              success: true,
+              response: `🐌 **Slowmode ${duration === 0 ? 'disabled' : 'enabled'}**\n**Duration:** ${formattedDuration}\n**Set by:** ${message.author.username}`
+            };
+          } else {
+            return { success: false, response: "❌ This channel doesn't support slowmode" };
+          }
+        } catch (error) {
+          return { success: false, response: `❌ Failed to set slowmode: ${error.message}` };
+        }
+
       default:
         return {
           success: false,

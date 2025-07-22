@@ -1076,16 +1076,20 @@ function generateContextualPatterns(commandName: string, options: any[]): string
 }
 
 function generateCommandOutput(command: any): string {
-  const commandName = command.name;
+  const commandName = command.name.toLowerCase();
   const options = command.options || [];
   
-  let output = `/${commandName}`;
+  // Generate executable command patterns instead of templates
+  // The URS will handle parameter injection based on context
   
-  for (const option of options) {
-    output += ` {${option.name}}`;
+  // For simple commands without required parameters
+  if (options.length === 0 || options.every(opt => !opt.required)) {
+    return commandName.toUpperCase();
   }
   
-  return output;
+  // For commands with parameters, return the command identifier
+  // The URS will handle building the actual slash command with parameters
+  return commandName.toUpperCase();
 }
 
 // DISCORD TOKEN VALIDATION (migrated from server)

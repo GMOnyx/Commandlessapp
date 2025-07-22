@@ -554,21 +554,15 @@ async function executeDiscordCommand(commandOutput, message) {
             return { success: false, response: "❌ I don't have permission to ban members" };
           }
 
-          // Extract user ID from command output or mentions
+          // Extract user ID from command output
           let userId = null;
           const userMatch = commandOutput.match(/<@!?(\d+)>/) || commandOutput.match(/(\d{17,19})/);
           if (userMatch) {
             userId = userMatch[1];
-          } else if (message.mentions.users.size > 0) {
-            userId = message.mentions.users.first().id;
           }
 
           if (!userId) {
             return { success: false, response: "❌ Please specify a valid user to ban" };
-          }
-
-          if (userId === message.client.user?.id) {
-            return { success: false, response: "❌ I cannot ban myself!" };
           }
 
           // Extract reason
@@ -595,21 +589,15 @@ async function executeDiscordCommand(commandOutput, message) {
             return { success: false, response: "❌ I don't have permission to kick members" };
           }
 
-          // Extract user ID
+          // Extract user ID from command output
           let userId = null;
           const userMatch = commandOutput.match(/<@!?(\d+)>/) || commandOutput.match(/(\d{17,19})/);
           if (userMatch) {
             userId = userMatch[1];
-          } else if (message.mentions.users.size > 0) {
-            userId = message.mentions.users.first().id;
           }
 
           if (!userId) {
             return { success: false, response: "❌ Please specify a valid user to kick" };
-          }
-
-          if (userId === message.client.user?.id) {
-            return { success: false, response: "❌ I cannot kick myself!" };
           }
 
           const reasonMatch = commandOutput.match(/reason:?\s*(.+)/) || 
@@ -633,21 +621,15 @@ async function executeDiscordCommand(commandOutput, message) {
             return { success: false, response: "❌ I don't have permission to timeout members" };
           }
 
-          // Extract user ID
+          // Extract user ID from command output 
           let userId = null;
           const userMatch = commandOutput.match(/<@!?(\d+)>/) || commandOutput.match(/(\d{17,19})/);
           if (userMatch) {
             userId = userMatch[1];
-          } else if (message.mentions.users.size > 0) {
-            userId = message.mentions.users.first().id;
           }
 
           if (!userId) {
             return { success: false, response: "❌ Please specify a valid user to mute" };
-          }
-
-          if (userId === message.client.user?.id) {
-            return { success: false, response: "❌ I cannot mute myself!" };
           }
 
           // Extract duration (default 10 minutes)
@@ -683,21 +665,15 @@ async function executeDiscordCommand(commandOutput, message) {
 
       case 'warn':
         try {
-          // Extract user ID
+          // Extract user ID from command output
           let userId = null;
           const userMatch = commandOutput.match(/<@!?(\d+)>/) || commandOutput.match(/(\d{17,19})/);
           if (userMatch) {
             userId = userMatch[1];
-          } else if (message.mentions.users.size > 0) {
-            userId = message.mentions.users.first().id;
           }
 
           if (!userId) {
             return { success: false, response: "❌ Please specify a valid user to warn" };
-          }
-
-          if (userId === message.client.user?.id) {
-            return { success: false, response: "❌ I cannot warn myself!" };
           }
 
           const reasonMatch = commandOutput.match(/reason:?\s*(.+)/) || 
@@ -722,6 +698,38 @@ async function executeDiscordCommand(commandOutput, message) {
           };
         } catch (error) {
           return { success: false, response: `❌ Failed to warn user: ${error.message}` };
+        }
+
+      case 'slowmode':
+        try {
+          if (!botMember.permissions.has(PermissionFlagsBits.ManageChannels)) {
+            return { success: false, response: "❌ I don't have permission to manage channels" };
+          }
+
+          // Extract duration in seconds (default 30 seconds)
+          const durationMatch = commandOutput.match(/(\d+)/);
+          const duration = durationMatch ? Math.min(parseInt(durationMatch[1]), 21600) : 30; // Max 6 hours
+          
+          if (!message.channel.isTextBased() || message.channel.isDMBased()) {
+            return { success: false, response: "❌ This command can only be used in server text channels" };
+          }
+
+          if ('setRateLimitPerUser' in message.channel) {
+            await message.channel.setRateLimitPerUser(duration, `Slowmode set by ${message.author.username}`);
+            
+            const formattedDuration = duration === 0 ? 'disabled' : 
+              duration >= 3600 ? `${Math.floor(duration / 3600)}h ${Math.floor((duration % 3600) / 60)}m` :
+              duration >= 60 ? `${Math.floor(duration / 60)}m ${duration % 60}s` : `${duration}s`;
+            
+            return {
+              success: true,
+              response: `🐌 **Slowmode ${duration === 0 ? 'disabled' : 'enabled'}**\n**Duration:** ${formattedDuration}\n**Set by:** ${message.author.username}`
+            };
+          } else {
+            return { success: false, response: "❌ This channel doesn't support slowmode" };
+          }
+        } catch (error) {
+          return { success: false, response: `❌ Failed to set slowmode: ${error.message}` };
         }
 
       default:

@@ -164,16 +164,27 @@ export class PatternGenerator {
       'user': '{user}',
       'member': '{user}',
       'target': '{user}',
+      'person': '{user}',
+      'player': '{user}',
+      // Discord mute command often uses non-standard names
+      'add': '{user}',        // Some bots use 'add' for the user to mute
+      'remove': '{reason}',   // Some bots use 'remove' for the reason
+      'role': '{role}',
       'reason': '{reason}',
       'message': '{message}',
       'text': '{text}',
+      'content': '{message}',
       'duration': '{duration}',
-      'time': '{time}',
+      'time': '{duration}',
+      'timeout': '{duration}',
+      'length': '{duration}',
       'amount': '{amount}',
-      'number': '{number}',
+      'number': '{amount}',
+      'count': '{amount}',
+      'quantity': '{amount}',
       'channel': '{channel}',
-      'role': '{role}',
-      'name': '{name}'
+      'name': '{name}',
+      'title': '{name}'
     };
     
     const lowerName = name.toLowerCase();
@@ -181,7 +192,7 @@ export class PatternGenerator {
       return specialPatterns[lowerName];
     }
     
-    // Handle by Discord type
+    // Handle by Discord type - this provides additional normalization
     switch (type) {
       case DISCORD_OPTION_TYPES.USER:
         return '{user}';
@@ -190,9 +201,26 @@ export class PatternGenerator {
       case DISCORD_OPTION_TYPES.ROLE:
         return '{role}';
       case DISCORD_OPTION_TYPES.STRING:
+        // For strings, try to infer what they represent based on name
+        if (lowerName.includes('reason') || lowerName.includes('why') || lowerName.includes('cause')) {
+          return '{reason}';
+        }
+        if (lowerName.includes('message') || lowerName.includes('text') || lowerName.includes('content')) {
+          return '{message}';
+        }
+        if (lowerName.includes('duration') || lowerName.includes('time') || lowerName.includes('length')) {
+          return '{duration}';
+        }
         return `{${name}}`;
       case DISCORD_OPTION_TYPES.INTEGER:
       case DISCORD_OPTION_TYPES.NUMBER:
+        // For numbers, try to infer what they represent
+        if (lowerName.includes('amount') || lowerName.includes('count') || lowerName.includes('number') || lowerName.includes('quantity')) {
+          return '{amount}';
+        }
+        if (lowerName.includes('duration') || lowerName.includes('time') || lowerName.includes('length')) {
+          return '{duration}';
+        }
         return `{${name}}`;
       case DISCORD_OPTION_TYPES.BOOLEAN:
         return `{${name}}`;
