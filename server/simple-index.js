@@ -645,15 +645,50 @@ Respond in character as described above. Explain your capabilities and available
       // Some Discord bots use {add} for user and {remove} for reason instead of {user} and {reason}
       if (outputCommand.includes('{add}') || outputCommand.includes('{remove}')) {
         console.log('🔧 FIXING WRONG PARAMETER NAMES: {add} -> {user}, {remove} -> {reason}');
+        console.log('🔧 Original finalParams:', finalParams);
+        
+        // Force extraction of user from Discord mentions if not already extracted
+        if (!finalParams.user && !finalParams.add) {
+          const userMentions = message.match(/<@!?(\d+)>/g);
+          if (userMentions && userMentions.length > 0) {
+            // Extract all user IDs
+            const userIds = userMentions.map(mention => {
+              const match = mention.match(/<@!?(\d+)>/);
+              return match ? match[1] : null;
+            }).filter(id => id !== null);
+            
+            // If multiple mentions, try to find the target (not the bot)
+            if (userIds.length > 1) {
+              // Use the last mention as target (usually @bot command @target pattern)
+              finalParams.user = userIds[userIds.length - 1];
+              console.log('🔧 EXTRACTED TARGET USER (last mention):', finalParams.user);
+            } else if (userIds.length === 1) {
+              finalParams.user = userIds[0];
+              console.log('🔧 EXTRACTED SINGLE USER:', finalParams.user);
+            }
+          }
+        }
+        
         // Map the Discord mention to both {add} and {user}
         if (finalParams.user) {
-          finalParams.add = finalParams.user;
+          finalParams.add = `<@${finalParams.user}>`;
+          console.log('🔧 MAPPED USER TO ADD:', finalParams.add);
         }
-        // Map the reason to both {remove} and {reason}  
-        if (finalParams.reason) {
-          finalParams.remove = finalParams.reason;
+        
+        // Extract reason if not already extracted
+        if (!finalParams.reason && !finalParams.remove) {
+          // Try to extract reason from the message (text after the mention)
+          const reasonMatch = message.match(/<@!?\d+>\s+(.+)$/);
+          if (reasonMatch) {
+            finalParams.reason = reasonMatch[1].replace(/mute\s*/i, '').trim();
+            if (finalParams.reason) {
+              finalParams.remove = finalParams.reason;
+              console.log('🔧 EXTRACTED AND MAPPED REASON:', finalParams.reason);
+            }
+          }
         }
-        console.log('🔧 MAPPED PARAMS:', finalParams);
+        
+        console.log('🔧 FINAL MAPPED PARAMS:', finalParams);
       }
       
       // Replace placeholders with extracted parameters
