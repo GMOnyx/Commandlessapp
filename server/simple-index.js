@@ -641,6 +641,12 @@ Respond in character as described above. Explain your capabilities and available
       // Build the command output using extracted parameters
       let outputCommand = command.command_output;
       
+      // **DEBUG**: Log the command output before processing
+      console.log('🔍 DEBUG - Command output before processing:', outputCommand);
+      console.log('🔍 DEBUG - Command contains {add}:', outputCommand.includes('{add}'));
+      console.log('🔍 DEBUG - Command contains {remove}:', outputCommand.includes('{remove}'));
+      console.log('🔍 DEBUG - Final params before processing:', finalParams);
+      
       // **TEMPORARY WORKAROUND**: Fix Discord commands with wrong parameter names
       // Some Discord bots use {add} for user and {remove} for reason instead of {user} and {reason}
       if (outputCommand.includes('{add}') || outputCommand.includes('{remove}')) {
