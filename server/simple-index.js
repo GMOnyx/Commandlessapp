@@ -641,6 +641,21 @@ Respond in character as described above. Explain your capabilities and available
       // Build the command output using extracted parameters
       let outputCommand = command.command_output;
       
+      // **TEMPORARY WORKAROUND**: Fix Discord commands with wrong parameter names
+      // Some Discord bots use {add} for user and {remove} for reason instead of {user} and {reason}
+      if (outputCommand.includes('{add}') || outputCommand.includes('{remove}')) {
+        console.log('🔧 FIXING WRONG PARAMETER NAMES: {add} -> {user}, {remove} -> {reason}');
+        // Map the Discord mention to both {add} and {user}
+        if (finalParams.user) {
+          finalParams.add = finalParams.user;
+        }
+        // Map the reason to both {remove} and {reason}  
+        if (finalParams.reason) {
+          finalParams.remove = finalParams.reason;
+        }
+        console.log('🔧 MAPPED PARAMS:', finalParams);
+      }
+      
       // Replace placeholders with extracted parameters
       if (finalParams) {
         for (const [key, value] of Object.entries(finalParams)) {
