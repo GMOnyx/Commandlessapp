@@ -61,10 +61,30 @@ function isConversationalInput(input) {
 function extractParametersFallback(message, commandPattern) {
   const extractedParams = {};
   
-  // Extract user mentions from text
-  const userMentionMatch = message.match(/<@!?(\d+)>/);
-  if (userMentionMatch) {
-    extractedParams.user = userMentionMatch[1];
+  // Extract ALL user mentions and find the target user (not the bot)
+  const allUserMentions = message.match(/<@!?(\d+)>/g);
+  if (allUserMentions && allUserMentions.length > 0) {
+    // Find the target user mention (usually the one that's NOT the bot being mentioned)
+    const userIds = allUserMentions.map(mention => {
+      const match = mention.match(/<@!?(\d+)>/);
+      return match ? match[1] : null;
+    }).filter(id => id !== null);
+    
+    // If we have multiple mentions, try to determine which is the target
+    if (userIds.length > 1) {
+      // Skip the first mention if it looks like a bot mention at the start
+      const messageWords = message.trim().split(/\s+/);
+      if (messageWords[0] && messageWords[0].match(/<@!?\d+>/)) {
+        // First word is a mention (likely bot mention), use the second user mentioned
+        extractedParams.user = userIds[1];
+      } else {
+        // Use the first user mentioned if no bot mention at start
+        extractedParams.user = userIds[0];
+      }
+    } else if (userIds.length === 1) {
+      // Only one mention - could be bot or target, use it
+      extractedParams.user = userIds[0];
+    }
   }
   
   // Extract reason from common patterns
@@ -229,6 +249,8 @@ ${contextSection}You are an advanced natural language processor for Discord bot 
 - **Username in command = target username** (e.g., "warn john" → target user: "john")  
 - **"me" in command = the user giving the command** (e.g., "mute me" → target: command sender)
 - **Bot should NEVER be the target** unless explicitly commanded to perform self-actions
+- **CRITICAL: In messages like "@bot mute @user", the target is @user, NOT @bot**
+- **ALWAYS extract the target user (the one being acted upon), not the bot being mentioned**
 
 **EXAMPLES OF CORRECT UNDERSTANDING:**
 ❌ WRONG: "mute <@123456>" → "I cannot mute myself!" 
@@ -239,6 +261,12 @@ ${contextSection}You are an advanced natural language processor for Discord bot 
 
 ❌ WRONG: "warn abdarrahman for spamming" → "I cannot warn myself!"
 ✅ CORRECT: "warn abdarrahman for spamming" → Extract user: "abdarrahman", execute warn command
+
+❌ WRONG: "@bot mute @target_user" → Extract user: "bot" (WRONG!)
+✅ CORRECT: "@bot mute @target_user" → Extract user: "target_user", execute mute command
+
+❌ WRONG: Multiple users mentioned, pick the bot as target
+✅ CORRECT: Multiple users mentioned, pick the user being acted upon (not the bot)
 
 AVAILABLE COMMANDS:
 ${commandList}
@@ -622,12 +650,26 @@ Respond in character as described above. Explain your capabilities and available
         }
       }
       
-      // Replace any remaining placeholders with defaults
+      // Replace any remaining placeholders with defaults (but NOT user - if user is missing, it's an error)
       outputCommand = outputCommand.replace(/\{reason\}/g, 'No reason provided');
       outputCommand = outputCommand.replace(/\{message\}/g, 'No message provided');
       outputCommand = outputCommand.replace(/\{amount\}/g, '1');
       outputCommand = outputCommand.replace(/\{duration\}/g, '5m');
-      outputCommand = outputCommand.replace(/\{user\}/g, 'target user');
+      // DON'T replace {user} with default - if user is missing, command should fail
+      
+      // Check if user parameter is still missing for commands that require it
+      if (outputCommand.includes('{user}')) {
+        console.log('❌ USER PARAMETER MISSING - Command requires user but none extracted');
+        console.log('🔍 Original message:', message);
+        console.log('🔍 Clean message:', cleanMessage);
+        console.log('🔍 Final params:', finalParams);
+        console.log('🔍 Command output before user fix:', outputCommand);
+        
+        return {
+          processed: true,
+          conversationalResponse: "I understand you want to use a moderation command, but I couldn't identify which user you're referring to. Please mention the user clearly (e.g., @username)."
+        };
+      }
       
       // Only ask for clarification if confidence is very low (< 0.6)
       if (analysisResult.bestMatch.confidence < 0.6) {
