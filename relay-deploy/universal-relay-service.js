@@ -124,20 +124,13 @@ async function createDiscordClient(bot) {
       try {
         console.log(`🎯 Slash command received: /${interaction.commandName}`);
         
-        // Convert slash command to the same format as AI-processed commands
-        const commandOutput = await convertSlashCommandToCommandOutput(interaction, bot.user_id);
+        // Directly execute known slash commands without database lookup
+        const result = await executeSlashCommand(interaction, `/${interaction.commandName}`);
         
-        if (commandOutput) {
-          // Execute the command using slash command specific logic
-          const result = await executeSlashCommand(interaction, commandOutput);
-          
-          if (result.success) {
-            await interaction.reply({ content: result.response, ephemeral: false });
-          } else {
-            await interaction.reply({ content: result.response, ephemeral: true });
-          }
+        if (result.success) {
+          await interaction.reply({ content: result.response, ephemeral: false });
         } else {
-          await interaction.reply({ content: '❌ Unknown command', ephemeral: true });
+          await interaction.reply({ content: result.response, ephemeral: true });
         }
       } catch (error) {
         console.error('❌ Error handling slash command:', error);
