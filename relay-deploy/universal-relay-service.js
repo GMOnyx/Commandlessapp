@@ -694,10 +694,11 @@ async function executeDiscordCommand(commandOutput, message) {
           if (isSlashCommand) {
             // For slash commands, we need to get the message to pin from context
             // Since slash commands don't have a specific message to pin, 
-            // we'll pin the most recent message in the channel
+            // we'll pin the most recent regular message in the channel (not the slash command)
             try {
-              const messages = await message.channel.messages.fetch({ limit: 1 });
-              const messageToPin = messages.first();
+              const messages = await message.channel.messages.fetch({ limit: 10 });
+              // Find the first message that's not a slash command (slash commands don't show as messages)
+              const messageToPin = messages.find(msg => !msg.author.bot || msg.content);
               
               if (!messageToPin) {
                 return { success: false, response: "❌ No message found to pin" };
@@ -985,4 +986,4 @@ async function executeDiscordCommand(commandOutput, message) {
       response: `❌ An error occurred while executing the command: ${error.message}`
     };
   }
-} 
+}
