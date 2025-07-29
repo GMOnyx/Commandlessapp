@@ -110,8 +110,57 @@ async function createDiscordClient(bot) {
     });
 
     // Bot ready event
-    client.once(Events.ClientReady, (readyClient) => {
+    client.once(Events.ClientReady, async (readyClient) => {
       console.log(`✅ ${bot.bot_name} ready! Logged in as ${readyClient.user.tag}`);
+      
+      // Register discovered commands as Discord slash commands
+      await registerSlashCommands(readyClient, bot.user_id);
+    });
+
+    // Handle slash command interactions
+    client.on(Events.InteractionCreate, async (interaction) => {
+      if (!interaction.isChatInputCommand()) return;
+
+      try {
+        console.log(`🎯 Slash command received: /${interaction.commandName}`);
+        
+        // Convert slash command to the same format as AI-processed commands
+        const commandOutput = await convertSlashCommandToCommandOutput(interaction, bot.user_id);
+        
+        if (commandOutput) {
+          // Execute the command using the same logic as AI commands
+          // Create a mock message object that's compatible with the executeDiscordCommand function
+          const mockMessage = {
+            guild: interaction.guild,
+            channel: interaction.channel,
+            author: interaction.user,
+            mentions: {
+              users: new Map() // We'll populate this based on slash command options
+            },
+            // Add methods/properties that commands might need
+            delete: async () => {}, // Slash commands don't have messages to delete
+            reply: async (content) => interaction.followUp(content),
+            reference: null, // Slash commands don't reference other messages
+            // Mark this as a slash command context
+            isSlashCommand: true
+          };
+          
+          const result = await executeDiscordCommand(commandOutput, mockMessage);
+          
+          if (result.success) {
+            await interaction.reply({ content: result.response, ephemeral: false });
+          } else {
+            await interaction.reply({ content: result.response, ephemeral: true });
+          }
+        } else {
+          await interaction.reply({ content: '❌ Unknown command', ephemeral: true });
+        }
+      } catch (error) {
+        console.error('❌ Error handling slash command:', error);
+        if (!interaction.replied) {
+          await interaction.reply({ content: '❌ An error occurred while executing the command', ephemeral: true });
+        }
+      }
     });
 
     // Message handling
@@ -368,37 +417,202 @@ async function syncBots() {
   }
 }
 
-// Health check endpoint (for Railway)
+// Express health check server
 const app = express();
-const PORT = process.env.PORT || 3000;
-
 app.get('/health', (req, res) => {
-  res.json({
-    status: 'healthy',
-    activeBots: activeClients.size,
-    uptime: process.uptime(),
-    timestamp: new Date().toISOString()
-  });
+  res.json({ status: 'healthy', bots: activeClients.size });
 });
 
-app.get('/status', (req, res) => {
-  const botStatus = Array.from(activeClients.values()).map(({ botInfo, client }) => ({
-    botName: botInfo.bot_name,
-    userId: botInfo.user_id,
-    isReady: client.readyAt !== null,
-    guilds: client.guilds.cache.size
-  }));
-
-  res.json({
-    totalBots: activeClients.size,
-    bots: botStatus,
-    uptime: process.uptime()
-  });
-});
-
+const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`🌐 Health check server running on port ${PORT}`);
 });
+
+/**
+ * Register discovered command mappings as Discord slash commands
+ */
+async function registerSlashCommands(client, userId) {
+  try {
+    console.log('🔄 Registering slash commands from database...');
+    
+    // Get command mappings from database
+    const { data: commandMappings, error } = await supabase
+      .from('command_mappings')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('status', 'active');
+    
+    if (error) {
+      console.error('❌ Error fetching command mappings:', error);
+      return;
+    }
+    
+    if (!commandMappings || commandMappings.length === 0) {
+      console.log('📝 No command mappings found to register');
+      return;
+    }
+    
+    // Convert command mappings to Discord slash command format
+    const slashCommands = commandMappings.map(mapping => {
+      const commandName = extractCommandName(mapping.command_output);
+      const description = mapping.natural_language_pattern || `Execute ${commandName} command`;
+      
+      // Build options based on the command output parameters
+      const options = extractSlashCommandOptions(mapping.command_output);
+      
+      return {
+        name: commandName,
+        description: description.length > 100 ? description.substring(0, 97) + '...' : description,
+        options: options
+      };
+    });
+    
+    // Remove duplicates (same command name)
+    const uniqueCommands = slashCommands.filter((command, index, self) => 
+      index === self.findIndex(c => c.name === command.name)
+    );
+    
+    console.log(`📋 Registering ${uniqueCommands.length} unique slash commands:`, uniqueCommands.map(c => c.name).join(', '));
+    
+    // Register commands with Discord
+    await client.application.commands.set(uniqueCommands);
+    
+    console.log('✅ Slash commands registered successfully');
+    
+  } catch (error) {
+    console.error('❌ Error registering slash commands:', error);
+  }
+}
+
+/**
+ * Convert Discord slash command interaction to command output format
+ */
+async function convertSlashCommandToCommandOutput(interaction, userId) {
+  try {
+    // Find the command mapping in the database
+    const { data: commandMappings, error } = await supabase
+      .from('command_mappings')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('status', 'active');
+    
+    if (error || !commandMappings) {
+      console.error('❌ Error fetching command mappings:', error);
+      return null;
+    }
+    
+    // Find matching command mapping
+    const matchingMapping = commandMappings.find(mapping => {
+      const commandName = extractCommandName(mapping.command_output);
+      return commandName === interaction.commandName;
+    });
+    
+    if (!matchingMapping) {
+      console.log(`❌ No mapping found for slash command: ${interaction.commandName}`);
+      return null;
+    }
+    
+    // Start with the command output template
+    let commandOutput = matchingMapping.command_output;
+    
+    // Replace parameters with values from slash command options
+    if (interaction.options) {
+      interaction.options.data.forEach(option => {
+        const placeholder = `{${option.name}}`;
+        let value = option.value;
+        
+        // Handle user mentions
+        if (option.type === 6) { // USER type
+          value = `<@${option.value}>`;
+        }
+        
+        commandOutput = commandOutput.replace(placeholder, value);
+      });
+    }
+    
+    // Replace any remaining placeholders with defaults
+    commandOutput = commandOutput.replace(/\{reason\}/g, 'No reason provided');
+    commandOutput = commandOutput.replace(/\{message\}/g, 'No message provided');
+    commandOutput = commandOutput.replace(/\{amount\}/g, '1');
+    commandOutput = commandOutput.replace(/\{duration\}/g, '5m');
+    
+    console.log(`🔄 Converted slash command to: ${commandOutput}`);
+    return commandOutput;
+    
+  } catch (error) {
+    console.error('❌ Error converting slash command:', error);
+    return null;
+  }
+}
+
+/**
+ * Extract command name from command output (e.g., "mute" from "/mute {user} {reason}")
+ */
+function extractCommandName(commandOutput) {
+  const match = commandOutput.match(/^\/([a-zA-Z0-9_-]+)/);
+  return match ? match[1] : 'unknown';
+}
+
+/**
+ * Extract slash command options from command output parameters
+ */
+function extractSlashCommandOptions(commandOutput) {
+  const options = [];
+  const paramRegex = /\{([^}]+)\}/g;
+  let match;
+  
+  while ((match = paramRegex.exec(commandOutput)) !== null) {
+    const paramName = match[1];
+    
+    // Map parameter names to Discord option types
+    let option = {
+      name: paramName,
+      description: `The ${paramName} parameter`,
+      required: true
+    };
+    
+    switch (paramName) {
+      case 'user':
+        option.type = 6; // USER
+        option.description = 'The user to target';
+        break;
+      case 'reason':
+        option.type = 3; // STRING
+        option.description = 'The reason for this action';
+        option.required = false;
+        break;
+      case 'message':
+        option.type = 3; // STRING
+        option.description = 'The message content';
+        break;
+      case 'duration':
+        option.type = 3; // STRING
+        option.description = 'Duration (e.g., 10m, 1h, 1d)';
+        option.required = false;
+        break;
+      case 'amount':
+        option.type = 4; // INTEGER
+        option.description = 'Amount or number';
+        option.required = false;
+        break;
+      case 'channel':
+        option.type = 7; // CHANNEL
+        option.description = 'The channel to target';
+        break;
+      case 'role':
+        option.type = 8; // ROLE
+        option.description = 'The role to assign';
+        break;
+      default:
+        option.type = 3; // STRING
+        break;
+    }
+    
+    options.push(option);
+  }
+  
+  return options;
+}
 
 // Main startup
 async function main() {
@@ -474,27 +688,53 @@ async function executeDiscordCommand(commandOutput, message) {
             return { success: false, response: "❌ I don't have permission to pin messages" };
           }
 
-          // Pin the message that the user replied to, or the user's message if no reply
-          let messageToPin = message;
+          // Handle different contexts (slash command vs regular message)
+          const isSlashCommand = message.isSlashCommand;
           
-          // Check if this is a reply and pin the original message
-          if (message.reference?.messageId) {
+          if (isSlashCommand) {
+            // For slash commands, we need to get the message to pin from context
+            // Since slash commands don't have a specific message to pin, 
+            // we'll pin the most recent message in the channel
             try {
-              const referencedMessage = await message.channel.messages.fetch(message.reference.messageId);
-              if (referencedMessage) {
-                messageToPin = referencedMessage;
+              const messages = await message.channel.messages.fetch({ limit: 1 });
+              const messageToPin = messages.first();
+              
+              if (!messageToPin) {
+                return { success: false, response: "❌ No message found to pin" };
               }
+              
+              await messageToPin.pin();
+              
+              return {
+                success: true,
+                response: `📌 **Message pinned**\n**Pinned by:** ${message.author.username}`
+              };
             } catch (error) {
-              // If we can't fetch the referenced message, pin the command message
+              return { success: false, response: `❌ Failed to pin message: ${error.message}` };
             }
+          } else {
+            // Regular message context - pin the message that the user replied to, or the user's message
+            let messageToPin = message;
+            
+            // Check if this is a reply and pin the original message
+            if (message.reference?.messageId) {
+              try {
+                const referencedMessage = await message.channel.messages.fetch(message.reference.messageId);
+                if (referencedMessage) {
+                  messageToPin = referencedMessage;
+                }
+              } catch (error) {
+                // If we can't fetch the referenced message, pin the command message
+              }
+            }
+            
+            await messageToPin.pin();
+            
+            return {
+              success: true,
+              response: `📌 **Message pinned**\n**Pinned by:** ${message.author.username}`
+            };
           }
-          
-          await messageToPin.pin();
-          
-          return {
-            success: true,
-            response: `📌 **Message pinned**\n**Pinned by:** ${message.author.username}`
-          };
         } catch (error) {
           return { success: false, response: `❌ Failed to pin message: ${error.message}` };
         }
