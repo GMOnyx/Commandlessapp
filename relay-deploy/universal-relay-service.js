@@ -128,24 +128,8 @@ async function createDiscordClient(bot) {
         const commandOutput = await convertSlashCommandToCommandOutput(interaction, bot.user_id);
         
         if (commandOutput) {
-          // Execute the command using the same logic as AI commands
-          // Create a mock message object that's compatible with the executeDiscordCommand function
-          const mockMessage = {
-            guild: interaction.guild,
-            channel: interaction.channel,
-            author: interaction.user,
-            mentions: {
-              users: new Map() // We'll populate this based on slash command options
-            },
-            // Add methods/properties that commands might need
-            delete: async () => {}, // Slash commands don't have messages to delete
-            reply: async (content) => interaction.followUp(content),
-            reference: null, // Slash commands don't reference other messages
-            // Mark this as a slash command context
-            isSlashCommand: true
-          };
-          
-          const result = await executeDiscordCommand(commandOutput, mockMessage);
+          // Execute the command using slash command specific logic
+          const result = await executeSlashCommand(interaction, commandOutput);
           
           if (result.success) {
             await interaction.reply({ content: result.response, ephemeral: false });
@@ -981,6 +965,79 @@ async function executeDiscordCommand(commandOutput, message) {
     }
   } catch (error) {
     console.error(`❌ Error executing Discord command:`, error);
+    return {
+      success: false,
+      response: `❌ An error occurred while executing the command: ${error.message}`
+    };
+  }
+}
+
+// Slash Command Execution Function - specifically for Discord slash command interactions
+async function executeSlashCommand(interaction, commandOutput) {
+  try {
+    // Extract the command name from the command output
+    const commandMatch = commandOutput.match(/^(?:Command executed:\s*)?\/([a-zA-Z0-9_-]+)/);
+    if (!commandMatch) {
+      return {
+        success: false,
+        response: `❌ Invalid command format: ${commandOutput}`
+      };
+    }
+
+    const command = commandMatch[1].toLowerCase();
+    const botMember = interaction.guild?.members?.me;
+    
+    if (!botMember) {
+      return {
+        success: false,
+        response: "❌ Bot is not in a guild"
+      };
+    }
+
+    console.log(`⚡ Executing slash command: ${command}`);
+
+    switch (command) {
+      case 'pin':
+        try {
+          if (!botMember.permissions.has(PermissionFlagsBits.ManageMessages)) {
+            return { success: false, response: "❌ I don't have permission to pin messages" };
+          }
+
+          // For slash commands, pin the most recent message in the channel
+          const messages = await interaction.channel.messages.fetch({ limit: 10 });
+          // Find the first regular message (not bot commands)
+          const messageToPin = messages.find(msg => msg.content && !msg.content.startsWith('/'));
+          
+          if (!messageToPin) {
+            return { success: false, response: "❌ No message found to pin" };
+          }
+          
+          await messageToPin.pin();
+          
+          return {
+            success: true,
+            response: `📌 **Message pinned**\n**Pinned by:** ${interaction.user.username}`
+          };
+        } catch (error) {
+          return { success: false, response: `❌ Failed to pin message: ${error.message}` };
+        }
+
+      case 'ping':
+        const ping = interaction.client.ws.ping;
+        return {
+          success: true,
+          response: `🏓 **Pong!**\n**Latency:** ${ping}ms`
+        };
+
+      // Add more slash command implementations here as needed
+      default:
+        return {
+          success: false,
+          response: `❌ Slash command not implemented: ${command}`
+        };
+    }
+  } catch (error) {
+    console.error(`❌ Error executing slash command:`, error);
     return {
       success: false,
       response: `❌ An error occurred while executing the command: ${error.message}`
