@@ -119,6 +119,8 @@ async function createDiscordClient(bot) {
 
     // Handle slash command interactions
     client.on(Events.InteractionCreate, async (interaction) => {
+      console.log(`🚨 [DEBUG] InteractionCreate fired! Command: ${interaction.commandName}, Type: ${interaction.type}`);
+      
       if (!interaction.isChatInputCommand()) return;
 
       try {
