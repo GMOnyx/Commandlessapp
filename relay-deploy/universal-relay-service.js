@@ -137,12 +137,20 @@ async function createDiscordClient(bot) {
           return;
         }
         
-        if (result.success) {
-          await interaction.reply({ content: result.response, ephemeral: false });
-          console.log(`✅ Sent success response: ${result.response}`);
-        } else {
-          await interaction.reply({ content: result.response, ephemeral: true });
-          console.log(`❌ Sent error response: ${result.response}`);
+        try {
+          if (result.success) {
+            await interaction.reply({ content: result.response, ephemeral: false });
+            console.log(`✅ Sent success response: ${result.response}`);
+          } else {
+            await interaction.reply({ content: result.response, ephemeral: true });
+            console.log(`❌ Sent error response: ${result.response}`);
+          }
+        } catch (replyError) {
+          if (replyError.code === 40060) {
+            console.log(`⚠️ Interaction already acknowledged by another handler: ${replyError.message}`);
+          } else {
+            console.error(`❌ Unexpected reply error:`, replyError);
+          }
         }
       } catch (error) {
         console.error('❌ Error handling slash command:', error);
