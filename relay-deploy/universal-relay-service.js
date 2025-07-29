@@ -127,10 +127,20 @@ async function createDiscordClient(bot) {
         // Directly execute known slash commands without database lookup
         const result = await executeSlashCommand(interaction, `/${interaction.commandName}`);
         
+        console.log(`📤 Slash command result:`, result);
+        
+        // Check if interaction was already replied to
+        if (interaction.replied || interaction.deferred) {
+          console.log(`⚠️ Interaction already handled, skipping reply`);
+          return;
+        }
+        
         if (result.success) {
           await interaction.reply({ content: result.response, ephemeral: false });
+          console.log(`✅ Sent success response: ${result.response}`);
         } else {
           await interaction.reply({ content: result.response, ephemeral: true });
+          console.log(`❌ Sent error response: ${result.response}`);
         }
       } catch (error) {
         console.error('❌ Error handling slash command:', error);
