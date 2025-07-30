@@ -126,24 +126,22 @@ async function createDiscordClient(bot) {
       try {
         console.log(`🎯 Slash command received: /${interaction.commandName}`);
         
+        // Immediately defer the reply to prevent timeout
+        await interaction.deferReply({ ephemeral: false });
+        console.log(`⏳ Interaction deferred, processing command...`);
+        
         // Directly execute known slash commands without database lookup
         const result = await executeSlashCommand(interaction, `/${interaction.commandName}`);
         
         console.log(`📤 Slash command result:`, result);
         
-        // Check if interaction was already replied to
-        if (interaction.replied || interaction.deferred) {
-          console.log(`⚠️ Interaction already handled, skipping reply`);
-          return;
-        }
-        
+        // Follow up with the result
         try {
-          if (result.success) {
-            await interaction.reply({ content: result.response, ephemeral: false });
-            console.log(`✅ Sent success response: ${result.response}`);
-          } else {
-            await interaction.reply({ content: result.response, ephemeral: true });
-            console.log(`❌ Sent error response: ${result.response}`);
+          await interaction.editReply({ content: result.response });
+          console.log(`✅ Sent response: ${result.response}`);
+        } catch (editError) {
+          console.error(`❌ Failed to edit reply:`, editError);
+        }            console.log(`❌ Sent error response: ${result.response}`);
           }
         } catch (replyError) {
           if (replyError.code === 40060) {
