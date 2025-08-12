@@ -11,6 +11,7 @@ const CHECK_INTERVAL = 30000; // Check for new bots every 30 seconds
 
 console.log('🚀 Starting Universal Discord Relay Service');
 console.log('🔗 Commandless API:', COMMANDLESS_API_URL);
+console.log('🧩 URS Mode: unified slash + conversational executor (build: 2025-08-12)');
 console.log('📡 Supabase URL:', SUPABASE_URL ? 'Configured' : 'Missing');
 
 // Initialize Supabase
@@ -125,6 +126,7 @@ async function createDiscordClient(bot) {
 
       try {
         console.log(`🎯 Slash command received: /${interaction.commandName}`);
+        console.log('🧪 Unified slash handler active: converting options -> commandOutput');
         
         // Immediately defer the reply to prevent timeout
         await interaction.deferReply({ ephemeral: false });
