@@ -756,7 +756,10 @@ async function executeDiscordCommand(commandOutput, message) {
           const messageContent = sayMatch ? sayMatch[1] : 'Hello everyone!';
           
           await message.channel.send(messageContent);
-          await message.delete(); // Delete the command message
+          // Delete the triggering message when available (not present for slash)
+          if (typeof message.delete === 'function') {
+            await message.delete().catch(() => {});
+          }
           
           return { success: true, response: '' }; // Empty response since we handled it above
         } catch (error) {
@@ -777,7 +780,10 @@ async function executeDiscordCommand(commandOutput, message) {
             return { success: false, response: "❌ This command can only be used in server text channels" };
           }
           
-          await message.delete(); // Delete the command message
+          // Delete the triggering message when available (not present for slash)
+          if (typeof message.delete === 'function') {
+            await message.delete().catch(() => {});
+          }
           
           if ('bulkDelete' in message.channel) {
             const deleted = await message.channel.bulkDelete(amount, true);
