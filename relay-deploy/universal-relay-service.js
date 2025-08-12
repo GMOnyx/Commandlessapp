@@ -991,75 +991,55 @@ async function executeDiscordCommand(commandOutput, message) {
   }
 }
 
-// Slash Command Execution Function - specifically for Discord slash command interactions
-async function executeSlashCommand(interaction, commandOutput) {
+// Slash Command Execution Function - build a normalized command output and route through common executor
+async function executeSlashCommand(interaction, _unused) {
   try {
-    // Extract the command name from the command output
-    const commandMatch = commandOutput.match(/^(?:Command executed:\s*)?\/([a-zA-Z0-9_-]+)/);
-    if (!commandMatch) {
-      return {
-        success: false,
-        response: `❌ Invalid command format: ${commandOutput}`
-      };
+    const botMember = interaction.guild?.members?.me;
+    if (!botMember) {
+      return { success: false, response: "❌ Bot is not in a guild" };
     }
 
-    const command = commandMatch[1].toLowerCase();
-    const botMember = interaction.guild?.members?.me;
-    
-    if (!botMember) {
-      return {
-        success: false,
-        response: "❌ Bot is not in a guild"
-      };
+    // Build a normalized command output from the interaction options
+    const command = interaction.commandName.toLowerCase();
+    let commandOutput = `/${command}`;
+
+    if (interaction.options && Array.isArray(interaction.options.data)) {
+      for (const opt of interaction.options.data) {
+        // Normalize common option names/types into the text format expected by executeDiscordCommand
+        if (opt.type === 6 || opt.name === 'user') { // USER
+          commandOutput += ` <@${opt.value}>`;
+        } else if (opt.name === 'reason') {
+          commandOutput += ` reason: ${opt.value}`;
+        } else if (opt.name === 'message') {
+          commandOutput += ` message: ${opt.value}`;
+        } else if (opt.name === 'duration') {
+          commandOutput += ` ${opt.value}`;
+        } else if (opt.name === 'amount') {
+          commandOutput += ` ${opt.value}`;
+        } else if (opt.type === 7 && opt.name === 'channel') { // CHANNEL
+          commandOutput += ` channel:${opt.value}`;
+        } else if (opt.type === 8 && opt.name === 'role') { // ROLE
+          commandOutput += ` role:${opt.value}`;
+        } else {
+          commandOutput += ` ${opt.name}:${opt.value}`;
+        }
+      }
     }
 
     console.log(`⚡ Executing slash command: ${command}`);
 
-    switch (command) {
-      case 'pin':
-        try {
-          if (!botMember.permissions.has(PermissionFlagsBits.ManageMessages)) {
-            return { success: false, response: "❌ I don't have permission to pin messages" };
-          }
+    // Reuse the common executor so behavior matches conversational path
+    const result = await executeDiscordCommand(commandOutput, {
+      guild: interaction.guild,
+      channel: interaction.channel,
+      author: interaction.user,
+      client: interaction.client,
+      isSlashCommand: true,
+    });
 
-          // For slash commands, pin the most recent message in the channel
-          const messages = await interaction.channel.messages.fetch({ limit: 10 });
-          // Find the first regular message (not bot commands)
-          const messageToPin = messages.find(msg => msg.content && !msg.content.startsWith('/'));
-          
-          if (!messageToPin) {
-            return { success: false, response: "❌ No message found to pin" };
-          }
-          
-          await messageToPin.pin();
-          
-          return {
-            success: true,
-            response: `📌 **Message pinned**\n**Pinned by:** ${interaction.user.username}`
-          };
-        } catch (error) {
-          return { success: false, response: `❌ Failed to pin message: ${error.message}` };
-        }
-
-      case 'ping':
-        const ping = interaction.client.ws.ping;
-        return {
-          success: true,
-          response: `🏓 **Pong!**\n**Latency:** ${ping}ms`
-        };
-
-      // Add more slash command implementations here as needed
-      default:
-        return {
-          success: false,
-          response: `❌ Slash command not implemented: ${command}`
-        };
-    }
+    return result;
   } catch (error) {
     console.error(`❌ Error executing slash command:`, error);
-    return {
-      success: false,
-      response: `❌ An error occurred while executing the command: ${error.message}`
-    };
+    return { success: false, response: `❌ An error occurred while executing the command: ${error.message}` };
   }
 }
