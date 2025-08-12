@@ -485,30 +485,49 @@ async function registerSlashCommands(client, userId) {
       return;
     }
     
-    // Convert command mappings to Discord slash command format
-    const slashCommands = commandMappings.map(mapping => {
-      const commandName = extractCommandName(mapping.command_output);
-      const description = mapping.natural_language_pattern || `Execute ${commandName} command`;
-      
-      // Build options based on the command output parameters
-      const options = extractSlashCommandOptions(mapping.command_output);
-      
-      return {
-        name: commandName,
-        description: description.length > 100 ? description.substring(0, 97) + '...' : description,
-        options: options
-      };
+    // Group mappings by top-level command; detect subcommand (facet) in output (e.g., "/ban add ...")
+    const groupMap = new Map(); // name -> { name, description, options or subcommands[] }
+    for (const mapping of commandMappings) {
+      const output = mapping.command_output || '';
+      const tokens = output.trim().split(/\s+/);
+      const main = tokens[0]?.startsWith('/') ? tokens[0].slice(1) : 'unknown';
+      const maybeFacet = tokens[1] && !tokens[1].includes(':') && !tokens[1].startsWith('{') ? tokens[1] : null;
+      const description = mapping.natural_language_pattern || `Execute ${main} command`;
+
+      if (!groupMap.has(main)) {
+        groupMap.set(main, { name: main, description: description, subcommands: [], options: [] });
+      }
+
+      const entry = groupMap.get(main);
+      if (maybeFacet) {
+        // Treat as subcommand
+        entry.subcommands.push({
+          type: 1, // SUB_COMMAND
+          name: maybeFacet,
+          description: description.length > 100 ? description.substring(0, 97) + '...' : description,
+          options: extractSlashCommandOptions(output)
+        });
+      } else {
+        // Standalone command
+        // If subcommands already exist, keep as-is; otherwise use options at top level
+        if (entry.subcommands.length === 0) {
+          entry.options = extractSlashCommandOptions(output);
+          entry.description = description.length > 100 ? description.substring(0, 97) + '...' : description;
+        }
+      }
+    }
+
+    // Build final payload
+    const slashPayload = Array.from(groupMap.values()).map(cmd => {
+      if (cmd.subcommands.length > 0) {
+        return { name: cmd.name, description: cmd.description, options: cmd.subcommands };
+      }
+      return { name: cmd.name, description: cmd.description, options: cmd.options };
     });
-    
-    // Remove duplicates (same command name)
-    const uniqueCommands = slashCommands.filter((command, index, self) => 
-      index === self.findIndex(c => c.name === command.name)
-    );
-    
-    console.log(`📋 Registering ${uniqueCommands.length} unique slash commands:`, uniqueCommands.map(c => c.name).join(', '));
-    
-    // Register commands with Discord
-    await client.application.commands.set(uniqueCommands);
+
+    console.log(`📋 Registering ${slashPayload.length} commands (with subcommands when applicable):`, slashPayload.map(c => c.name).join(', '));
+
+    await client.application.commands.set(slashPayload);
     
     console.log('✅ Slash commands registered successfully');
     
@@ -534,10 +553,14 @@ async function convertSlashCommandToCommandOutput(interaction, userId) {
       return null;
     }
     
-    // Find matching command mapping
+    // Find matching mapping by command and optional subcommand (facet)
+    const sub = interaction.options?.data?.find?.(d => d.type === 1 /* SUB_COMMAND */)?.name || null;
     const matchingMapping = commandMappings.find(mapping => {
-      const commandName = extractCommandName(mapping.command_output);
-      return commandName === interaction.commandName;
+      const output = mapping.command_output || '';
+      const tokens = output.trim().split(/\s+/);
+      const main = tokens[0]?.startsWith('/') ? tokens[0].slice(1) : 'unknown';
+      const facet = tokens[1] && !tokens[1].includes(':') && !tokens[1].startsWith('{') ? tokens[1] : null;
+      return main === interaction.commandName && (sub ? facet === sub : !facet);
     });
     
     if (!matchingMapping) {
