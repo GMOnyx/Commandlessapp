@@ -168,6 +168,34 @@ async function createDiscordClient(bot) {
       }
     });
 
+    // Subscribe to command mapping changes for this user to live-refresh slash commands
+    try {
+      const channel = supabase
+        .channel(`realtime-cm-${bot.user_id}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'command_mappings',
+            filter: `user_id=eq.${bot.user_id}`,
+          },
+          async (payload) => {
+            try {
+              console.log(`🔁 Detected command_mappings change for user ${bot.user_id}:`, payload.eventType);
+              await registerSlashCommands(client, bot.user_id);
+            } catch (e) {
+              console.error('❌ Failed to refresh slash commands:', e);
+            }
+          }
+        )
+        .subscribe((status) => {
+          console.log(`📡 Realtime subscription (user ${bot.user_id}) status:`, status);
+        });
+    } catch (e) {
+      console.error('❌ Failed to initialize realtime subscription for command mappings:', e);
+    }
+
     // Message handling
     client.on(Events.MessageCreate, async (message) => {
       try {
