@@ -130,24 +130,32 @@ async function createDiscordClient(bot) {
         await interaction.deferReply({ ephemeral: false });
         console.log(`⏳ Interaction deferred, processing command...`);
         
-        // Directly execute known slash commands without database lookup
-        const result = await executeSlashCommand(interaction, `/${interaction.commandName}`);
-        
+        // Build command output from mapping and slash options, then execute via the common path
+        // This unifies behavior between conversational and slash commands
+        let commandOutput = await convertSlashCommandToCommandOutput(interaction, bot.user_id);
+        if (!commandOutput) {
+          // Fallback to bare command if no mapping exists
+          commandOutput = `/${interaction.commandName}`;
+        }
+
+        const result = await executeDiscordCommand(commandOutput, {
+          guild: interaction.guild,
+          channel: interaction.channel,
+          author: interaction.user,
+          client: interaction.client,
+          isSlashCommand: true,
+        });
         console.log(`📤 Slash command result:`, result);
-        
+
         // Follow up with the result
         try {
           await interaction.editReply({ content: result.response });
           console.log(`✅ Sent response: ${result.response}`);
-        } catch (editError) {
-          console.error(`❌ Failed to edit reply:`, editError);
-        }            console.log(`❌ Sent error response: ${result.response}`);
-          }
         } catch (replyError) {
-          if (replyError.code === 40060) {
+          if (replyError && replyError.code === 40060) {
             console.log(`⚠️ Interaction already acknowledged by another handler: ${replyError.message}`);
           } else {
-            console.error(`❌ Unexpected reply error:`, replyError);
+            console.error(`❌ Failed to edit reply:`, replyError);
           }
         }
       } catch (error) {
