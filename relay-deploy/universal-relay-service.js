@@ -572,6 +572,26 @@ async function convertSlashCommandToCommandOutput(interaction, userId) {
     let commandOutput = matchingMapping.command_output;
 
     // Replace parameters with values from slash command options (handle nested subcommand options)
+    const normalizeName = (name, type) => {
+      const n = String(name || '').toLowerCase();
+      const map = {
+        'user': 'user', 'member': 'user', 'target': 'user', 'person': 'user', 'player': 'user', 'user-id': 'user', 'userid': 'user', 'user_id': 'user', 'id': 'user',
+        'reason': 'reason', 'message': 'message', 'description': 'reason', 'cause': 'reason', 'text': 'message', 'content': 'message',
+        'duration': 'duration', 'time': 'duration', 'timeout': 'duration', 'length': 'duration',
+        'amount': 'amount', 'number': 'amount', 'count': 'amount', 'quantity': 'amount',
+        'channel': 'channel', 'room': 'channel',
+        'role': 'role', 'rank': 'role',
+        'name': 'name', 'title': 'name'
+      };
+      if (map[n]) return map[n];
+      // Discord type fallbacks
+      if (type === 6) return 'user';
+      if (type === 7) return 'channel';
+      if (type === 8) return 'role';
+      if (type === 4 || type === 10) return 'amount';
+      return n;
+    };
+
     const applyOptions = (opts) => {
       if (!Array.isArray(opts)) return;
       opts.forEach(option => {
@@ -581,6 +601,7 @@ async function convertSlashCommandToCommandOutput(interaction, userId) {
           return;
         }
         const placeholder = `{${option.name}}`;
+        const canonical = `{${normalizeName(option.name, option.type)}}`;
         let value = option.value;
         // USER type
         if (option.type === 6) {
@@ -588,6 +609,10 @@ async function convertSlashCommandToCommandOutput(interaction, userId) {
         }
         // Replace all occurrences of this placeholder
         commandOutput = commandOutput.replace(new RegExp(`\\{${option.name}\\}`, 'g'), value);
+        // Also replace canonical placeholder if different
+        if (canonical !== placeholder) {
+          commandOutput = commandOutput.replace(new RegExp(canonical.replace(/[{}]/g, m => `\\${m}`), 'g'), value);
+        }
       });
     };
 
@@ -884,7 +909,7 @@ async function executeDiscordCommand(commandOutput, message) {
 
           // Extract user ID from command output (ban/add)
           let userId = null;
-          const userMatch = commandOutput.match(/<@!?(\d+)>/) || commandOutput.match(/(\d{17,19})/);
+          const userMatch = commandOutput.match(/<@!?(\d+)>/) || commandOutput.match(/user:?(\d{17,19})/) || commandOutput.match(/(\d{17,19})/);
           if (userMatch) {
             userId = userMatch[1];
           }
