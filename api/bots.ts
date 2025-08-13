@@ -803,6 +803,56 @@ async function discoverAndSyncCommands(botToken: string, botId: string, userId: 
 
     console.log(`✅ Upsert operation completed. Returned records: ${insertedMappings?.length || 0}`);
 
+    // Fetch full set of mappings for this bot to enrich with AI metadata (aliases/examples)
+    const { data: allBotMappings } = await supabase!
+      .from('command_mappings')
+      .select('id, name, natural_language_pattern, command_output, command_group, facet')
+      .eq('bot_id', botId)
+      .eq('user_id', userId)
+      .eq('status', 'active');
+
+    if (allBotMappings && allBotMappings.length > 0) {
+      try {
+        const aiMetadata = await generatePerMappingAIMetadata(allBotMappings);
+        // Prepare batched updates
+        const updates = [] as any[];
+        for (const row of allBotMappings) {
+          const key = `${row.name}`;
+          const meta = aiMetadata[key];
+          // Derive group/facet from command_output if not present
+          let parsedGroup: string | null = row.command_group || null;
+          let parsedFacet: string | null = row.facet || null;
+          if (!parsedGroup && typeof row.command_output === 'string') {
+            const parts = row.command_output.trim().split(/\s+/);
+            const main = parts[0]?.startsWith('/') ? parts[0].slice(1) : undefined;
+            const maybeFacet = parts[1] && !parts[1].includes(':') && !parts[1].startsWith('{') ? parts[1] : null;
+            parsedGroup = main || null;
+            parsedFacet = maybeFacet || null;
+          }
+          updates.push({
+            id: row.id,
+            aliases: meta?.aliases || [],
+            examples: meta?.examples || [],
+            command_group: parsedGroup,
+            facet: parsedFacet,
+          });
+        }
+
+        if (updates.length > 0) {
+          const { error: metaError } = await supabase!
+            .from('command_mappings')
+            .upsert(updates, { onConflict: 'id' });
+          if (metaError) {
+            console.error('❌ Error updating AI metadata for command mappings:', metaError);
+          } else {
+            console.log(`✅ Updated AI metadata for ${updates.length} command mappings`);
+          }
+        }
+      } catch (genError) {
+        console.error('❌ Failed to generate AI metadata for mappings:', genError);
+      }
+    }
+
     // Get the actual total count of command mappings for this bot (since upsert might return 0 for existing records)
     const { data: totalMappings, error: countError } = await supabase!
       .from('command_mappings')
@@ -1090,6 +1140,60 @@ function generateCommandOutput(command: any): string {
   // For commands with parameters, return the command identifier
   // The URS will handle building the actual slash command with parameters
   return commandName.toUpperCase();
+}
+
+// Generate per-mapping AI metadata (aliases + examples) using Gemini
+async function generatePerMappingAIMetadata(mappings: Array<{ id: number; name: string; natural_language_pattern?: string; command_output?: string; command_group?: string | null; facet?: string | null; }>): Promise<Record<string, { aliases: string[]; examples: string[] }>> {
+  try {
+    const commandSummaries = mappings.map(m => {
+      const groupFacet = [m.command_group, m.facet].filter(Boolean).join(' ');
+      const title = groupFacet || m.name;
+      const pattern = m.natural_language_pattern || '';
+      const output = m.command_output || '';
+      return `- ${title}\n  Pattern: ${pattern}\n  Output: ${output}`;
+    }).join('\n');
+
+    const prompt = `For each command below, provide:\n1) 4-6 short synonyms/aliases (comma-separated) users might say\n2) 3-5 high-quality natural language examples\nReturn strict JSON as an object keyed by the command title.\n\nCommands:\n${commandSummaries}\n\nJSON schema:\n{\n  "<commandTitle>": {\n    "aliases": ["..."],\n    "examples": ["..."]\n  }\n}`;
+
+    const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=' + process.env.GEMINI_API_KEY, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Gemini API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+    let parsed: any = {};
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      // Fallback: build minimal metadata
+      parsed = {};
+    }
+
+    // Normalize to mapping by name (title key)
+    const result: Record<string, { aliases: string[]; examples: string[] }> = {};
+    for (const m of mappings) {
+      const key = [m.command_group, m.facet].filter(Boolean).join(' ') || m.name;
+      const item = parsed[key] || {};
+      result[m.name] = {
+        aliases: Array.isArray(item.aliases) ? item.aliases.slice(0, 8) : [],
+        examples: Array.isArray(item.examples) ? item.examples.slice(0, 8) : []
+      };
+    }
+    return result;
+  } catch (err) {
+    // Fallback minimal metadata
+    const result: Record<string, { aliases: string[]; examples: string[] }> = {};
+    for (const m of mappings) {
+      result[m.name] = { aliases: [], examples: [] };
+    }
+    return result;
+  }
 }
 
 // DISCORD TOKEN VALIDATION (migrated from server)
