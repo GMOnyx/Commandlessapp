@@ -570,20 +570,29 @@ async function convertSlashCommandToCommandOutput(interaction, userId) {
     
     // Start with the command output template
     let commandOutput = matchingMapping.command_output;
-    
-    // Replace parameters with values from slash command options
-    if (interaction.options) {
-      interaction.options.data.forEach(option => {
+
+    // Replace parameters with values from slash command options (handle nested subcommand options)
+    const applyOptions = (opts) => {
+      if (!Array.isArray(opts)) return;
+      opts.forEach(option => {
+        if (option.type === 1 && Array.isArray(option.options)) {
+          // SUB_COMMAND: apply its child options
+          applyOptions(option.options);
+          return;
+        }
         const placeholder = `{${option.name}}`;
         let value = option.value;
-        
-        // Handle user mentions
-        if (option.type === 6) { // USER type
+        // USER type
+        if (option.type === 6) {
           value = `<@${option.value}>`;
         }
-        
-        commandOutput = commandOutput.replace(placeholder, value);
+        // Replace all occurrences of this placeholder
+        commandOutput = commandOutput.replace(new RegExp(`\\{${option.name}\\}`, 'g'), value);
       });
+    };
+
+    if (interaction.options && Array.isArray(interaction.options.data)) {
+      applyOptions(interaction.options.data);
     }
     
     // Replace any remaining placeholders with defaults
@@ -857,7 +866,23 @@ async function executeDiscordCommand(commandOutput, message) {
             return { success: false, response: "❌ I don't have permission to ban members" };
           }
 
-          // Extract user ID from command output
+          // Support facet 'remove' for unban and default/add for ban
+          const tokens = commandOutput.trim().split(/\s+/);
+          const facet = tokens[1] && !tokens[1].includes(':') && !tokens[1].startsWith('{') ? tokens[1].toLowerCase() : null;
+
+          if (facet === 'remove' || facet === 'unban') {
+            // Unban flow
+            let targetId = null;
+            const um = commandOutput.match(/<@!?(\d+)>/) || commandOutput.match(/(\d{17,19})/);
+            if (um) targetId = um[1];
+            if (!targetId) {
+              return { success: false, response: "❌ Please specify a valid user to unban" };
+            }
+            await message.guild.bans.remove(targetId, `Unbanned by ${message.author.username}`);
+            return { success: true, response: `✅ **User unbanned**\n**User:** <@${targetId}>\n**By:** ${message.author.username}` };
+          }
+
+          // Extract user ID from command output (ban/add)
           let userId = null;
           const userMatch = commandOutput.match(/<@!?(\d+)>/) || commandOutput.match(/(\d{17,19})/);
           if (userMatch) {
