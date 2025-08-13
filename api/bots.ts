@@ -765,24 +765,97 @@ async function discoverAndSyncCommands(botToken: string, botId: string, userId: 
 
     // Create command mappings for each discovered command (reference data for AI)
     const commandMappings: any[] = [];
-    
-    for (const command of commands) {
-      console.log(`🔧 Processing command: ${command.name} (ID: ${command.id})`);
-      console.log(`   Description: ${command.description}`);
-      console.log(`   Options: ${command.options?.length || 0}`);
-      
-      // Store the actual Discord command structure for AI reference
-      const commandOutput = generateCommandOutput(command);
-      
-      // Store each command ONCE as reference data for AI processing
+
+    // Helper constants aligned with Discord option types
+    const OPTION_TYPES = { SUB_COMMAND: 1, SUB_COMMAND_GROUP: 2, STRING: 3, INTEGER: 4, BOOLEAN: 5, USER: 6, CHANNEL: 7, ROLE: 8, MENTIONABLE: 9, NUMBER: 10, ATTACHMENT: 11 } as const;
+
+    const normalizePlaceholder = (opt: any): string => {
+      const name = String(opt.name || '').toLowerCase();
+      const type = opt.type;
+      const map: Record<string, string> = {
+        user: 'user', member: 'user', target: 'user', person: 'user', player: 'user', add: 'user', remove: 'user',
+        reason: 'reason', message: 'message', description: 'reason', cause: 'reason', text: 'message', content: 'message',
+        duration: 'duration', time: 'duration', timeout: 'duration', length: 'duration',
+        amount: 'amount', number: 'amount', count: 'amount', quantity: 'amount',
+        channel: 'channel', room: 'channel',
+        role: 'role', rank: 'role',
+        name: 'name', title: 'name'
+      };
+      if (map[name]) return `{${map[name]}}`;
+      // By type
+      if (type === OPTION_TYPES.USER) return '{user}';
+      if (type === OPTION_TYPES.CHANNEL) return '{channel}';
+      if (type === OPTION_TYPES.ROLE) return '{role}';
+      if (type === OPTION_TYPES.INTEGER || type === OPTION_TYPES.NUMBER) {
+        if (/(amount|count|number|quantity)/.test(name)) return '{amount}';
+        if (/(duration|time|length)/.test(name)) return '{duration}';
+        return '{amount}';
+      }
+      if (type === OPTION_TYPES.STRING) {
+        if (/(reason|why|cause)/.test(name)) return '{reason}';
+        if (/(message|text|content)/.test(name)) return '{message}';
+        if (/(duration|time|length)/.test(name)) return '{duration}';
+        if (/(name|title)/.test(name)) return '{name}';
+        return '{message}';
+      }
+      return `{${name}}`;
+    };
+
+    const buildPlaceholders = (options: any[] | undefined): string => {
+      if (!Array.isArray(options)) return '';
+      const parts: string[] = [];
+      for (const opt of options) {
+        if (opt.type === OPTION_TYPES.SUB_COMMAND || opt.type === OPTION_TYPES.SUB_COMMAND_GROUP) continue;
+        parts.push(normalizePlaceholder(opt));
+      }
+      // Deduplicate while preserving order
+      const seen = new Set<string>();
+      const unique = parts.filter(p => (p && !seen.has(p)) ? (seen.add(p), true) : false);
+      return unique.length ? ' ' + unique.join(' ') : '';
+    };
+
+    const pushMapping = (name: string, description: string | undefined, output: string) => {
       commandMappings.push({
         bot_id: botId,
         user_id: userId,
-        name: command.name,
-        natural_language_pattern: command.description || `Discord slash command: /${command.name}`,
-        command_output: commandOutput,
+        name,
+        natural_language_pattern: description || `Discord slash command: ${output}`,
+        command_output: output,
         status: 'active'
       });
+    };
+
+    for (const command of commands) {
+      console.log(`🔧 Processing command: ${command.name} (ID: ${command.id})`);
+      const options = command.options || [];
+
+      const hasGroups = options.some((o: any) => o.type === OPTION_TYPES.SUB_COMMAND_GROUP);
+      const hasSubs = options.some((o: any) => o.type === OPTION_TYPES.SUB_COMMAND);
+
+      if (hasGroups) {
+        for (const group of options.filter((o: any) => o.type === OPTION_TYPES.SUB_COMMAND_GROUP)) {
+          for (const sub of (group.options || []).filter((o: any) => o.type === OPTION_TYPES.SUB_COMMAND)) {
+            const ph = buildPlaceholders(sub.options);
+            const output = `/${command.name} ${sub.name}${ph}`;
+            pushMapping(`${command.name} ${sub.name}`, sub.description || command.description, output);
+          }
+        }
+        continue;
+      }
+
+      if (hasSubs) {
+        for (const sub of options.filter((o: any) => o.type === OPTION_TYPES.SUB_COMMAND)) {
+          const ph = buildPlaceholders(sub.options);
+          const output = `/${command.name} ${sub.name}${ph}`;
+          pushMapping(`${command.name} ${sub.name}`, sub.description || command.description, output);
+        }
+        continue;
+      }
+
+      // Plain command (no subcommands)
+      const ph = buildPlaceholders(options);
+      const output = `/${command.name}${ph}`;
+      pushMapping(command.name, command.description, output);
     }
 
     console.log(`📝 Created ${commandMappings.length} command mappings from ${commands.length} commands`);
