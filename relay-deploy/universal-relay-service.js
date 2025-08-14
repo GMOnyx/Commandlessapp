@@ -923,18 +923,20 @@ async function executeDiscordCommand(commandOutput, message) {
             return { success: false, response: "❌ I don't have permission to ban members" };
           }
 
+          // Normalize potential AI prefix and support facets
+          const cleanedOutput = commandOutput.replace(/^Command executed:\s*/i, '');
           // Support facet 'remove' for unban and default/add for ban
-          const tokens = commandOutput.trim().split(/\s+/);
+          const tokens = cleanedOutput.trim().split(/\s+/);
           const facet = tokens[1] && !tokens[1].includes(':') && !tokens[1].startsWith('{') ? tokens[1].toLowerCase() : null;
-          console.log('🧭 [Exec] ban facet detected:', facet || '(none)', 'from output:', commandOutput);
+          console.log('🧭 [Exec] ban facet detected:', facet || '(none)', 'from output:', cleanedOutput);
 
           if (facet === 'remove' || facet === 'unban') {
             // Unban flow
             let targetId = null;
-            const um = commandOutput.match(/<@!?(\d+)>/) || commandOutput.match(/(\d{17,19})/);
+            const um = cleanedOutput.match(/<@!?(\d+)>/) || cleanedOutput.match(/(\d{17,19})/);
             if (um) targetId = um[1];
             if (!targetId) {
-              console.log('⚠️ [Exec] Unban missing user in output:', commandOutput);
+              console.log('⚠️ [Exec] Unban missing user in output:', cleanedOutput);
               return { success: false, response: "❌ Please specify a valid user to unban" };
             }
             await message.guild.bans.remove(targetId, `Unbanned by ${message.author.username}`);
@@ -943,20 +945,20 @@ async function executeDiscordCommand(commandOutput, message) {
 
           // Extract user ID from command output (ban/add)
           let userId = null;
-          const userMatch = commandOutput.match(/<@!?(\d+)>/) || commandOutput.match(/user:?(\d{17,19})/) || commandOutput.match(/(\d{17,19})/);
+          const userMatch = cleanedOutput.match(/<@!?(\d+)>/) || cleanedOutput.match(/user:?(\d{17,19})/) || cleanedOutput.match(/(\d{17,19})/);
           if (userMatch) {
             userId = userMatch[1];
           }
 
           if (!userId) {
-            console.log('⚠️ [Exec] Ban missing user in output:', commandOutput);
+            console.log('⚠️ [Exec] Ban missing user in output:', cleanedOutput);
             return { success: false, response: "❌ Please specify a valid user to ban" };
           }
 
           // Extract reason
-          const reasonMatch = commandOutput.match(/reason:?\s*(.+)/) || 
-                             commandOutput.match(/for\s+(.+)/) ||
-                             commandOutput.match(/\{reason\}\s*(.+)/);
+          const reasonMatch = cleanedOutput.match(/reason:?\s*(.+)/) || 
+                             cleanedOutput.match(/for\s+(.+)/) ||
+                             cleanedOutput.match(/\{reason\}\s*(.+)/);
           const reason = reasonMatch ? reasonMatch[1] : 'No reason provided';
 
           await message.guild.bans.create(userId, { 
