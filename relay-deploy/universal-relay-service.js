@@ -541,6 +541,9 @@ async function registerSlashCommands(client, userId) {
  */
 async function convertSlashCommandToCommandOutput(interaction, userId) {
   try {
+    try {
+      console.log('🧩 [Slash] Raw options payload:', JSON.stringify(interaction?.options?.data || [], null, 2));
+    } catch {}
     // Find the command mapping in the database
     const { data: commandMappings, error } = await supabase
       .from('command_mappings')
@@ -555,6 +558,9 @@ async function convertSlashCommandToCommandOutput(interaction, userId) {
     
     // Find matching mapping by command and optional subcommand (facet)
     const sub = interaction.options?.data?.find?.(d => d.type === 1 /* SUB_COMMAND */)?.name || null;
+    try {
+      console.log('🧩 [Slash] Command:', interaction.commandName, 'Subcommand:', sub || '(none)');
+    } catch {}
     const matchingMapping = commandMappings.find(mapping => {
       const output = mapping.command_output || '';
       const tokens = output.trim().split(/\s+/);
@@ -565,11 +571,24 @@ async function convertSlashCommandToCommandOutput(interaction, userId) {
     
     if (!matchingMapping) {
       console.log(`❌ No mapping found for slash command: ${interaction.commandName}`);
+      try {
+        const candidates = (commandMappings || []).filter(m => {
+          const output = m.command_output || '';
+          const tokens = output.trim().split(/\s+/);
+          const main = tokens[0]?.startsWith('/') ? tokens[0].slice(1) : 'unknown';
+          return main === interaction.commandName;
+        }).map(m => ({ id: m.id, name: m.name, output: m.command_output }));
+        console.log('🧪 [Slash] Candidates for main command:', JSON.stringify(candidates, null, 2));
+      } catch {}
       return null;
     }
+    try {
+      console.log('✅ [Slash] Selected mapping:', { id: matchingMapping.id, name: matchingMapping.name, output: matchingMapping.command_output });
+    } catch {}
     
     // Start with the command output template
     let commandOutput = matchingMapping.command_output;
+    const before = commandOutput;
 
     // Replace parameters with values from slash command options (handle nested subcommand options)
     const normalizeName = (name, type) => {
@@ -619,6 +638,10 @@ async function convertSlashCommandToCommandOutput(interaction, userId) {
     if (interaction.options && Array.isArray(interaction.options.data)) {
       applyOptions(interaction.options.data);
     }
+    try {
+      console.log('🛠️ [Slash] Output before:', before);
+      console.log('🛠️ [Slash] Output after: ', commandOutput);
+    } catch {}
     
     // Replace any remaining placeholders with defaults
     commandOutput = commandOutput.replace(/\{reason\}/g, 'No reason provided');
@@ -894,6 +917,7 @@ async function executeDiscordCommand(commandOutput, message) {
           // Support facet 'remove' for unban and default/add for ban
           const tokens = commandOutput.trim().split(/\s+/);
           const facet = tokens[1] && !tokens[1].includes(':') && !tokens[1].startsWith('{') ? tokens[1].toLowerCase() : null;
+          console.log('🧭 [Exec] ban facet detected:', facet || '(none)', 'from output:', commandOutput);
 
           if (facet === 'remove' || facet === 'unban') {
             // Unban flow
@@ -901,6 +925,7 @@ async function executeDiscordCommand(commandOutput, message) {
             const um = commandOutput.match(/<@!?(\d+)>/) || commandOutput.match(/(\d{17,19})/);
             if (um) targetId = um[1];
             if (!targetId) {
+              console.log('⚠️ [Exec] Unban missing user in output:', commandOutput);
               return { success: false, response: "❌ Please specify a valid user to unban" };
             }
             await message.guild.bans.remove(targetId, `Unbanned by ${message.author.username}`);
@@ -915,6 +940,7 @@ async function executeDiscordCommand(commandOutput, message) {
           }
 
           if (!userId) {
+            console.log('⚠️ [Exec] Ban missing user in output:', commandOutput);
             return { success: false, response: "❌ Please specify a valid user to ban" };
           }
 
