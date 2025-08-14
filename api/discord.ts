@@ -259,6 +259,14 @@ function extractParametersFromPattern(userInput: string, naturalLanguagePattern:
   if (usernameMatch) {
     extractedParams.username = usernameMatch[1];
   }
+
+  // Extract bare Discord ID when the pattern expects a {user}
+  if (!extractedParams.user && naturalLanguagePattern && naturalLanguagePattern.includes('{user}')) {
+    const bareId = userInput.match(/(\d{17,19})/);
+    if (bareId) {
+      extractedParams.user = bareId[1];
+    }
+  }
   
   // Extract reason with multiple patterns
   const reasonPatterns = [
@@ -310,13 +318,28 @@ async function processWithAI(cleanMessage: string, commandMappings: any[], messa
   try {
     const model = genAI!.getGenerativeModel({ model: GEMINI_MODEL });
     
-    // Create a comprehensive prompt for command analysis
-    const commandList = commandMappings.map(cmd => 
-      `- ID: ${cmd.id}, Name: ${cmd.name}, Pattern: "${cmd.natural_language_pattern}" → ${cmd.command_output}`
-    ).join('\n');
+    // Create a comprehensive prompt for command analysis with facet-aware aliases
+    const buildAliases = (output: string, name: string) => {
+      if (!output) return [] as string[];
+      const tokens = output.trim().split(/\s+/);
+      const main = tokens[0]?.startsWith('/') ? tokens[0].slice(1).toLowerCase() : '';
+      const facet = tokens[1] && !tokens[1].includes(':') && !tokens[1].startsWith('{')
+        ? tokens[1].toLowerCase()
+        : null;
+      if (main === 'ban' && facet === 'remove') return ['unban', 'lift ban', 'remove ban', 'allow back'];
+      if (main === 'ban' && (facet === 'temp' || facet === 'temporary' || facet === 'tempban')) return ['tempban', 'temporary ban', 'ban for', 'ban for 7 days'];
+      if (main === 'ban' && !facet) return ['ban', 'banish', 'kick out permanently', 'remove from server'];
+      return [] as string[];
+    };
+
+    const commandList = commandMappings.map(cmd => {
+      const aliases = buildAliases(String(cmd.command_output || ''), String(cmd.name || ''));
+      const aliasLine = aliases.length ? `\n  ALIASES: ${aliases.join(', ')}` : '';
+      return `- ID: ${cmd.id}, Name: ${cmd.name}, Pattern: "${cmd.natural_language_pattern}" → ${cmd.command_output}${aliasLine}`;
+    }).join('\n');
 
     // SOPHISTICATED PROMPT (exact copy from your server code)
-    const prompt = `You are an advanced natural language processor for Discord bot commands. Your job is to:
+  const prompt = `You are an advanced natural language processor for Discord bot commands. Your job is to:
 1. **Determine if the user wants to execute a command OR have casual conversation**
 2. **Extract parameters aggressively and intelligently from natural language**
 3. **Be decisive - execute commands when intent is clear, even with informal language**
@@ -387,6 +410,11 @@ ${conversationContext}
 - ❌ Follow-up questions about previous responses
 - ❌ Emotional responses ("lol", "haha", "awesome", "nice", "wow")
 - ❌ Short acknowledgments ("yes", "no", "sure", "maybe", "alright")
+
+**FACET OVERRIDES (CRITICAL):**
+If the user says any of: "unban", "remove ban", "lift ban", "allow back" → choose the BAN REMOVE facet (unban), NOT plain ban.
+If the user says any of: "tempban", "temporary ban", "ban for <duration>" → choose the BAN TEMP facet, NOT plain ban.
+If the user says generic ban words (ban/banish/kick out permanently) and NOT the unban/temp words → choose the plain BAN facet.
 
 **CONFIDENCE SCORING:**
 - 90-100: Perfect match with all parameters extracted
@@ -488,6 +516,14 @@ Respond with valid JSON only:`;
         }
 
         let commandOutput = matchedCommand.command_output;
+
+        // If user is still missing but the message contains a bare ID, capture it
+        if (!finalParams.user) {
+          const bareIdInMessage = cleanMessage.match(/(\d{17,19})/);
+          if (bareIdInMessage) {
+            finalParams.user = bareIdInMessage[1];
+          }
+        }
         
         // Replace parameters in the output
         for (const [key, value] of Object.entries(finalParams)) {
@@ -495,6 +531,19 @@ Respond with valid JSON only:`;
             commandOutput = commandOutput.replace(new RegExp(`\\{${key}\\}`, 'g'), value);
           }
         }
+
+        // Facet-specific fallback injection: ensure unban has a user mention/ID
+        try {
+          const tokens = (matchedCommand.command_output || '').trim().split(/\s+/);
+          const main = tokens[0]?.startsWith('/') ? tokens[0].slice(1).toLowerCase() : '';
+          const facet = tokens[1] && !tokens[1].includes(':') && !tokens[1].startsWith('{') ? tokens[1].toLowerCase() : null;
+          if (main === 'ban' && (facet === 'remove' || facet === 'unban')) {
+            if (!/(<@!?\d+>)|(\d{17,19})/.test(commandOutput) && finalParams.user) {
+              commandOutput += ` <@${finalParams.user}>`;
+              console.log('🧷 [AI] Appended fallback user to output:', commandOutput);
+            }
+          }
+        } catch {}
         
         // Replace any remaining placeholders with defaults
         commandOutput = commandOutput.replace(/\{reason\}/g, 'No reason provided');
@@ -502,6 +551,8 @@ Respond with valid JSON only:`;
         commandOutput = commandOutput.replace(/\{amount\}/g, '1');
         commandOutput = commandOutput.replace(/\{duration\}/g, '5m');
         commandOutput = commandOutput.replace(/\{user\}/g, 'target user');
+
+        console.log('🧭 [AI] Matched command:', { id: matchedCommand.id, name: matchedCommand.name, output: commandOutput, params: finalParams });
 
         // Log the command usage
         await supabase
