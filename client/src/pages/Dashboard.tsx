@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Bot, CommandMapping } from "@shared/schema";
 import ConnectionCard from "@/components/ConnectionCard";
 import CommandMappingItem from "@/components/CommandMappingItem";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import CommandMappingBuilder from "@/components/CommandMappingBuilder";
 import { Button } from "@/components/ui/button";
 import { PlusIcon, BotIcon, CheckCircleIcon, XCircleIcon, SparklesIcon, WandIcon } from "lucide-react";
@@ -38,6 +39,27 @@ export default function Dashboard() {
   const totalBots = bots?.length || 0;
   const disconnectedBots = totalBots - connectedBots;
   
+  // Group mappings by main command (same logic as CommandMappings page)
+  const parseMainFacet = (commandOutput?: string): { main: string; facet?: string } => {
+    if (!commandOutput) return { main: "unknown" };
+    const tokens = commandOutput.trim().split(/\s+/);
+    const first = tokens[0] || "";
+    const main = first.startsWith("/") ? first.slice(1) : first;
+    const possible = tokens[1] || "";
+    const facet = possible && !possible.includes(":") && !possible.startsWith("{") ? possible : undefined;
+    return { main: main || "unknown", facet };
+  };
+
+  const grouped = (() => {
+    const map = new Map<string, { main: string; items: CommandMapping[] }>();
+    (mappings || []).forEach((m) => {
+      const { main } = parseMainFacet(m.commandOutput);
+      if (!map.has(main)) map.set(main, { main, items: [] });
+      map.get(main)!.items.push(m);
+    });
+    return Array.from(map.values()).sort((a, b) => a.main.localeCompare(b.main));
+  })();
+
   return (
     <div className="space-y-6 md:space-y-8">
       {/* Header with Live Status */}
@@ -149,14 +171,52 @@ export default function Dashboard() {
           <div className="text-center py-4 text-red-500">
             Failed to load command mappings
           </div>
-        ) : mappings && mappings.length > 0 ? (
-          <div className="bg-white shadow-sm overflow-hidden sm:rounded-md border border-gray-100">
-            <ul className="divide-y divide-gray-200">
-              {mappings.map((mapping) => (
-                <CommandMappingItem key={mapping.id} mapping={mapping} bots={bots || []} />
-              ))}
-            </ul>
-          </div>
+        ) : grouped && grouped.length > 0 ? (
+          <Accordion type="multiple" className="bg-white shadow-sm overflow-hidden sm:rounded-md border border-gray-100">
+            {grouped.map((group) => {
+              const order = ["add", "remove", "temp"];
+              const items = group.items.slice().sort((a, b) => {
+                const fa = parseMainFacet(a.commandOutput).facet;
+                const fb = parseMainFacet(b.commandOutput).facet;
+                if (!fa && fb) return -1;
+                if (fa && !fb) return 1;
+                const ia = fa ? order.indexOf(fa) : -1;
+                const ib = fb ? order.indexOf(fb) : -1;
+                if (ia !== ib) return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+                return (fa || a.name).localeCompare(fb || b.name);
+              });
+              const totalUsage = items.reduce((sum, m) => sum + (m.usageCount || 0), 0);
+              const base = items.find((m) => !parseMainFacet(m.commandOutput).facet);
+              const subtitle = base?.naturalLanguagePattern || items[0]?.naturalLanguagePattern || "";
+              return (
+                <AccordionItem key={group.main} value={group.main}>
+                  <AccordionTrigger className="px-4 py-4 sm:px-6 hover:no-underline">
+                    <div className="flex w-full items-start justify-between gap-4">
+                      <div className="text-left">
+                        <p className="text-sm font-semibold text-gray-900">{group.main}</p>
+                        <p className="text-xs text-gray-500 mt-1 line-clamp-1">{subtitle}</p>
+                      </div>
+                      <div className="text-right">
+                        <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-1 text-xs font-medium text-gray-700">
+                          {items.length} facet{items.length !== 1 ? "s" : ""}
+                        </span>
+                        <span className="ml-2 inline-flex items-center rounded-full bg-blue-100 px-2 py-1 text-xs font-medium text-blue-700">
+                          {totalUsage} uses
+                        </span>
+                      </div>
+                    </div>
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <ul className="divide-y divide-gray-200">
+                      {items.map((m) => (
+                        <CommandMappingItem key={m.id} mapping={m} bots={bots || []} />
+                      ))}
+                    </ul>
+                  </AccordionContent>
+                </AccordionItem>
+              );
+            })}
+          </Accordion>
         ) : (
           <div className="bg-white shadow-sm overflow-hidden sm:rounded-md border border-gray-100">
             <div className="px-6 py-8 text-center">
