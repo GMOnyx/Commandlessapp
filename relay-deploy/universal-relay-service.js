@@ -723,6 +723,8 @@ function extractSlashCommandOptions(commandOutput) {
     
     options.push(option);
   }
+  // Discord requires required options before optional ones
+  options.sort((a, b) => (a.required === b.required ? 0 : a.required ? -1 : 1));
   
   return options;
 }
