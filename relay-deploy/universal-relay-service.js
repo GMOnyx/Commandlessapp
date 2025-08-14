@@ -588,6 +588,7 @@ async function convertSlashCommandToCommandOutput(interaction, userId) {
     
     // Start with the command output template
     let commandOutput = matchingMapping.command_output;
+    let capturedUserId = null;
     const before = commandOutput;
 
     // Replace parameters with values from slash command options (handle nested subcommand options)
@@ -625,6 +626,7 @@ async function convertSlashCommandToCommandOutput(interaction, userId) {
         // USER type
         if (option.type === 6) {
           value = `<@${option.value}>`;
+          capturedUserId = option.value;
         }
         // Replace all occurrences of this placeholder
         commandOutput = commandOutput.replace(new RegExp(`\\{${option.name}\\}`, 'g'), value);
@@ -637,6 +639,11 @@ async function convertSlashCommandToCommandOutput(interaction, userId) {
 
     if (interaction.options && Array.isArray(interaction.options.data)) {
       applyOptions(interaction.options.data);
+    }
+    // Fallback: if no user mention present but we captured a USER option, append it
+    if (!/(<@!?\d+>)|(\d{17,19})/.test(commandOutput) && capturedUserId) {
+      commandOutput += ` <@${capturedUserId}>`;
+      try { console.log('🧷 [Slash] Appended fallback user to output:', commandOutput); } catch {}
     }
     try {
       console.log('🛠️ [Slash] Output before:', before);
