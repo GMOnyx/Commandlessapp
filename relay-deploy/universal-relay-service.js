@@ -1090,6 +1090,99 @@ async function executeDiscordCommand(commandOutput, message) {
           return { success: false, response: `❌ Failed to warn user: ${error.message}` };
         }
 
+      case 'note':
+        try {
+          // Simple utility: record a note by posting a formatted message
+          // Extract user and message
+          let targetId = null;
+          const um = commandOutput.match(/<@!?(\d+)>/) || commandOutput.match(/user:?(\d{17,19})/) || commandOutput.match(/(\d{17,19})/);
+          if (um) targetId = um[1];
+
+          const msgMatch = commandOutput.match(/message:([^]+)$/i) || commandOutput.match(/saying\s+"([^"]+)"/i) || commandOutput.match(/saying\s+([^]+)$/i);
+          const noteText = msgMatch ? (msgMatch[1] || msgMatch[0]).toString().replace(/^message:/i, '').trim().replace(/^"|"$/g, '') : '';
+
+          if (!targetId && !noteText) {
+            return { success: false, response: "❌ Please provide a user or some note text" };
+          }
+
+          const header = targetId ? `📝 **Note for** <@${targetId}>` : `📝 **Note**`;
+          const body = noteText ? `\n${noteText}` : '';
+          await message.channel.send(`${header}${body}`);
+          return { success: true, response: '' };
+        } catch (error) {
+          return { success: false, response: `❌ Failed to add note: ${error.message}` };
+        }
+
+      case 'role':
+        try {
+          if (!botMember.permissions.has(PermissionFlagsBits.ManageRoles)) {
+            return { success: false, response: "❌ I don't have permission to manage roles" };
+          }
+
+          const cleanedOutput = commandOutput.replace(/^Command executed:\s*/i, '').trim();
+          const tokens = cleanedOutput.split(/\s+/);
+          const facet = tokens[1] && !tokens[1].includes(':') && !tokens[1].startsWith('{') ? tokens[1].toLowerCase() : null;
+
+          // Extract user
+          let userId = null;
+          const userMatch = cleanedOutput.match(/<@!?(\d+)>/) || cleanedOutput.match(/user:?\s*(\d{17,19})/) || cleanedOutput.match(/(?:^|\s)(\d{17,19})(?:\s|$)/);
+          if (userMatch) userId = userMatch[1];
+          if (!userId) return { success: false, response: "❌ Please specify a valid user" };
+
+          // Extract role id or name
+          let roleId = null;
+          const roleMention = cleanedOutput.match(/<@&(\d+)>/);
+          const roleIdMatch = cleanedOutput.match(/role:?\s*(\d{17,19})/);
+          if (roleMention) roleId = roleMention[1];
+          else if (roleIdMatch) roleId = roleIdMatch[1];
+          // Fallback: try quoted role name
+          let role = null;
+          if (roleId) {
+            role = await message.guild.roles.fetch(roleId).catch(() => null);
+          } else {
+            const roleNameMatch = cleanedOutput.match(/role:?\s*"([^"]+)"/i) || cleanedOutput.match(/role:?\s*([^\s]+)/i);
+            const roleName = roleNameMatch ? roleNameMatch[1] || roleNameMatch[0].replace(/^role:?/i, '').trim() : null;
+            if (roleName) {
+              role = message.guild.roles.cache.find(r => r.name.toLowerCase() === roleName.toLowerCase()) || null;
+            }
+          }
+          if (!role) return { success: false, response: "❌ Please specify a valid role (mention, ID, or exact name)" };
+
+          const member = await message.guild.members.fetch(userId);
+          if (!member.manageable && !botMember.permissions.has(PermissionFlagsBits.ManageRoles)) {
+            return { success: false, response: "❌ I cannot manage roles for this user" };
+          }
+
+          if (facet === 'remove') {
+            await member.roles.remove(role, `Removed by ${message.author.username}`);
+            return { success: true, response: `🗑️ Removed role **${role.name}** from <@${userId}>` };
+          }
+
+          // add or temp
+          await member.roles.add(role, `Added by ${message.author.username}`);
+
+          if (facet === 'temp') {
+            // Parse duration like 10m/1h/1d from output
+            const durMatch = cleanedOutput.match(/(\d+)\s*([mhd])/i);
+            let ms = 0;
+            if (durMatch) {
+              const n = parseInt(durMatch[1]);
+              const u = durMatch[2].toLowerCase();
+              ms = u === 'm' ? n * 60_000 : u === 'h' ? n * 3_600_000 : n * 86_400_000;
+            }
+            if (ms > 0) {
+              setTimeout(async () => {
+                try { await member.roles.remove(role, `Temp role expired`); } catch {}
+              }, Math.min(ms, 7 * 24 * 60 * 60 * 1000)); // cap at 7d
+              return { success: true, response: `⏳ Temporarily added role **${role.name}** to <@${userId}>` };
+            }
+          }
+
+          return { success: true, response: `✅ Added role **${role.name}** to <@${userId}>` };
+        } catch (error) {
+          return { success: false, response: `❌ Failed to manage role: ${error.message}` };
+        }
+
       case 'slowmode':
         try {
           if (!botMember.permissions.has(PermissionFlagsBits.ManageChannels)) {
