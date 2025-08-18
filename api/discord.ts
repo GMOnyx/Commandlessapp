@@ -684,7 +684,13 @@ async function processMessageWithAI(message, userId) {
 
     // Use AI if available, otherwise fall back to simple matching
     if (genAI) {
-      return await processWithAI(cleanMessage, commandMappings, message, userId, conversationContext);
+      // Incorporate last-intent memory if provided by URS
+      let contextWithMemory = conversationContext;
+      const mem = (message && message.memory) || (typeof (globalThis as any).lastMemory === 'object' ? (globalThis as any).lastMemory : undefined);
+      if (!contextWithMemory && mem && mem.lastCommandOutput) {
+        contextWithMemory = `Last command: ${mem.lastCommandOutput}`;
+      }
+      return await processWithAI(cleanMessage, commandMappings, message, userId, contextWithMemory || conversationContext);
     } else {
       return await processWithSimpleMatching(cleanMessage, commandMappings, message, userId);
     }

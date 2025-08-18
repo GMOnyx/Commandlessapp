@@ -20,6 +20,8 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 // Store active Discord clients
 const activeClients = new Map(); // token -> { client, botInfo }
 const botMessageIds = new Set(); // Track bot message IDs for reply detection
+// Lightweight memory: last successful intent per channel
+const lastIntentByChannel = new Map(); // channelId -> { commandOutput, params, at: Date }
 
 // Message context manager for conversation tracking
 class MessageContextManager {
@@ -148,7 +150,7 @@ async function createDiscordClient(bot) {
           isSlashCommand: true,
         });
         console.log(`📤 Slash command result:`, result);
-
+        
         // Follow up with the result
         try {
           await interaction.editReply({ content: result.response });
@@ -256,7 +258,11 @@ async function createDiscordClient(bot) {
             } : undefined
           },
           botToken: bot.token,
-          botClientId: client.user.id
+          botClientId: client.user.id,
+          memory: (() => {
+            const mem = lastIntentByChannel.get(message.channel.id);
+            return mem ? { lastCommandOutput: mem.commandOutput, lastParams: mem.params, at: mem.at } : undefined;
+          })()
         };
 
         // Show "Bot is typing..." indicator
@@ -302,6 +308,12 @@ async function createDiscordClient(bot) {
               }
               
               console.log(`✅ [${bot.bot_name}] Command executed successfully`);
+
+              // Update last intent memory for continuity
+              try {
+                const params = parseParamsFromCommandOutput(result.response || '');
+                lastIntentByChannel.set(message.channel.id, { commandOutput: result.response, params, at: new Date().toISOString() });
+              } catch {}
             } else {
               // Send error message
               const errorMessage = await message.reply(executionResult.response);
@@ -504,7 +516,7 @@ async function registerSlashCommands(client, userId) {
         entry.subcommands.push({
           type: 1, // SUB_COMMAND
           name: maybeFacet,
-          description: description.length > 100 ? description.substring(0, 97) + '...' : description,
+        description: description.length > 100 ? description.substring(0, 97) + '...' : description,
           options: extractSlashCommandOptions(output)
         });
       } else {
@@ -1228,6 +1240,22 @@ async function executeDiscordCommand(commandOutput, message) {
       response: `❌ An error occurred while executing the command: ${error.message}`
     };
   }
+}
+
+// Helper: parse simple key params from a command output string
+function parseParamsFromCommandOutput(text) {
+  try {
+    const out = {};
+    const user = text.match(/<@!?(\d+)>/);
+    if (user) out.user = user[1];
+    const amount = text.match(/\b(\d{1,3})\b/);
+    if (amount) out.amount = amount[1];
+    const reason = text.match(/reason:?\s*([^\n]+)/i);
+    if (reason) out.reason = reason[1].trim();
+    const msg = text.match(/message:?\s*([^\n]+)/i);
+    if (msg) out.message = msg[1].trim();
+    return out;
+  } catch { return {}; }
 }
 
 // Slash Command Execution Function - build a normalized command output and route through common executor
