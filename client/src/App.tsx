@@ -1,5 +1,6 @@
 import { Switch, Route, Redirect } from "wouter";
 import Layout from "@/components/Layout";
+import Landing from "@/pages/Landing";
 import Dashboard from "@/pages/Dashboard";
 import Login from "@/pages/Login";
 import SignUp from "@/pages/SignUp";
@@ -90,10 +91,11 @@ function AppContent() {
     );
   }
 
-  // Show login/signup when not authenticated
+  // If not authenticated, root shows landing; auth routes work
   if (!isSignedIn) {
     return (
       <Switch>
+        <Route path="/" component={Landing} />
         <Route path="/sign-up">
           <SignUp />
         </Route>
@@ -101,7 +103,7 @@ function AppContent() {
           <Login />
         </Route>
         <Route>
-          <Redirect to="/sign-in" />
+          <Redirect to="/" />
         </Route>
       </Switch>
     );
