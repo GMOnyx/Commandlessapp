@@ -1,6 +1,5 @@
 import { Switch, Route, Redirect } from "wouter";
 import Layout from "@/components/Layout";
-import Landing from "@/pages/Landing";
 import Dashboard from "@/pages/Dashboard";
 import Login from "@/pages/Login";
 import SignUp from "@/pages/SignUp";
@@ -93,9 +92,15 @@ function AppContent() {
 
   // If not authenticated, root shows landing; auth routes work
   if (!isSignedIn) {
+    const ExternalLandingRedirect = () => {
+      if (typeof window !== 'undefined') {
+        window.location.replace('https://commandless.vercel.app/');
+      }
+      return null;
+    };
     return (
       <Switch>
-        <Route path="/" component={Landing} />
+        <Route path="/" component={ExternalLandingRedirect} />
         <Route path="/sign-up">
           <SignUp />
         </Route>
