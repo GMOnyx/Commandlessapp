@@ -4,18 +4,12 @@
       "source": "/api/(.*)",
       "destination": "/api/$1"
     },
-    {
-      "source": "/welcome",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/(sign-in|sign-up|dashboard|mappings|mappings/.*|connections)",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/(.*)",
-      "destination": "https://commandless.vercel.app/$1"
-    }
+    { "source": "/welcome", "destination": "/index.html" },
+    { "source": "/marketing", "destination": "/marketing/index.html" },
+    { "source": "/marketing/(.*)", "destination": "/marketing/$1" },
+    { "source": "/(sign-in|sign-up|dashboard|mappings|mappings/.*|connections)", "destination": "/index.html" },
+    { "source": "/", "destination": "/marketing/index.html" },
+    { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [
     {
