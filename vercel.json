@@ -4,6 +4,8 @@
       "source": "/api/(.*)",
       "destination": "/api/$1"
     },
+    { "source": "/assets/(.*)", "destination": "/marketing/assets/$1" },
+    { "source": "/favicon.ico", "destination": "/marketing/assets/favicon-Bz1dllYu.ico" },
     { "source": "/welcome", "destination": "/index.html" },
     { "source": "/marketing", "destination": "/marketing/index.html" },
     { "source": "/marketing/(.*)", "destination": "/marketing/$1" },
