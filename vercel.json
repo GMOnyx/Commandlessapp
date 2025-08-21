@@ -1,16 +1,7 @@
 {
   "rewrites": [
-    {
-      "source": "/api/(.*)",
-      "destination": "/api/$1"
-    },
-    { "source": "/assets/(.*)", "destination": "/marketing/assets/$1" },
-    { "source": "/favicon.ico", "destination": "/marketing/assets/favicon-Bz1dllYu.ico" },
-    { "source": "/welcome", "destination": "/index.html" },
-    { "source": "/marketing", "destination": "/marketing/index.html" },
-    { "source": "/marketing/(.*)", "destination": "/marketing/$1" },
-    { "source": "/(sign-in|sign-up|dashboard|mappings|mappings/.*|connections)", "destination": "/index.html" },
-    { "source": "/", "destination": "/marketing/index.html" },
+    { "source": "/api/(.*)", "destination": "/api/$1" },
+    { "source": "/(sign-in|sign-up|dashboard|mappings|connections)", "destination": "/index.html" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [

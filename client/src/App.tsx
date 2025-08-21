@@ -90,17 +90,10 @@ function AppContent() {
     );
   }
 
-  // If not authenticated, root shows landing; auth routes work
+  // If not authenticated, show auth routes and default to sign-in
   if (!isSignedIn) {
-    const ExternalLandingRedirect = () => {
-      if (typeof window !== 'undefined') {
-        window.location.replace('https://commandless.vercel.app/');
-      }
-      return null;
-    };
     return (
       <Switch>
-        <Route path="/" component={ExternalLandingRedirect} />
         <Route path="/sign-up">
           <SignUp />
         </Route>
@@ -108,7 +101,7 @@ function AppContent() {
           <Login />
         </Route>
         <Route>
-          <Redirect to="/" />
+          <Redirect to="/sign-in" />
         </Route>
       </Switch>
     );
