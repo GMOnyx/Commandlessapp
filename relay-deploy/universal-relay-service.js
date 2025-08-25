@@ -237,6 +237,39 @@ async function createDiscordClient(bot) {
       console.error('❌ Failed to initialize realtime subscription for command mappings:', e);
     }
 
+    // Subscribe to this bot's row to hot-update tutorial settings/persona without restart
+    try {
+      supabase
+        .channel(`realtime-bot-${bot.id}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'bots',
+            filter: `id=eq.${bot.id}`,
+          },
+          async (payload) => {
+            try {
+              const newRow = payload.new || {};
+              bot.tutorial_enabled = newRow.tutorial_enabled;
+              bot.tutorial_persona = newRow.tutorial_persona;
+              console.log(`🧠 Updated tutorial settings for ${bot.bot_name}:`, {
+                tutorial_enabled: bot.tutorial_enabled,
+                has_persona: !!bot.tutorial_persona,
+              });
+            } catch (e) {
+              console.error('❌ Failed to apply tutorial settings update:', e);
+            }
+          }
+        )
+        .subscribe((status) => {
+          console.log(`📡 Realtime subscription (bot ${bot.id}) status:`, status);
+        });
+    } catch (e) {
+      console.error('❌ Failed to initialize realtime subscription for bot row:', e);
+    }
+
     // Message handling
     client.on(Events.MessageCreate, async (message) => {
       try {
@@ -275,6 +308,36 @@ async function createDiscordClient(bot) {
 
         console.log(`📨 [${bot.bot_name}] Processing: "${message.content}" from ${message.author.username}`);
         console.log(`   Bot mentioned: ${botMentioned}, Reply to bot: ${isReplyToBot}`);
+
+        // Tutorial mode: early trigger check before hitting API
+        const tutorialEnabled = !!bot.tutorial_enabled;
+        if (tutorialEnabled && looksLikeTutorialTrigger(message.content)) {
+          startTutorial(message.channel.id);
+          let personaSnippet = '';
+          let docSnippet = '';
+          try {
+            if (bot.tutorial_persona) {
+              personaSnippet = String(bot.tutorial_persona).slice(0, 300);
+            }
+            const { data: docs } = await supabase
+              .from('tutorial_docs')
+              .select('title, content')
+              .eq('bot_id', bot.id)
+              .order('created_at', { ascending: false })
+              .limit(1);
+            if (docs && docs[0]?.content) {
+              docSnippet = String(docs[0].content).slice(0, 300);
+            }
+          } catch {}
+          const intro = [
+            '🧭 Tutorial mode started (no actions will be executed).',
+            personaSnippet ? `Persona: ${personaSnippet}` : '',
+            docSnippet ? `Doc: ${docSnippet}${docSnippet.length === 300 ? '…' : ''}` : '',
+            'Try something like: "show me how to ban safely" or "what would /note do?"'
+          ].filter(Boolean).join('\n');
+          await message.reply(intro);
+          return; // Don't call API for the trigger message
+        }
 
         // Prepare message data for Commandless AI API
         const messageData = {
@@ -317,34 +380,7 @@ async function createDiscordClient(bot) {
         const result = await response.json();
 
         // Tutorial mode entry: if enabled and user asks for tutorial
-        const tutorialEnabled = !!bot.tutorial_enabled;
-        if (tutorialEnabled && looksLikeTutorialTrigger(message.content)) {
-          startTutorial(message.channel.id);
-          // Pull persona and top doc to prime the user
-          let personaSnippet = '';
-          let docSnippet = '';
-          try {
-            if (bot.tutorial_persona) {
-              personaSnippet = String(bot.tutorial_persona).slice(0, 300);
-            }
-            const { data: docs } = await supabase
-              .from('tutorial_docs')
-              .select('title, content')
-              .eq('bot_id', bot.id)
-              .order('created_at', { ascending: false })
-              .limit(1);
-            if (docs && docs[0]?.content) {
-              docSnippet = String(docs[0].content).slice(0, 300);
-            }
-          } catch {}
-          const intro = [
-            '🧭 Tutorial mode started (no actions will be executed).',
-            personaSnippet ? `Persona: ${personaSnippet}` : '',
-            docSnippet ? `Doc: ${docSnippet}${docSnippet.length === 300 ? '…' : ''}` : '',
-            'Try something like: "show me how to ban safely" or "what would /note do?"'
-          ].filter(Boolean).join('\n');
-          await message.reply(intro);
-        }
+        // (Tutorial trigger handled above)
 
         if (result.processed && result.response) {
           console.log(`🤖 [${bot.bot_name}] AI Response: ${result.response}`);
