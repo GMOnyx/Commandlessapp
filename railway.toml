@@ -1,8 +1,6 @@
 [build]
-builder = "NIXPACKS"
-buildCommand = "sh -lc 'cd server && (npm ci || npm install --no-audit --no-fund)'"
+builder = "DOCKERFILE"
 
 [deploy]
-startCommand = "cd server && node simple-index.js"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10 
