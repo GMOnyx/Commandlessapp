@@ -164,6 +164,23 @@ async function createDiscordClient(bot) {
           commandOutput = `/${interaction.commandName}`;
         }
 
+        // If a tutorial session is active for this channel, simulate instead of executing
+        const tutorialEnabled = !!bot.tutorial_enabled;
+        if (tutorialEnabled && isTutorialActive(interaction.channel.id)) {
+          const params = parseParamsFromCommandOutput(`Command executed: ${commandOutput}`);
+          let personaHint = '';
+          try { if (bot.tutorial_persona) personaHint = String(bot.tutorial_persona).slice(0, 160); } catch {}
+          const simulation = [
+            '🎓 Tutorial simulation (no action executed)',
+            `Command: ${commandOutput}`,
+            Object.keys(params).length ? `Parameters: ${JSON.stringify(params)}` : '',
+            personaHint ? `Guidance: ${personaHint}` : ''
+          ].filter(Boolean).join('\n');
+          await interaction.editReply({ content: simulation });
+          lastIntentByChannel.set(interaction.channel.id, { commandOutput: `Command executed: ${commandOutput}`, params, at: new Date().toISOString() });
+          return;
+        }
+
         const result = await executeDiscordCommand(commandOutput, {
           guild: interaction.guild,
           channel: interaction.channel,

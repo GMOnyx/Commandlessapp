@@ -562,12 +562,14 @@ Respond with valid JSON only:`;
           })
           .eq('id', matchedCommand.id);
 
-        // For now, return a sophisticated response
-        // TODO: Add actual Discord command execution
-        
+        // Return a normalized response that the relay understands for unified execution/simulation
+        // The relay checks for the prefix "Command executed:" to either execute or simulate in Tutorial Mode
         return {
           success: true,
-          response: `🎯 **SOPHISTICATED AI EXECUTED**: "${matchedCommand.name}" command detected with ${parsed.bestMatch.confidence}% confidence!\n\n**Command**: ${commandOutput}\n**Parameters**: ${JSON.stringify(finalParams)}\n\n*Your sophisticated AI system is now working! Next: Adding real Discord command execution.*`
+          response: `Command executed: ${commandOutput}`,
+          commandOutput,
+          params: finalParams,
+          confidence: parsed.bestMatch.confidence
         };
       }
     }
