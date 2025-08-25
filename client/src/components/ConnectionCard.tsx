@@ -25,6 +25,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { MoreVertical, Edit, Trash2 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import BotCreationDialog from "@/components/BotCreationDialog";
 
 // Response type interfaces
@@ -228,6 +230,22 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
       });
     },
   });
+
+  const updateTutorialMutation = useMutation({
+    mutationFn: async (data: { tutorialEnabled?: boolean; tutorialPersona?: string }) => {
+      return await apiRequest(`/api/bots?botId=${bot.id}`, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/bots"] });
+      toast({ title: "Saved", description: "Tutorial settings updated." });
+    },
+    onError: (error) => {
+      toast({ title: "Error", description: `Failed to update tutorial settings. ${error instanceof Error ? error.message : ''}`, variant: "destructive" });
+    }
+  });
   
   if (isNewCard) {
     return (
@@ -330,6 +348,35 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
             </DropdownMenu>
           </div>
         </div>
+        {/* Tutorial Mode Controls */}
+        {bot.platformType === "discord" && (
+          <div className="mt-5 space-y-3 border-t border-gray-200 pt-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-900">Tutorial Mode</p>
+                <p className="text-xs text-gray-500">Simulate commands with explanations; no actions executed.</p>
+              </div>
+              <Switch
+                checked={!!bot.tutorialEnabled}
+                onCheckedChange={(value) => updateTutorialMutation.mutate({ tutorialEnabled: value })}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Tutorial Persona & Context</label>
+              <Textarea
+                placeholder="Describe the tutor persona, tone, and bot-specific guidance."
+                defaultValue={bot.tutorialPersona || ""}
+                onBlur={(e) => {
+                  if ((bot.tutorialPersona || "") !== e.target.value) {
+                    updateTutorialMutation.mutate({ tutorialPersona: e.target.value });
+                  }
+                }}
+                className="min-h-[80px]"
+              />
+              <p className="text-xs text-gray-500 mt-1">Used to guide tutorial simulations in Discord.</p>
+            </div>
+          </div>
+        )}
       </CardContent>
       <CardFooter className="bg-gray-50 px-5 py-3 border-t border-gray-200">
         <div className="flex items-center justify-between w-full">

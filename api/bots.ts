@@ -119,6 +119,8 @@ export default async function handler(req: any, res: any) {
           bot_name,
           platform_type,
           personality_context,
+          tutorial_enabled,
+          tutorial_persona,
           is_connected,
           created_at
         `)
@@ -132,6 +134,8 @@ export default async function handler(req: any, res: any) {
         botName: bot.bot_name,
         platformType: bot.platform_type,
         personalityContext: bot.personality_context,
+        tutorialEnabled: !!bot.tutorial_enabled,
+        tutorialPersona: bot.tutorial_persona || null,
         isConnected: bot.is_connected,
         createdAt: bot.created_at
       }));
@@ -141,7 +145,7 @@ export default async function handler(req: any, res: any) {
 
     if (req.method === 'POST' && !finalAction) {
       // Create new bot
-      const { botName, platformType, token, personalityContext } = req.body;
+      const { botName, platformType, token, personalityContext, tutorialEnabled, tutorialPersona } = req.body;
       
       if (!botName || !platformType || !token) {
         return res.status(400).json({ 
@@ -176,6 +180,8 @@ export default async function handler(req: any, res: any) {
           platform_type: platformType,
           token: token,
           personality_context: finalPersonalityContext,
+          tutorial_enabled: !!tutorialEnabled,
+          tutorial_persona: tutorialPersona || null,
           is_connected: false
         })
         .select('*')
@@ -207,6 +213,8 @@ export default async function handler(req: any, res: any) {
         botName: newBot.bot_name,
         platformType: newBot.platform_type,
         personalityContext: newBot.personality_context,
+        tutorialEnabled: !!newBot.tutorial_enabled,
+        tutorialPersona: newBot.tutorial_persona || null,
         isConnected: newBot.is_connected,
         createdAt: newBot.created_at
       };
@@ -239,9 +247,9 @@ export default async function handler(req: any, res: any) {
 
     console.log('PROCEEDING_WITH_UPDATE');
     
-    const { botName, token: botToken, personalityContext } = req.body;
+    const { botName, token: botToken, personalityContext, tutorialEnabled, tutorialPersona } = req.body;
 
-    if (!botName && !botToken && personalityContext === undefined) {
+    if (!botName && !botToken && personalityContext === undefined && tutorialEnabled === undefined && tutorialPersona === undefined) {
       return res.status(400).json({ error: 'At least one field must be provided for update' });
     }
 
@@ -262,6 +270,8 @@ export default async function handler(req: any, res: any) {
     if (botName) updateData.bot_name = botName;
     if (botToken) updateData.token = botToken;
     if (personalityContext !== undefined) updateData.personality_context = personalityContext;
+    if (tutorialEnabled !== undefined) updateData.tutorial_enabled = !!tutorialEnabled;
+    if (tutorialPersona !== undefined) updateData.tutorial_persona = tutorialPersona;
 
     // If token is being updated, check for conflicts
     if (botToken && botToken !== existingBot.token) {
@@ -327,6 +337,8 @@ export default async function handler(req: any, res: any) {
       botName: updatedBot.bot_name,
       platformType: updatedBot.platform_type,
       personalityContext: updatedBot.personality_context,
+      tutorialEnabled: !!updatedBot.tutorial_enabled,
+      tutorialPersona: updatedBot.tutorial_persona || null,
       isConnected: updatedBot.is_connected,
       createdAt: updatedBot.created_at
     };

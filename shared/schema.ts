@@ -34,6 +34,9 @@ export const bots = pgTable("bots", {
   token: text("token").notNull(),
   clientId: text("client_id"),
   personalityContext: text("personality_context"), // Optional: Custom bot personality and context
+  // Tutorial mode fields
+  tutorialEnabled: boolean("tutorial_enabled").default(false),
+  tutorialPersona: text("tutorial_persona"),
   isConnected: boolean("is_connected").default(false),
   createdAt: timestamp("created_at").defaultNow(),
 });

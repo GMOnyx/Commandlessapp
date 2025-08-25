@@ -62,6 +62,8 @@ export default function BotCreationDialog({ open, onOpenChange, editBot }: BotCr
       : z.string().min(5, "Token must be at least 5 characters"),
     clientId: z.string().optional(),
     personalityContext: z.string().optional(),
+    tutorialEnabled: z.boolean().optional(),
+    tutorialPersona: z.string().optional(),
   });
   
   // Initialize form
@@ -94,6 +96,8 @@ export default function BotCreationDialog({ open, onOpenChange, editBot }: BotCr
         token: "",
         clientId: "",
         personalityContext: "",
+        tutorialEnabled: false,
+        tutorialPersona: "",
       });
       setTokenValidation({ isValidating: false });
     }
@@ -107,6 +111,8 @@ export default function BotCreationDialog({ open, onOpenChange, editBot }: BotCr
         const updateData: any = { botName: data.botName };
         if (data.token && data.token.trim()) updateData.token = data.token;
         if (data.personalityContext !== undefined) updateData.personalityContext = data.personalityContext;
+        if (data.tutorialEnabled !== undefined) updateData.tutorialEnabled = data.tutorialEnabled;
+        if (data.tutorialPersona !== undefined) updateData.tutorialPersona = data.tutorialPersona;
         
         return await apiRequest(`/api/bots?botId=${editBot.id}`, {
           method: "PUT",
