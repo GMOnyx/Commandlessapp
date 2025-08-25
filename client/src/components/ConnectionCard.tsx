@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { MoreVertical, Edit, Trash2 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import TutorialSettingsDialog from "@/components/TutorialSettingsDialog";
 import BotCreationDialog from "@/components/BotCreationDialog";
 
 // Response type interfaces
@@ -60,6 +61,7 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
+  const [showTutorialDialog, setShowTutorialDialog] = useState(false);
   const [errorDetails, setErrorDetails] = useState<{
     message: string;
     troubleshooting?: string[];
@@ -358,23 +360,22 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
               </div>
               <Switch
                 checked={!!bot.tutorialEnabled}
-                onCheckedChange={(value) => updateTutorialMutation.mutate({ tutorialEnabled: value })}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Tutorial Persona & Context</label>
-              <Textarea
-                placeholder="Describe the tutor persona, tone, and bot-specific guidance."
-                defaultValue={bot.tutorialPersona || ""}
-                onBlur={(e) => {
-                  if ((bot.tutorialPersona || "") !== e.target.value) {
-                    updateTutorialMutation.mutate({ tutorialPersona: e.target.value });
-                  }
+                onCheckedChange={(value) => {
+                  updateTutorialMutation.mutate({ tutorialEnabled: value });
+                  if (value) setShowTutorialDialog(true);
                 }}
-                className="min-h-[80px]"
               />
-              <p className="text-xs text-gray-500 mt-1">Used to guide tutorial simulations in Discord.</p>
             </div>
+            {bot.tutorialEnabled && (
+              <div className="flex justify-end">
+                <button
+                  className="text-sm text-primary hover:text-primary-600"
+                  onClick={() => setShowTutorialDialog(true)}
+                >
+                  Configure tutorial settings
+                </button>
+              </div>
+            )}
           </div>
         )}
       </CardContent>
@@ -486,6 +487,13 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
       open={showEditDialog} 
       onOpenChange={setShowEditDialog}
       editBot={bot}
+    />
+
+    {/* Tutorial Settings Dialog */}
+    <TutorialSettingsDialog
+      open={showTutorialDialog}
+      onOpenChange={setShowTutorialDialog}
+      bot={bot}
     />
     </>
   );
