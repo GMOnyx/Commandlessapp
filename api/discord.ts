@@ -664,6 +664,7 @@ async function processMessageWithAI(message, userId) {
 
     // If tutorial mode is active, use tutorial-specific flow
     const tutorial = (message && message.tutorial) || { enabled: false };
+    console.log('[API] Tutorial flag:', JSON.stringify(tutorial));
     if (tutorial && tutorial.enabled) {
       // Fetch persona and top docs
       let persona = tutorial.persona || '';

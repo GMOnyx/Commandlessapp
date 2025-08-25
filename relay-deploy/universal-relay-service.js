@@ -345,6 +345,7 @@ async function createDiscordClient(bot) {
         await message.channel.sendTyping();
 
         // Send to Commandless AI API
+        try { console.log(`[URS] Tutorial enabled for bot ${bot.bot_name}:`, tutorialEnabled, 'payload:', JSON.stringify(messageData.tutorial)); } catch {}
         const response = await fetch(`${COMMANDLESS_API_URL}/api/discord?action=process-message`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -357,6 +358,7 @@ async function createDiscordClient(bot) {
         // (Tutorial trigger handled above)
 
         if (result.processed && result.response) {
+          try { console.log(`[URS] API responded (tutorial? ${tutorialEnabled}) with:`, String(result.response).slice(0, 120)); } catch {}
           console.log(`🤖 [${bot.bot_name}] AI Response: ${result.response}`);
           
           // Check if this is a command that needs execution
