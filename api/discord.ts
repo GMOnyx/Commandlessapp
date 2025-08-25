@@ -663,8 +663,25 @@ async function processMessageWithAI(message, userId) {
     }
 
     // If tutorial mode is active, use tutorial-specific flow
-    const tutorial = (message && message.tutorial) || { enabled: false };
-    console.log('[API] Tutorial flag:', JSON.stringify(tutorial));
+    let tutorial = (message && message.tutorial) || { enabled: false } as any;
+    try {
+      console.log('[API] Tutorial flag (incoming):', JSON.stringify(tutorial));
+    } catch {}
+
+    // Hard fallback: if not explicitly enabled in payload, check DB switch
+    if (!tutorial.enabled && (message.botId || message.botClientId)) {
+      try {
+        const { data: botRow } = await supabase
+          .from('bots')
+          .select('id, tutorial_enabled, tutorial_persona')
+          .eq('id', message.botId || message.botClientId)
+          .maybeSingle();
+        if (botRow && botRow.tutorial_enabled) {
+          tutorial = { enabled: true, persona: botRow.tutorial_persona || (tutorial && tutorial.persona) };
+          console.log('[API] Tutorial enabled via DB fallback for bot', botRow.id);
+        }
+      } catch {}
+    }
     if (tutorial && tutorial.enabled) {
       // Fetch persona and top docs
       let persona = tutorial.persona || '';
