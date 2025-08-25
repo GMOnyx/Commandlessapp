@@ -11,6 +11,108 @@ const PORT = process.env.PORT || 5001;
 app.use(cors());
 app.use(express.json());
 
+// Tutorial Session Manager (in-memory, per-channel)
+const TUTORIAL_TTL_MS = 20 * 60 * 1000; // 20 minutes
+class TutorialSessionManager {
+  constructor() {
+    this.sessions = new Map(); // channelId -> { userId, startedAt, catalog, page, topic, lastCard }
+  }
+  get(channelId) {
+    const s = this.sessions.get(channelId);
+    if (!s) return null;
+    if (Date.now() - s.startedAt > TUTORIAL_TTL_MS) {
+      this.sessions.delete(channelId);
+      return null;
+    }
+    return s;
+  }
+  start(channelId, data) {
+    this.sessions.set(channelId, { ...data, startedAt: Date.now(), page: 0, topic: null, lastCard: null });
+  }
+  end(channelId) { this.sessions.delete(channelId); }
+  set(channelId, patch) { const s = this.get(channelId) || {}; this.sessions.set(channelId, { ...s, ...patch }); }
+}
+const tutorialSessions = new TutorialSessionManager();
+
+// ---- Tutorial helpers: catalog + rendering ----
+function inferCategory(name = '', output = '') {
+  const s = `${name} ${output}`.toLowerCase();
+  const tests = [
+    ['roleplay', /(roleplay|rp|story|character|emote|scene|prompt|dialog|narrat)/],
+    ['cards', /(card|deck|draw|trade|pack|booster|gacha|collect|inventory|item|shop|market|craft|forge|fusion|merge)/],
+    ['combat', /(combat|battle|duel|fight|attack|skill|spell|hp|heal|damage|quest|raid|boss)/],
+    ['social', /(party|team|guild|group|friend|invite|match|queue|lobby|profile)/],
+    ['admin', /(setup|config|admin|mod|permissions|link|bind|web|oauth|prefix|settings)/],
+    ['utility', /(info|help|ping|server|channel|note|say|pin|purge|slowmode|stats|leaderboard|time|remind|search)/],
+  ];
+  for (const [cat, re] of tests) if (re.test(s)) return cat;
+  return 'misc';
+}
+
+function parseMainFacet(output = '') {
+  const tokens = String(output).trim().split(/\s+/);
+  const main = tokens[0]?.startsWith('/') ? tokens[0].slice(1) : tokens[0] || 'unknown';
+  const facet = tokens[1] && !tokens[1].includes(':') && !tokens[1].startsWith('{') ? tokens[1] : null;
+  return { main, facet };
+}
+
+function buildCommandCatalog(commands = []) {
+  const catalog = new Map(); // category -> [{ id,name,output,main,facet }]
+  for (const c of commands) {
+    const { main, facet } = parseMainFacet(c.command_output || '');
+    const cat = inferCategory(c.name || '', c.command_output || '');
+    const entry = { id: c.id, name: c.name, output: c.command_output, main, facet };
+    if (!catalog.has(cat)) catalog.set(cat, []);
+    catalog.get(cat).push(entry);
+  }
+  // sort items inside categories by name
+  for (const [k, arr] of catalog.entries()) catalog.set(k, arr.sort((a,b)=> (a.name||'').localeCompare(b.name||'')));
+  return catalog;
+}
+
+function listTopCategories(catalog, limit = 6) {
+  const arr = Array.from(catalog.entries()).map(([k,v]) => ({ k, n: v.length }));
+  return arr.sort((a,b)=> b.n - a.n).slice(0, limit);
+}
+
+function renderCategoryPreview(catalog) {
+  const tops = listTopCategories(catalog);
+  const bullet = tops.map(t => `- **${t.k}**: ${t.n} cmds`).join('\n');
+  const hint = 'Say "show <category>", "search <word>", or "end tutorial"';
+  return `🎓 Let\'s explore your bot by topics.\n${bullet || '- No commands found'}\n\n${hint}`;
+}
+
+function takeExamples(items = [], n = 3) {
+  return items.slice(0, n);
+}
+
+function renderTopicCard(catName, items) {
+  const ex = takeExamples(items, 3).map(i => `• ${i.name || i.output} → \\${i.output}`).join('\n');
+  const oneLiners = {
+    roleplay: 'Create scenes, emotes, and character interactions.',
+    cards: 'Collect, trade, and manage items or cards.',
+    combat: 'Battles, skills, and quests.',
+    social: 'Teams, parties, profiles, and invites.',
+    admin: 'Setup and configuration utilities.',
+    utility: 'General info and helper commands.',
+    misc: 'Other handy features.',
+  };
+  const purpose = oneLiners[catName] || oneLiners.misc;
+  return `🎓 **${catName}**\n- Purpose: ${purpose}\n- Try: \n${ex || 'No examples'}\n\nAsk a question or say "more" / "back" / "end tutorial".`;
+}
+
+function searchCommands(catalog, term) {
+  const out = [];
+  const q = term.toLowerCase();
+  for (const [, items] of catalog.entries()) {
+    for (const it of items) {
+      const hay = `${it.name} ${it.output} ${it.main} ${it.facet||''}`.toLowerCase();
+      if (hay.includes(q)) out.push(it);
+    }
+  }
+  return out.slice(0, 5);
+}
+
 // Initialize Supabase
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -933,8 +1035,43 @@ Respond in character as Dave. Keep it friendly, concise, and conversational. Do 
             .select('*')
             .eq('user_id', tutorialUserId || "user_2yMTRvIng7ljDfRRUlXFvQkWSb5")
             .eq('status', 'active');
-          const commandList = (commands || []).map(m => `- ${m.command_output}`).join('\n');
+          const catalog = buildCommandCatalog(commands || []);
+          // Start a session if not present
+          const session = tutorialSessions.get(messageData.channel_id);
+          if (!session) tutorialSessions.start(messageData.channel_id, { userId: tutorialUserId, catalog });
 
+          // Controls
+          if (/^end tutorial$/i.test(lower)) {
+            tutorialSessions.end(messageData.channel_id);
+            return res.json({ processed: true, response: '🎓 Tutorial ended. I\'m here if you need me again.' });
+          }
+          const showMatch = lower.match(/^show\s+(\w+)/);
+          const searchMatch = lower.match(/^search\s+(.+)/);
+
+          // Navigation
+          if (!looksLikeHelp && !looksLikeCommand) {
+            // If user says "show <category>" or "search <term>" during tutorial
+            if (showMatch) {
+              const cat = showMatch[1];
+              const items = catalog.get(cat);
+              if (items && items.length) {
+                return res.json({ processed: true, response: renderTopicCard(cat, items) });
+              }
+              return res.json({ processed: true, response: `🎓 I don\'t see a \"${cat}\" topic. Try one of: ${listTopCategories(catalog).map(t=>t.k).join(', ')}` });
+            }
+            if (searchMatch) {
+              const results = searchCommands(catalog, searchMatch[1]);
+              if (results.length) {
+                const ex = results.map(i => `• ${i.name || i.output} → \\${i.output}`).join('\n');
+                return res.json({ processed: true, response: `🎓 Search results:\n${ex}` });
+              }
+              return res.json({ processed: true, response: '🎓 No matching commands found.' });
+            }
+            // Otherwise, show category preview once at start or on demand
+            return res.json({ processed: true, response: renderCategoryPreview(catalog) });
+          }
+
+          const commandList = (commands || []).map(m => `- ${m.command_output}`).join('\n');
           const prompt = `Tutorial Mode (Simulation Only)\n\n${tutorialSystem}\n\nUser: "${cleanMsg}"\n\nCommands you can reference (do not list unless helpful):\n${commandList}\n\nReply as the persona. Do not echo persona/docs. Provide: purpose, when to use, parameters, safety checks, suggested natural phrase and slash command, and a simulated outcome.`;
 
           if (!genAI) {
