@@ -1,6 +1,6 @@
 [build]
 builder = "NIXPACKS"
-buildCommand = "cd server && npm ci"
+buildCommand = "sh -lc 'cd server && (npm ci || npm install --no-audit --no-fund)'"
 
 [deploy]
 startCommand = "cd server && node simple-index.js"
