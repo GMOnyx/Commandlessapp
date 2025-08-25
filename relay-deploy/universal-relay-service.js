@@ -309,14 +309,7 @@ async function createDiscordClient(bot) {
         console.log(`📨 [${bot.bot_name}] Processing: "${message.content}" from ${message.author.username}`);
         console.log(`   Bot mentioned: ${botMentioned}, Reply to bot: ${isReplyToBot}`);
 
-        // Tutorial mode: early trigger check before hitting API
         const tutorialEnabled = !!bot.tutorial_enabled;
-        if (tutorialEnabled && looksLikeTutorialTrigger(message.content)) {
-          startTutorial(message.channel.id);
-          const intro = '🧭 Tutorial mode started (no actions will be executed). Ask me how to perform tasks and I\'ll walk you through them.';
-          await message.reply(intro);
-          return; // Don't call API for the trigger message
-        }
 
         // Prepare message data for Commandless AI API
         const messageData = {
@@ -345,14 +338,7 @@ async function createDiscordClient(bot) {
             const mem = lastIntentByChannel.get(message.channel.id);
             return mem ? { lastCommandOutput: mem.commandOutput, lastParams: mem.params, at: mem.at } : undefined;
           })(),
-          tutorial: (() => {
-            if (!!bot.tutorial_enabled && isTutorialActive(message.channel.id)) {
-              return { enabled: true, persona: bot.tutorial_persona || null, docs: (() => {
-                return null; // lightweight by default; API can fetch full docs if needed
-              })() };
-            }
-            return { enabled: false };
-          })()
+          tutorial: { enabled: tutorialEnabled, persona: bot.tutorial_persona || null }
         };
 
         // Show "Bot is typing..." indicator
@@ -378,7 +364,7 @@ async function createDiscordClient(bot) {
           
           if (isCommandExecution) {
             // If a tutorial session is active, simulate instead of executing
-            if (tutorialEnabled && isTutorialActive(message.channel.id)) {
+            if (tutorialEnabled) {
               const params = parseParamsFromCommandOutput(result.response || '');
               // Pull a tiny persona/doc hint
               let personaHint = '';
