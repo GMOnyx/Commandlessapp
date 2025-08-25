@@ -361,9 +361,18 @@ async function createDiscordClient(bot) {
           },
           botToken: bot.token,
           botClientId: client.user.id,
+          botId: bot.id,
           memory: (() => {
             const mem = lastIntentByChannel.get(message.channel.id);
             return mem ? { lastCommandOutput: mem.commandOutput, lastParams: mem.params, at: mem.at } : undefined;
+          })(),
+          tutorial: (() => {
+            if (!!bot.tutorial_enabled && isTutorialActive(message.channel.id)) {
+              return { enabled: true, persona: bot.tutorial_persona || null, docs: (() => {
+                return null; // lightweight by default; API can fetch full docs if needed
+              })() };
+            }
+            return { enabled: false };
           })()
         };
 

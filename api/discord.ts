@@ -662,6 +662,56 @@ async function processMessageWithAI(message, userId) {
       };
     }
 
+    // If tutorial mode is active, use tutorial-specific flow
+    const tutorial = (message && message.tutorial) || { enabled: false };
+    if (tutorial && tutorial.enabled) {
+      // Fetch persona and top docs
+      let persona = tutorial.persona || '';
+      if (!persona) {
+        try {
+          const { data: botsRow } = await supabase
+            .from('bots')
+            .select('tutorial_persona')
+            .eq('id', message.botId || message.botClientId)
+            .maybeSingle();
+          if (botsRow?.tutorial_persona) persona = botsRow.tutorial_persona;
+        } catch {}
+      }
+      const { data: docs } = await supabase
+        .from('tutorial_docs')
+        .select('title, content')
+        .eq('bot_id', message.botId || message.botClientId)
+        .order('created_at', { ascending: false })
+        .limit(3);
+      const docSnippets = (docs || []).map(d => `# ${d.title}\n${String(d.content || '').slice(0, 1200)}`).join('\n\n');
+
+      const tutorialContext = [
+        'You are a tutorial-only assistant. Never execute real actions.',
+        'Explain what a command does, when to use it, parameters, safety checks, and show a simulated outcome.',
+        'Be concise and structured. One follow-up question max if info is missing.',
+        persona ? `PERSONA:\n${persona}` : '',
+        docSnippets ? `DOCS:\n${docSnippets}` : ''
+      ].filter(Boolean).join('\n\n');
+
+      // In tutorial mode, we still want to leverage mappings for accurate suggestions
+      const { data: commandMappings } = await supabase
+        .from('command_mappings')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('status', 'active');
+
+      const prompt = `Tutorial Mode (Simulation Only)\n\n${tutorialContext}\n\nUser said: "${cleanMessage}"\n\nAVAILABLE COMMANDS:\n${(commandMappings||[]).map((m:any)=>`- ${m.command_output} :: ${m.natural_language_pattern}`).join('\n')}\n\nRespond with a markdown explanation: purpose, when to use, parameters, safety checks, suggested natural phrase and slash command, and a simulated outcome. Do not execute anything, do not say it was executed.`;
+
+      if (!genAI) {
+        return { success: true, response: '🎓 Tutorial (no AI): Describe your goal and I will simulate the appropriate command with guidance.' };
+      }
+      const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const text = response.text().trim();
+      return { success: true, response: `🎓 ${text}` };
+    }
+
     // Get command mappings for this user
     const { data: commandMappings, error: mappingsError } = await supabase
       .from('command_mappings')
