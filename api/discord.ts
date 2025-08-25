@@ -682,6 +682,20 @@ async function processMessageWithAI(message, userId) {
         }
       } catch {}
     }
+    // Secondary fallback by token when available
+    if (!tutorial.enabled && (message as any).botToken) {
+      try {
+        const { data: botRowByToken } = await supabase
+          .from('bots')
+          .select('id, tutorial_enabled, tutorial_persona')
+          .eq('token', (message as any).botToken)
+          .maybeSingle();
+        if (botRowByToken && botRowByToken.tutorial_enabled) {
+          tutorial = { enabled: true, persona: botRowByToken.tutorial_persona || tutorial.persona };
+          console.log('[API] Tutorial enabled via token fallback for bot', botRowByToken.id);
+        }
+      } catch {}
+    }
     if (tutorial && tutorial.enabled) {
       // Fetch persona and top docs
       let persona = tutorial.persona || '';
@@ -798,6 +812,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (body.tutorial) message.tutorial = body.tutorial;
       if (body.botId) message.botId = body.botId;
       if (body.botClientId) message.botClientId = body.botClientId;
+      if (body.botToken) (message as any).botToken = body.botToken;
       
       console.log(`📨 SOPHISTICATED API (URS): Processing "${messageContent}" for bot ${botId}`);
       
