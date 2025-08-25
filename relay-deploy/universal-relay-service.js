@@ -22,6 +22,28 @@ const activeClients = new Map(); // token -> { client, botInfo }
 const botMessageIds = new Set(); // Track bot message IDs for reply detection
 // Lightweight memory: last successful intent per channel
 const lastIntentByChannel = new Map(); // channelId -> { commandOutput, params, at: Date }
+// Tutorial sessions per channel (simulate-only, time-limited)
+const tutorialSessions = new Map(); // channelId -> { expiresAt: number }
+const TUTORIAL_SESSION_MINUTES = 15;
+
+function isTutorialActive(channelId) {
+  const s = tutorialSessions.get(channelId);
+  if (!s) return false;
+  if (Date.now() > s.expiresAt) {
+    tutorialSessions.delete(channelId);
+    return false;
+  }
+  return true;
+}
+
+function startTutorial(channelId) {
+  tutorialSessions.set(channelId, { expiresAt: Date.now() + TUTORIAL_SESSION_MINUTES * 60 * 1000 });
+}
+
+function looksLikeTutorialTrigger(text) {
+  const t = (text || '').toLowerCase();
+  return /\b(tutorial|walk me through|show me how|how to use|guide me|demo)\b/.test(t);
+}
 
 // Message context manager for conversation tracking
 class MessageContextManager {
@@ -277,6 +299,36 @@ async function createDiscordClient(bot) {
 
         const result = await response.json();
 
+        // Tutorial mode entry: if enabled and user asks for tutorial
+        const tutorialEnabled = !!bot.tutorial_enabled;
+        if (tutorialEnabled && looksLikeTutorialTrigger(message.content)) {
+          startTutorial(message.channel.id);
+          // Pull persona and top doc to prime the user
+          let personaSnippet = '';
+          let docSnippet = '';
+          try {
+            if (bot.tutorial_persona) {
+              personaSnippet = String(bot.tutorial_persona).slice(0, 300);
+            }
+            const { data: docs } = await supabase
+              .from('tutorial_docs')
+              .select('title, content')
+              .eq('bot_id', bot.id)
+              .order('created_at', { ascending: false })
+              .limit(1);
+            if (docs && docs[0]?.content) {
+              docSnippet = String(docs[0].content).slice(0, 300);
+            }
+          } catch {}
+          const intro = [
+            '🧭 Tutorial mode started (no actions will be executed).',
+            personaSnippet ? `Persona: ${personaSnippet}` : '',
+            docSnippet ? `Doc: ${docSnippet}${docSnippet.length === 300 ? '…' : ''}` : '',
+            'Try something like: "show me how to ban safely" or "what would /note do?"'
+          ].filter(Boolean).join('\n');
+          await message.reply(intro);
+        }
+
         if (result.processed && result.response) {
           console.log(`🤖 [${bot.bot_name}] AI Response: ${result.response}`);
           
@@ -284,6 +336,24 @@ async function createDiscordClient(bot) {
           const isCommandExecution = result.response.startsWith('Command executed:');
           
           if (isCommandExecution) {
+            // If a tutorial session is active, simulate instead of executing
+            if (tutorialEnabled && isTutorialActive(message.channel.id)) {
+              const params = parseParamsFromCommandOutput(result.response || '');
+              // Pull a tiny persona/doc hint
+              let personaHint = '';
+              try { if (bot.tutorial_persona) personaHint = String(bot.tutorial_persona).slice(0, 160); } catch {}
+              const simulation = [
+                '🎓 Tutorial simulation (no action executed)',
+                `Command: ${result.response.replace(/^Command executed:\s*/i, '')}`,
+                Object.keys(params).length ? `Parameters: ${JSON.stringify(params)}` : '',
+                personaHint ? `Guidance: ${personaHint}` : ''
+              ].filter(Boolean).join('\n');
+              const simMsg = await message.reply(simulation);
+              if (simMsg) {
+                lastIntentByChannel.set(message.channel.id, { commandOutput: result.response, params, at: new Date().toISOString() });
+              }
+              return; // do not execute
+            }
             console.log(`⚡ [${bot.bot_name}] Executing Discord command: ${result.response}`);
             
             // Execute the actual Discord command
