@@ -772,9 +772,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (body.message && typeof body.message === 'object' && body.message.content) {
       // Universal Relay Service format
       messageContent = body.message.content;
-      botId = body.botClientId || 'unknown';
+      botId = body.botClientId || body.botId || 'unknown';
       userId = body.message.author?.id || 'unknown';
-      message = body.message;
+      message = { ...body.message };
+      // Attach relay-provided context flags so downstream logic can switch modes
+      if (body.memory) message.memory = body.memory;
+      if (body.tutorial) message.tutorial = body.tutorial;
+      if (body.botId) message.botId = body.botId;
+      if (body.botClientId) message.botClientId = body.botClientId;
       
       console.log(`📨 SOPHISTICATED API (URS): Processing "${messageContent}" for bot ${botId}`);
       
