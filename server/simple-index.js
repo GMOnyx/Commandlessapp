@@ -876,6 +876,28 @@ app.post('/api/discord', async (req, res) => {
               .maybeSingle();
             if (botsRow?.tutorial_persona) persona = botsRow.tutorial_persona;
           }
+          const cleanMsg = (messageData.content || '').trim();
+          const lower = cleanMsg.toLowerCase();
+          const looksLikeHelp = /(how\s+to|how do i|walk me through|tutorial|teach me|show me|what would\b|explain\b)/i.test(lower);
+          const looksLikeCommand = /(ban|unban|kick|warn|mute|timeout|purge|delete|role|slowmode|pin|unpin|say|note)\b/i.test(lower);
+
+          // If it's small talk (not help/command), answer conversationally as Dave
+          if (isConversationalInput(cleanMsg) && !looksLikeHelp && !looksLikeCommand) {
+            if (genAI) {
+              const conversationalPrompt = `${persona || 'You are Dave, a friendly moderation tutor.'}
+
+The user just said: "${cleanMsg}"
+
+Respond in character as Dave. Keep it friendly, concise, and conversational. Do not explain commands unless asked.`;
+              const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
+              const result = await model.generateContent(conversationalPrompt);
+              const response = await result.response;
+              const text = (response.text() || '').trim();
+              return res.json({ processed: true, response: `🎓 ${text}` });
+            }
+            return res.json({ processed: true, response: '🎓 Hey! Dave here — how can I help?' });
+          }
+
           const { data: docs } = await supabase
             .from('tutorial_docs')
             .select('title, content')
@@ -900,7 +922,7 @@ app.post('/api/discord', async (req, res) => {
             .eq('status', 'active');
           const commandList = (commands || []).map(m => `- ${m.command_output}`).join('\n');
 
-          const prompt = `Tutorial Mode (Simulation Only)\n\n${tutorialSystem}\n\nUser: "${messageData.content}"\n\nCommands you can reference (do not list unless helpful):\n${commandList}\n\nReply as the persona. Do not echo persona/docs. Provide: purpose, when to use, parameters, safety checks, suggested natural phrase and slash command, and a simulated outcome.`;
+          const prompt = `Tutorial Mode (Simulation Only)\n\n${tutorialSystem}\n\nUser: "${cleanMsg}"\n\nCommands you can reference (do not list unless helpful):\n${commandList}\n\nReply as the persona. Do not echo persona/docs. Provide: purpose, when to use, parameters, safety checks, suggested natural phrase and slash command, and a simulated outcome.`;
 
           if (!genAI) {
             return res.json({ processed: true, response: '🎓 Tutorial: Describe your goal and I will simulate the appropriate command with guidance.' });
