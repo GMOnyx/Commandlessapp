@@ -313,28 +313,7 @@ async function createDiscordClient(bot) {
         const tutorialEnabled = !!bot.tutorial_enabled;
         if (tutorialEnabled && looksLikeTutorialTrigger(message.content)) {
           startTutorial(message.channel.id);
-          let personaSnippet = '';
-          let docSnippet = '';
-          try {
-            if (bot.tutorial_persona) {
-              personaSnippet = String(bot.tutorial_persona).slice(0, 300);
-            }
-            const { data: docs } = await supabase
-              .from('tutorial_docs')
-              .select('title, content')
-              .eq('bot_id', bot.id)
-              .order('created_at', { ascending: false })
-              .limit(1);
-            if (docs && docs[0]?.content) {
-              docSnippet = String(docs[0].content).slice(0, 300);
-            }
-          } catch {}
-          const intro = [
-            '🧭 Tutorial mode started (no actions will be executed).',
-            personaSnippet ? `Persona: ${personaSnippet}` : '',
-            docSnippet ? `Doc: ${docSnippet}${docSnippet.length === 300 ? '…' : ''}` : '',
-            'Try something like: "show me how to ban safely" or "what would /note do?"'
-          ].filter(Boolean).join('\n');
+          const intro = '🧭 Tutorial mode started (no actions will be executed). Ask me how to perform tasks and I\'ll walk you through them.';
           await message.reply(intro);
           return; // Don't call API for the trigger message
         }
