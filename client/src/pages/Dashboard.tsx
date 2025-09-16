@@ -59,7 +59,7 @@ export default function Dashboard() {
     });
     return Array.from(map.values()).sort((a, b) => a.main.localeCompare(b.main));
   })();
-
+  
   return (
     <div className="space-y-6 md:space-y-8">
       {/* Header with Live Status */}
@@ -208,11 +208,11 @@ export default function Dashboard() {
                     </div>
                   </AccordionTrigger>
                   <AccordionContent>
-                    <ul className="divide-y divide-gray-200">
+            <ul className="divide-y divide-gray-200">
                       {items.map((m) => (
                         <CommandMappingItem key={m.id} mapping={m} bots={bots || []} />
-                      ))}
-                    </ul>
+              ))}
+            </ul>
                   </AccordionContent>
                 </AccordionItem>
               );
