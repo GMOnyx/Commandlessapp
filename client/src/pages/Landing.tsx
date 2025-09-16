@@ -4,7 +4,7 @@ export default function Landing() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-white to-gray-50">
       <header className="max-w-6xl mx-auto px-6 py-6 flex items-center justify-between">
-        <img src="/commandless.svg" alt="Commandless" className="h-8 w-auto transform scale-150 origin-left" />
+        <img src="/commandless.svg" alt="Commandless" className="h-8 w-auto transform scale-[10] origin-left" />
         <nav className="flex items-center gap-4">
           <Link href="/sign-in" className="text-sm text-gray-700 hover:underline">Sign in</Link>
           <Link href="/sign-up" className="text-sm text-white bg-[#5046E4] rounded-md px-3 py-1.5">Get started</Link>
