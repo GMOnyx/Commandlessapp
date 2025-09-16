@@ -310,7 +310,13 @@ function createAnalysisPrompt(message: string, availableCommands: any[], botPers
 
   return `${personalityContext}
 
-${contextSection}You are an advanced natural language processor for Discord bot commands. Your job is to:
+${contextSection}LANGUAGE POLICY:
+- Detect the user's language from USER MESSAGE.
+- Respond conversationally in that same language for any conversationalResponse or clarificationQuestion.
+- Keep any JSON keys/fields in English.
+- You may internally translate input to English to understand commands, but outputs that are natural language must remain in the user's language.
+
+You are an advanced natural language processor for Discord bot commands. Your job is to:
 1. **Determine if the user wants to execute a command OR have casual conversation**
 2. **Extract parameters aggressively and intelligently from natural language**
 3. **Be decisive - execute commands when intent is clear, even with informal language**

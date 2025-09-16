@@ -1,16 +1,25 @@
-FROM node:20-alpine AS base
-ENV NODE_ENV=production
+# Use Node 20 LTS
+FROM node:20-alpine
+
+# Create app directory
 WORKDIR /app
 
-# Prepare server installation with cached deps
-COPY server/package*.json /app/server/
-WORKDIR /app/server
-RUN npm ci || npm install --omit=dev --no-audit --no-fund
+# Install root deps (for scripts) if any
+COPY package*.json ./
+RUN npm ci --omit=dev || npm i --omit=dev
 
-# Copy server source
-COPY server/ /app/server/
+# Install server deps
+COPY server/package*.json ./server/
+RUN cd server && npm ci --omit=dev || npm i --omit=dev
 
-EXPOSE 8080
-CMD ["node", "simple-index.js"]
+# Bundle app source
+COPY . .
+
+ENV NODE_ENV=production
+ENV PORT=5001
+EXPOSE 5001
+
+# Start server
+CMD ["node", "server/simple-index.js"]
 
 
