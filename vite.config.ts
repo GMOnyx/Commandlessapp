@@ -9,6 +9,23 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   plugins: [
+    // Custom alias resolver so the external landing page can keep using its own
+    // "@/" imports that point to its local src directory.
+    {
+      name: "landing-external-alias",
+      enforce: "pre",
+      resolveId(source, importer) {
+        if (!source.startsWith("@/")) return null;
+        if (!importer) return null;
+        const landingRoot = path.resolve(__dirname, "Commandless landing page 2", "src");
+        // Only remap "@/" when the importing file lives inside the landing folder
+        if (importer.startsWith(landingRoot)) {
+          const resolved = path.resolve(landingRoot, source.slice(2));
+          return resolved;
+        }
+        return null;
+      },
+    },
     react(),
   ],
   resolve: {
