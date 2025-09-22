@@ -3,6 +3,7 @@ import Layout from "@/components/Layout";
 import Dashboard from "@/pages/Dashboard";
 import Login from "@/pages/Login";
 import SignUp from "@/pages/SignUp";
+import Landing from "@/pages/Landing";
 import CommandMappings from "@/pages/CommandMappings";
 import CommandMappingDetail from "@/pages/CommandMappingDetail";
 import BotConnections from "@/pages/BotConnections";
@@ -94,6 +95,9 @@ function AppContent() {
   if (!isSignedIn) {
     return (
       <Switch>
+        <Route path="/">
+          <Landing />
+        </Route>
         <Route path="/sign-up">
           <SignUp />
         </Route>
@@ -101,7 +105,7 @@ function AppContent() {
           <Login />
         </Route>
         <Route>
-          <Redirect to="/sign-in" />
+          <Redirect to="/" />
         </Route>
       </Switch>
     );
@@ -111,6 +115,12 @@ function AppContent() {
   return (
     <Layout>
       <Switch>
+        <Route path="/sign-in">
+          <Redirect to="/dashboard" />
+        </Route>
+        <Route path="/sign-up">
+          <Redirect to="/dashboard" />
+        </Route>
         <Route path="/" component={Dashboard} />
         <Route path="/dashboard" component={Dashboard} />
         <Route path="/mappings" component={CommandMappings} />
