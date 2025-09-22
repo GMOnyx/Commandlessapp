@@ -26,11 +26,28 @@ export default defineConfig({
         return null;
       },
     },
+    // As a safety net, rewrite "@/" specifiers to an explicit "@landing/" alias
+    // for any files inside the landing folder so Rollup/Vite never points to the
+    // main app alias by mistake during build or prebundle.
+    {
+      name: "landing-import-rewrite",
+      enforce: "pre",
+      transform(code, id) {
+        const landingRoot = path.resolve(__dirname, "Commandless landing page 2", "src");
+        if (!id.startsWith(landingRoot)) return null;
+        const rewritten = code.replace(/(['"])@\//g, "$1@landing/");
+        if (rewritten !== code) {
+          return { code: rewritten, map: null };
+        }
+        return null;
+      },
+    },
     react(),
   ],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "client", "src"),
+      "@landing": path.resolve(__dirname, "Commandless landing page 2", "src"),
       "@shared": path.resolve(__dirname, "shared"),
       "@assets": path.resolve(__dirname, "attached_assets"),
     },
