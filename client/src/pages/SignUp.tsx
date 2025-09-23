@@ -3,14 +3,13 @@ import logo from "@landing/assets/commandless-cropped.svg";
 
 export default function SignUpPage() {
   return (
-    <div className="min-h-screen grid place-items-center bg-gray-50 px-4">
-      <div className="w-full max-w-md text-center">
-        <div className="flex items-center justify-center">
-          <img src={logo} alt="Commandless" className="h-12 w-auto" />
-        </div>
-        
-        <div className="mt-6">
-          <SignUp 
+    <div className="min-h-screen flex flex-col justify-center items-center bg-gray-50 px-4">
+      <div className="mb-8 w-full flex justify-center">
+        <img src={logo} alt="Commandless" className="h-12 w-auto" />
+      </div>
+      
+      <div className="w-full max-w-md">
+        <SignUp 
           routing="hash"
           signInUrl="/sign-in"
           appearance={{
@@ -26,8 +25,7 @@ export default function SignUpPage() {
               showOptionalFields: true,
             }
           }}
-          />
-        </div>
+        />
       </div>
     </div>
   );
