@@ -56,3 +56,92 @@
     @apply font-sans antialiased bg-background text-foreground;
   }
 }
+
+/* ---- Landing page design tokens and utilities (merged) ---- */
+@layer base {
+  :root {
+    --primary-glow: 248 95% 78%;
+    --gradient-primary: linear-gradient(135deg, hsl(245 83% 65%), hsl(248 95% 78%));
+    --gradient-hero: linear-gradient(135deg, hsl(245 83% 65%) 0%, hsl(248 95% 78%) 100%);
+    --gradient-feature: linear-gradient(180deg, hsl(245 83% 65% / 0.05) 0%, hsl(248 95% 78% / 0.1) 100%);
+    --shadow-glow: 0 20px 70px hsl(245 83% 65% / 0.3);
+    --shadow-card: 0 4px 20px hsl(245 83% 65% / 0.1);
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .dark {
+    --gradient-primary: linear-gradient(135deg, hsl(245 83% 65%), hsl(248 95% 78%));
+    --gradient-hero: linear-gradient(135deg, hsl(245 83% 65%) 0%, hsl(248 95% 78%) 100%);
+    --gradient-feature: linear-gradient(180deg, hsl(245 83% 65% / 0.1) 0%, hsl(248 95% 78% / 0.2) 100%);
+    --shadow-glow: 0 20px 70px hsl(245 83% 65% / 0.4);
+    --shadow-card: 0 4px 20px hsl(245 83% 65% / 0.2);
+  }
+
+  .bg-grid-pattern {
+    background-image: radial-gradient(circle at 1px 1px, hsl(var(--primary) / 0.1) 1px, transparent 0);
+    background-size: 20px 20px;
+  }
+
+  .font-gothic {
+    font-family: "UnifrakturMaguntia", cursive;
+  }
+  .font-grotesque {
+    font-family: "Space Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+    letter-spacing: 0.01em;
+  }
+  .font-helvetica {
+    font-family: "Helvetica Neue", Helvetica, Arial, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+    letter-spacing: -0.01em;
+  }
+}
+
+@layer utilities {
+  @keyframes halo-pulse {
+    0% { transform: scale(1); opacity: .35; }
+    50% { transform: scale(1.15); opacity: .55; }
+    100% { transform: scale(1); opacity: .35; }
+  }
+  .logo-halo { 
+    background: radial-gradient(closest-side, hsl(var(--primary)/0.35), transparent 70%);
+    filter: blur(12px);
+    animation: halo-pulse 4.5s ease-in-out infinite;
+    border-radius: 9999px;
+  }
+
+  @keyframes float-sparkle {
+    0% { transform: translate3d(0,0,0) scale(1); opacity: .6; }
+    50% { transform: translate3d(10px, -12px, 0) scale(1.15); opacity: .9; }
+    100% { transform: translate3d(0, -20px, 0) scale(1); opacity: .6; }
+  }
+  .sparkle {
+    position: absolute; width: 8px; height: 8px; border-radius: 9999px;
+    background: hsl(var(--primary));
+    box-shadow: 0 0 18px hsl(var(--primary)/0.6), 0 0 36px hsl(var(--primary)/0.35);
+    animation: float-sparkle 6s ease-in-out infinite alternate;
+  }
+
+  @keyframes hero-gradient-move {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+  .hero-gradient {
+    background: radial-gradient(1200px circle at 20% 20%, hsl(var(--primary)/0.08), transparent 45%),
+                radial-gradient(900px circle at 80% 60%, hsl(var(--primary-glow)/0.12), transparent 45%),
+                linear-gradient(135deg, hsl(248 95% 78% / 0.15), hsl(245 83% 65% / 0.15));
+    background-size: 200% 200%;
+    animation: hero-gradient-move 12s ease-in-out infinite;
+  }
+
+  @keyframes burst {
+    0% { transform: translate(-50%, -50%) scale(0.6); opacity: .35; }
+    70% { opacity: .15; }
+    100% { transform: translate(-50%, -50%) scale(2); opacity: 0; }
+  }
+  .burst {
+    position: absolute; width: 340px; height: 340px; border-radius: 9999px;
+    background: radial-gradient(closest-side, hsl(var(--primary)/0.25), transparent 70%);
+    filter: blur(8px);
+    animation: burst 900ms ease-out forwards;
+    pointer-events: none;
+  }
+}
