@@ -48,7 +48,7 @@ const Hero = () => {
               variant="hero" 
               size="lg" 
               className="group hover:scale-105 transition-all duration-300 hover:shadow-glow"
-              onClick={() => window.open('https://commandless.app', '_blank')}
+              onClick={() => { window.location.href = '/sign-up'; }}
             >
               Start Free Trial
               <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
@@ -57,10 +57,10 @@ const Hero = () => {
               variant="outline" 
               size="lg" 
               className="group hover:scale-105 transition-all duration-300"
-              onClick={() => window.open('https://calendly.com/abdarrahman2345/30min', '_blank')}
+              onClick={() => { window.location.href = '/sign-in'; }}
             >
               <MessageSquare className="w-5 h-5" />
-              Book a Demo
+              Sign in
             </Button>
           </div>
           
