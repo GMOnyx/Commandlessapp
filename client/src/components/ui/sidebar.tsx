@@ -45,7 +45,7 @@ export default function Sidebar({ user, mobileMenuOpen = false, onMobileMenuClos
   const NavContent = () => (
     <>
       <div className="flex items-center flex-shrink-0 px-4 mb-6">
-        <img src="/commandless.svg" alt="Commandless" className="h-8 w-auto transform scale-[5] origin-left" />
+        <img src="/commandless.svg" alt="Commandless" className="h-12 w-auto" />
       </div>
       
       <nav className="flex-1 px-3 space-y-1">
