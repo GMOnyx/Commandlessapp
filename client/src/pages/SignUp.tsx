@@ -4,8 +4,8 @@ import logo from "@landing/assets/commandless-cropped.svg";
 export default function SignUpPage() {
   return (
     <div className="min-h-screen flex flex-col justify-center items-center bg-gray-50 px-4">
-      <div className="mb-8 w-full flex justify-center">
-        <img src={logo} alt="Commandless" className="h-12 w-auto" />
+      <div className="mb-8 w-full max-w-md mx-auto flex justify-center">
+        <img src={logo} alt="Commandless" className="h-12 w-auto block" />
       </div>
       
       <div className="w-full max-w-md">
