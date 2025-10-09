@@ -1,5 +1,5 @@
-import { Decision, RelayClientOptions, RelayEvent } from "./types";
-import { postJson } from "./http";
+import { Decision, RelayClientOptions, RelayEvent } from "./types.js";
+import { postJson } from "./http.js";
 
 const DEFAULT_BASE = "https://api.commandless.app";
 
@@ -11,6 +11,7 @@ export class RelayClient {
   private readonly maxRetries = 3;
   private readonly queue: Array<RelayEvent> = [];
   private sending = false;
+  private botId?: string;
 
   constructor(opts: RelayClientOptions) {
     this.apiKey = opts.apiKey;
@@ -19,8 +20,38 @@ export class RelayClient {
     this.timeoutMs = opts.timeoutMs ?? 15000;
   }
 
+  // Optional: register this SDK bot and obtain/confirm botId
+  async registerBot(info: { platform: 'discord'; name?: string; clientId?: string }): Promise<string | null> {
+    try {
+      const url = `${this.baseUrl}/v1/relay/register`;
+      const res = await postJson<{ botId: string }>(url, this.apiKey, info, {
+        hmacSecret: this.hmacSecret,
+        timeoutMs: this.timeoutMs,
+      });
+      if (res.ok && res.data?.botId) {
+        this.botId = res.data.botId;
+        return this.botId;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  // Optional heartbeat to show online status
+  async heartbeat(): Promise<void> {
+    try {
+      const url = `${this.baseUrl}/v1/relay/heartbeat`;
+      await postJson<{ ok: boolean }>(url, this.apiKey, { botId: this.botId }, {
+        hmacSecret: this.hmacSecret,
+        timeoutMs: this.timeoutMs,
+      });
+    } catch {}
+  }
+
   async sendEvent(event: RelayEvent): Promise<Decision | null> {
     // Immediate send with retries and idempotency
+    if (this.botId) (event as any).botId = this.botId;
     return await this.sendWithRetry(event);
   }
 

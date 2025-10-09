@@ -6,11 +6,14 @@ import CommandMappingItem from "@/components/CommandMappingItem";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import CommandMappingBuilder from "@/components/CommandMappingBuilder";
 import { Button } from "@/components/ui/button";
+import SyncCommandsDialog from "@/components/SyncCommandsDialog";
 import { PlusIcon, BotIcon, CheckCircleIcon, XCircleIcon, SparklesIcon, WandIcon } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function Dashboard() {
   const [showBuilder, setShowBuilder] = useState(false);
+  const [syncOpen, setSyncOpen] = useState(false);
+  const [selectedBotId, setSelectedBotId] = useState<string | null>(null);
   
   // Fetch bots
   const { 
@@ -129,7 +132,14 @@ export default function Dashboard() {
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {bots && bots.map((bot) => (
-              <ConnectionCard key={bot.id} bot={bot} />
+              <div key={bot.id} className="relative">
+                <ConnectionCard bot={bot} />
+                <div className="absolute right-4 bottom-4">
+                  <Button variant="secondary" size="sm" onClick={() => { setSelectedBotId(bot.id); setSyncOpen(true); }}>
+                    Sync Commands
+                  </Button>
+                </div>
+              </div>
             ))}
             <ConnectionCard isNewCard={true} bot={{} as Bot} />
           </div>
@@ -235,6 +245,7 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+      <SyncCommandsDialog botId={selectedBotId} open={syncOpen} onClose={() => setSyncOpen(false)} onSynced={() => window.location.reload()} />
     </div>
   );
 }

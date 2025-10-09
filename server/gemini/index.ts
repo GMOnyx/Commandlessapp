@@ -1,7 +1,7 @@
 import { geminiClient } from './client';
 import { log } from '../vite';
 
-const GEMINI_MODEL = "gemini-1.5-pro";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-1.5-flash";
 
 export async function parseNaturalLanguage(
   naturalLanguagePattern: string,

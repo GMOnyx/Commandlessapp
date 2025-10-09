@@ -1,5 +1,5 @@
-import { HttpResponse } from "./types";
-import { hmacSign, nowUnixMs } from "./signing";
+import { HttpResponse } from "./types.js";
+import { hmacSign, nowUnixMs } from "./signing.js";
 
 export async function postJson<T>(
   url: string,
@@ -12,6 +12,8 @@ export async function postJson<T>(
   const json = JSON.stringify(body);
   const headers: Record<string, string> = {
     "content-type": "application/json",
+    // Use canonical header expected by the server; keep legacy for compatibility
+    "x-api-key": apiKey,
     "x-commandless-key": apiKey,
     "x-timestamp": String(nowUnixMs())
   };

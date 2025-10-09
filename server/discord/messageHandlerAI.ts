@@ -1,7 +1,7 @@
 import { storage } from '../storage';
 import { log } from '../vite';
 import { geminiClient, validateGeminiConfig } from '../gemini/client';
-import { translateToCommand } from '../gemini/index';
+import { openai, validateOpenAIConfig } from '../openai/client';
 
 /**
  * Process a Discord message using AI to detect and execute commands or respond conversationally
@@ -31,10 +31,19 @@ export async function processDiscordMessageWithAI(
   conversationalResponse?: string;
 }> {
   try {
-    // Check if Gemini is configured
-    if (!validateGeminiConfig()) {
-      log('Gemini API not configured, skipping AI processing', 'discord');
-      return { processed: false };
+    // Determine AI provider
+    const provider = (process.env.AI_PROVIDER || 'gemini').toLowerCase();
+    if (provider === 'openai') {
+      if (!validateOpenAIConfig()) {
+        log('OpenAI-compatible provider selected but not configured', 'discord');
+        return { processed: false };
+      }
+    } else {
+      // Default to Gemini; ensure configured
+      if (!validateGeminiConfig()) {
+        log('Gemini API not configured, skipping AI processing', 'discord');
+        return { processed: false };
+      }
     }
     
     // First check if the bot was mentioned, if not mentioned we don't process
@@ -257,10 +266,24 @@ async function analyzeMessageWithAI(
     
     const prompt = createAnalysisPrompt(enhancedMessage, availableCommands, botPersonality, conversationContext);
     
-    const model = geminiClient.getGenerativeModel({ model: "gemini-1.5-pro" });
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const content = response.text();
+    let content = '';
+    const provider = (process.env.AI_PROVIDER || 'gemini').toLowerCase();
+    if (provider === 'openai') {
+      const model = process.env.OPENAI_MODEL || 'gpt-4o';
+      const completion = await openai.chat.completions.create({
+        model,
+        messages: [
+          { role: 'system', content: prompt }
+        ],
+        temperature: 0.2
+      });
+      content = completion.choices[0]?.message?.content || '';
+    } else {
+      const model = geminiClient.getGenerativeModel({ model: process.env.GEMINI_MODEL || "gemini-1.5-flash" });
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      content = response.text();
+    }
     
     if (!content) {
       throw new Error("Empty response from Gemini");

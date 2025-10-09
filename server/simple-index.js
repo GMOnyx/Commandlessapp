@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const crypto = require('crypto');
 require('dotenv').config();
 
 const app = express();
@@ -44,6 +45,57 @@ class TutorialSessionManager {
   }
 }
 const tutorialSessions = new TutorialSessionManager();
+
+// Ephemeral channel memory: last 8 turns per channel
+const channelMemory = new Map(); // channelId -> Array<{ role: 'user' | 'bot'; text: string }>
+
+// ---------------- SDK Relay helpers (API keys, HMAC, idempotency) ----------------
+const IDEMP_TTL_MS = 2 * 60 * 1000; // 2 minutes
+const idemCache = new Map(); // key -> { decision, at }
+
+function getCachedDecision(key) {
+  const entry = idemCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.at > IDEMP_TTL_MS) {
+    idemCache.delete(key);
+    return null;
+  }
+  return entry.decision;
+}
+
+function setCachedDecision(key, decision) {
+  idemCache.set(key, { decision, at: Date.now() });
+}
+
+function hmacVerify(rawBody, secret, signatureHex) {
+  try {
+    const mac = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
+    return mac === signatureHex;
+  } catch {
+    return false;
+  }
+}
+
+async function findApiKeyRecord(apiKey) {
+  try {
+    const envKeys = process.env.COMMANDLESS_API_KEYS;
+    if (envKeys) {
+      // Supports formats:
+      //  key:secret
+      //  key:secret:userId
+      //  multiple entries separated by commas
+      const entries = envKeys.split(',').map(p => p.trim()).filter(Boolean);
+      for (const entry of entries) {
+        const parts = entry.split(':');
+        const [k, secret, userId] = [parts[0], parts[1], parts[2]];
+        if (k === apiKey) {
+          return { key: k, hmac_secret: secret, user_id: userId || process.env.COMMANDLESS_DEFAULT_USER_ID || null, scopes: ['relay.events.write'] };
+        }
+      }
+    }
+  } catch {}
+  return null; // env-only for now
+}
 
 // ---- Tutorial helpers: catalog + rendering ----
 function inferCategory(name = '', output = '') {
@@ -130,13 +182,54 @@ const supabase = createClient(
   process.env.SUPABASE_ANON_KEY
 );
 
-// Initialize Gemini AI
+// Provider selection
+const AI_PROVIDER = (process.env.AI_PROVIDER || 'gemini').toLowerCase();
+
+// Initialize Gemini (default)
 let genAI = null;
-if (process.env.GEMINI_API_KEY) {
-  genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-  console.log('🤖 Gemini AI initialized');
-} else {
-  console.warn('⚠️ GEMINI_API_KEY not found - AI features will be limited');
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
+if (AI_PROVIDER !== 'openai') {
+  if (process.env.GEMINI_API_KEY) {
+    genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    console.log('🤖 Gemini AI initialized');
+  } else {
+    console.warn('⚠️ GEMINI_API_KEY not found - AI features will be limited');
+  }
+}
+
+// OpenAI-compatible (OpenRouter/Ollama/LocalAI) config
+const OPENAI_BASE_URL = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
+const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o';
+
+async function openAIChat(prompt) {
+  const res = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${OPENAI_API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: OPENAI_MODEL,
+      messages: [{ role: 'system', content: prompt }],
+      temperature: 0.2
+    })
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error?.message || `OpenAI HTTP ${res.status}`);
+  return json.choices?.[0]?.message?.content || '';
+}
+
+async function aiGenerateText(prompt) {
+  if (AI_PROVIDER === 'openai') {
+    if (!OPENAI_API_KEY) throw new Error('OPENAI_API_KEY not set');
+    return await openAIChat(prompt);
+  }
+  if (!genAI) throw new Error('Gemini not configured');
+  const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+  const result = await model.generateContent(prompt);
+  const response = await result.response;
+  return response.text();
 }
 
 // EXACT MIGRATION FROM LOCAL TYPESCRIPT SYSTEM
@@ -542,10 +635,7 @@ async function analyzeMessageWithAI(message, availableCommands, botPersonality, 
     
     const prompt = createAnalysisPrompt(enhancedMessage, availableCommands, botPersonality, conversationContext, aiExamples);
     
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const content = response.text();
+    const content = await aiGenerateText(prompt);
     
     if (!content) {
       throw new Error("Empty response from Gemini");
@@ -580,7 +670,7 @@ async function analyzeMessageWithAI(message, availableCommands, botPersonality, 
  * EXACT MAIN PROCESSING FUNCTION FROM LOCAL TYPESCRIPT SYSTEM
  * Process Discord message with AI (EXACT migration from messageHandlerAI.ts)
  */
-async function processDiscordMessageWithAI(message, guildId, channelId, userId, skipMentionCheck = false, authenticatedUserId, conversationContext) {
+async function processDiscordMessageWithAI(message, guildId, channelId, userId, skipMentionCheck = false, authenticatedUserId, conversationContext, targetBotId) {
   try {
     if (!message || typeof message !== 'string') {
       return { processed: false };
@@ -607,10 +697,27 @@ async function processDiscordMessageWithAI(message, guildId, channelId, userId, 
     const userIdToUse = authenticatedUserId || "user_2yMTRvIng7ljDfRRUlXFvQkWSb5";
 
     // Get all command mappings for the user
-    const { data: commands, error } = await supabase
-      .from('command_mappings')
-      .select('*')
-      .eq('user_id', userIdToUse);
+    let commands = null, error = null;
+    try {
+      if (targetBotId) {
+        const q = await supabase
+          .from('command_mappings')
+          .select('*')
+          .eq('user_id', userIdToUse)
+          .eq('bot_id', targetBotId)
+          .eq('status', 'active');
+        commands = q.data; error = q.error;
+      } else {
+        const q = await supabase
+          .from('command_mappings')
+          .select('*')
+          .eq('user_id', userIdToUse)
+          .eq('status', 'active');
+        commands = q.data; error = q.error;
+      }
+    } catch (e) {
+      error = e;
+    }
       
     if (error || !commands || commands.length === 0) {
       console.log(`No commands found for user ${userIdToUse}`);
@@ -620,15 +727,27 @@ async function processDiscordMessageWithAI(message, guildId, channelId, userId, 
       };
     }
 
-    // **CRITICAL FIX**: Get the bot personality context FIRST, before any processing
-    const { data: bots, error: botError } = await supabase
-      .from('bots')
-      .select('personality_context, ai_examples')
-      .eq('user_id', userIdToUse)
-      .limit(1);
-
-    const personalityContext = bots && bots[0] ? bots[0].personality_context : null;
-    const aiExamples = bots && bots[0] ? bots[0].ai_examples : null;
+    // **CRITICAL FIX**: Fetch personality for the specific bot when provided
+    let personalityContext = null;
+    let aiExamples = null;
+    if (targetBotId) {
+      const { data: botRow } = await supabase
+        .from('bots')
+        .select('personality_context, ai_examples')
+        .eq('id', targetBotId)
+        .eq('user_id', userIdToUse)
+        .maybeSingle();
+      personalityContext = botRow ? botRow.personality_context : null;
+      aiExamples = botRow ? botRow.ai_examples : null;
+    } else {
+      const { data: bots, error: botError } = await supabase
+        .from('bots')
+        .select('personality_context, ai_examples')
+        .eq('user_id', userIdToUse)
+        .limit(1);
+      personalityContext = bots && bots[0] ? bots[0].personality_context : null;
+      aiExamples = bots && bots[0] ? bots[0].ai_examples : null;
+    }
     console.log('🎭 PERSONALITY CONTEXT LOADED:', personalityContext ? 'YES' : 'NO');
     console.log('🎯 AI EXAMPLES LOADED:', aiExamples ? 'YES' : 'NO');
     if (personalityContext) {
@@ -654,10 +773,7 @@ Language: Respond entirely in the same language as the user's message. Do not mi
 
 Respond in character as described above. Keep it conversational and friendly, matching your personality. Be brief but engaging.`;
 
-          const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
-          const result = await model.generateContent(conversationalPrompt);
-          const response = await result.response;
-          const personalityResponse = response.text();
+          const personalityResponse = await aiGenerateText(conversationalPrompt);
           
           if (personalityResponse) {
             console.log(`🎭 PERSONALITY RESPONSE: ${personalityResponse}`);
@@ -671,11 +787,8 @@ Respond in character as described above. Keep it conversational and friendly, ma
         }
       }
       
-      // Only fallback to generic if no personality context exists
-      return {
-        processed: true,
-        conversationalResponse: "Hi there! I'm here to help. What can I do for you?"
-      };
+      // Only fallback if we truly have nothing; stay silent
+      return { processed: false };
     } else {
       console.log(`🎯 NOT CONVERSATIONAL: "${cleanMessage}" - Proceeding to AI analysis`);
     }
@@ -697,10 +810,7 @@ Language: Respond entirely in the same language as the user's message. Do not mi
 
 Respond in character as described above. Explain your capabilities and available commands in your personality style. Be helpful and engaging.`;
 
-          const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
-          const result = await model.generateContent(helpPrompt);
-          const response = await result.response;
-          const personalityResponse = response.text();
+          const personalityResponse = await aiGenerateText(helpPrompt);
           
           if (personalityResponse) {
             return {
@@ -807,10 +917,7 @@ Language: Respond entirely in the same language as the user's message. Do not mi
 
 I think they want to execute a command, but I'm not confident about the details. Respond in character and ask for clarification in your personality style. Be helpful and specific about what information you need.`;
 
-            const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
-            const result = await model.generateContent(clarificationPrompt);
-            const response = await result.response;
-            const personalityResponse = response.text();
+            const personalityResponse = await aiGenerateText(clarificationPrompt);
             
             if (personalityResponse) {
               return {
@@ -862,10 +969,7 @@ Language: Respond entirely in the same language as the user's message. Do not mi
 
 I encountered a technical error while processing the user's request. Respond in character and apologize for the issue in your personality style. Ask them to try again and be supportive.`;
 
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
-        const result = await model.generateContent(errorPrompt);
-        const response = await result.response;
-        const personalityResponse = response.text();
+        const personalityResponse = await aiGenerateText(errorPrompt);
         
         if (personalityResponse) {
           return {
@@ -909,7 +1013,7 @@ Examples:
 
 Generate examples for ALL commands above. Be creative with natural language variations:`;
 
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
     const result = await model.generateContent(prompt);
     const response = await result.response;
     const examples = response.text();
@@ -940,6 +1044,150 @@ app.get('/health', (req, res) => {
     uptime: process.uptime(),
     timestamp: new Date().toISOString()
   });
+});
+
+// SDK Relay endpoint: POST /v1/relay/events
+// - Auth via x-api-key (env map COMMANDLESS_API_KEYS="key:secret,...")
+// - Optional HMAC via x-signature (sha256 of raw body)
+// - Idempotency via x-idempotency-key
+app.post('/v1/relay/events', async (req, res) => {
+  try {
+    // Body is already parsed by express.json()
+    const event = (req.body && typeof req.body === 'object') ? req.body : {};
+
+    // API key lookup
+    const apiKey = req.header('x-api-key') || req.header('x-commandless-key') || '';
+    const apiKeyRecord = await findApiKeyRecord(apiKey);
+    if (!apiKeyRecord) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    // Optional HMAC check
+    const sig = req.header('x-signature');
+    if (sig && apiKeyRecord.hmac_secret) {
+      // Verify using the canonical JSON string
+      const bodyString = JSON.stringify(event);
+      if (!hmacVerify(bodyString, apiKeyRecord.hmac_secret, sig)) {
+        console.log('[relay] HMAC mismatch (continuing for now)');
+        // Soft-fail to avoid blocking while we stabilize signing across runtimes
+      }
+    }
+
+    // Idempotency
+    const idemKey = req.header('x-idempotency-key');
+    if (idemKey) {
+      const cached = getCachedDecision(idemKey);
+      if (cached) {
+        res.setHeader('x-request-id', cached.id);
+        return res.json({ decision: cached });
+      }
+    }
+
+    // Build message and context
+    const content = String(event.content || event.name || '').trim();
+    const channelId = String(event.channelId || event.channel || 'unknown');
+    const guildId = String(event.guildId || event.guild || 'unknown');
+    const authorId = String(event.authorId || event.userId || 'unknown');
+    const botClientId = String(event.botClientId || '');
+    const explicitBotId = String(event.botId || '');
+    const userIdForContext = apiKeyRecord.user_id || 'user_2yMTRvIng7ljDfRRUlXFvQkWSb5';
+
+    // Resolve bot for persona by explicit botId or clientId; never use a different bot's persona
+    let personaBotId = explicitBotId || null;
+    if (!personaBotId && botClientId) {
+      try {
+        const { data: botRow } = await supabase
+          .from('bots')
+          .select('id')
+          .eq('client_id', botClientId)
+          .maybeSingle();
+        if (botRow?.id) personaBotId = botRow.id;
+      } catch {}
+    }
+
+    // Decide path: if starts with a slash, emit command action directly
+    const slashMatch = /^\s*\/([\w-]+)(?:\s+(.+))?/i.exec(content);
+    let decision;
+    if (slashMatch) {
+      const cmdName = (slashMatch[1] || '').trim();
+      const args = {};
+      const rawArgs = (slashMatch[2] || '').trim();
+      if (rawArgs) {
+        for (const part of rawArgs.split(/\s+/)) {
+          const kv = part.split('=');
+          if (kv.length === 2) args[kv[0]] = kv[1];
+        }
+      }
+      decision = {
+        id: `dec_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+        intent: 'command.request',
+        confidence: 0.9,
+        params: { name: cmdName, args, rawArgs },
+        actions: [
+          { kind: 'command', name: cmdName, args }
+        ]
+      };
+    } else {
+      // Capture user turn for context memory
+      try {
+        const turns = channelMemory.get(channelId) || [];
+        if (content) { turns.push({ role: 'user', text: content }); }
+        channelMemory.set(channelId, turns.slice(-8));
+      } catch {}
+
+      // Use the existing AI pipeline for Discord-style messages when mentioned or replied
+      let processed = null;
+      try {
+        const result = await processDiscordMessageWithAI(
+          content,
+          guildId,
+          channelId,
+          authorId,
+          Boolean(event.isReplyToBot),
+          userIdForContext,
+          event.referencedMessageContent || '',
+          personaBotId
+        );
+        processed = result;
+      } catch (e) {
+        console.log('[relay] pipeline error:', e.message);
+      }
+
+      if (processed?.processed && processed.command) {
+        decision = {
+          id: `dec_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+          intent: 'command.request',
+          confidence: 0.75,
+          params: { slash: processed.command },
+          actions: [ { kind: 'command', name: 'execute', args: { slash: processed.command } } ]
+        };
+      } else if (processed?.processed && processed.conversationalResponse) {
+        decision = {
+          id: `dec_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+          intent: 'conversational.reply',
+          confidence: 0.7,
+          params: {},
+          actions: [ { kind: 'reply', content: processed.conversationalResponse } ]
+        };
+        // remember last bot reply per channel
+        try {
+          const arr = channelMemory.get(channelId) || [];
+          arr.push({ role: 'bot', text: processed.conversationalResponse });
+          channelMemory.set(channelId, arr.slice(-8));
+        } catch {}
+      } else {
+        // No response generated: do not hardcode any text; return processed:false
+        return res.json({ decision: null });
+      }
+    }
+
+    if (idemKey) setCachedDecision(idemKey, decision);
+    res.setHeader('x-request-id', decision.id);
+    return res.json({ decision });
+  } catch (e) {
+    console.log('[relay] error:', e.message);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // Discord API endpoint for Universal Relay Service
@@ -1034,7 +1282,7 @@ The user just said: "${cleanMsg}"
 Language: Respond entirely in the same language as the user's message. Do not mix languages. If uncertain, detect and use that language.
 
 Respond in character as Dave. Keep it friendly, concise, and conversational. Do not explain commands unless asked.`;
-              const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
+              const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
               const result = await model.generateContent(conversationalPrompt);
               const response = await result.response;
               const text = (response.text() || '').trim();
@@ -1107,10 +1355,7 @@ Categories:
 ${categoriesSummary || '- none'}
 
 Offer next steps like: say a category to show, search for a word, or ask about a command.`;
-                const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
-                const result = await model.generateContent(flavored);
-                const resp = await result.response;
-                const txt = (resp.text() || '').trim();
+                const txt = (await aiGenerateText(flavored) || '').trim();
                 overview = `🎓 ${txt || 'I can walk you through any command step-by-step. Say a category to show, or ask me to search for a word, to begin.'}`;
               } catch {
                 overview = '🎓 I can walk you through any command step-by-step. Say a category to show, or ask me to search for a word, to begin.';
@@ -1159,10 +1404,7 @@ Instruction: Do NOT start with a greeting. Continue the conversation naturally.
 The user just said: "${cleanMsg}"
 
 Respond conversationally. Do NOT offer tutorial guidance unless explicitly asked.`;
-              const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
-              const result = await model.generateContent(conversationalPrompt);
-              const response = await result.response;
-              const text = (response.text() || '').trim();
+              const text = (await aiGenerateText(conversationalPrompt) || '').trim();
               tutorialSessions.addMessage(messageData.channel_id, 'user', cleanMsg);
               tutorialSessions.addMessage(messageData.channel_id, 'assistant', text);
               return res.json({ processed: true, response: text });
@@ -1179,10 +1421,7 @@ Respond conversationally. Do NOT offer tutorial guidance unless explicitly asked
           if (!genAI) {
             return res.json({ processed: true, response: '🎓 Tutorial: Describe your goal and I will simulate the appropriate command with guidance.' });
           }
-          const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
-          const result = await model.generateContent(prompt);
-          const response = await result.response;
-          const text = (response.text() || '').trim();
+          const text = (await aiGenerateText(prompt) || '').trim();
           console.log('🎓 Tutorial response generated');
           tutorialSessions.addMessage(messageData.channel_id, 'user', cleanMsg);
           tutorialSessions.addMessage(messageData.channel_id, 'assistant', text);
@@ -1215,11 +1454,18 @@ Respond conversationally. Do NOT offer tutorial guidance unless explicitly asked
         }
       }
       
-      // Enhanced logging for context
+      // Enhanced logging for context + include last bot message memory
       if (conversationContext) {
         console.log(`🗣️ Conversation context built: ${conversationContext}`);
       } else {
         console.log(`💬 No conversation context - treating as new interaction`);
+      }
+      const memTurns = channelMemory.get(messageData.channel_id);
+      if (Array.isArray(memTurns) && memTurns.length) {
+        const transcript = memTurns.map(t => `${t.role === 'bot' ? 'Assistant' : 'User'}: ${t.text}`).join('\n');
+        conversationContext = conversationContext
+          ? `${conversationContext}\n\nRecent conversation (most recent last):\n${transcript}`
+          : `Recent conversation (most recent last):\n${transcript}`;
       }
       
       // **CRITICAL FIX**: Determine if this is a reply to bot (treat same as mention)
@@ -1243,6 +1489,11 @@ Respond conversationally. Do NOT offer tutorial guidance unless explicitly asked
       
       if (result.processed && result.conversationalResponse) {
         console.log(`🤖 API Response: ${result.conversationalResponse}`);
+        try {
+          const arr = channelMemory.get(messageData.channel_id) || [];
+          arr.push({ role: 'bot', text: result.conversationalResponse });
+          channelMemory.set(messageData.channel_id, arr.slice(-8));
+        } catch {}
         return res.json({
           processed: true,
           response: result.conversationalResponse
@@ -1260,10 +1511,7 @@ Respond conversationally. Do NOT offer tutorial guidance unless explicitly asked
           response: result.clarificationQuestion
         });
       } else {
-        return res.json({
-          processed: false,
-          reason: 'No response generated'
-        });
+        return res.json({ processed: false });
       }
     }
 
@@ -1291,6 +1539,209 @@ app.get('/api/discord', (req, res) => {
       processed: false,
       reason: 'Unknown action'
     });
+  }
+});
+
+// Register & Heartbeat endpoints for SDK bots
+app.post('/v1/relay/register', async (req, res) => {
+  try {
+    const apiKey = req.header('x-api-key') || req.header('x-commandless-key') || '';
+    const apiKeyRecord = await findApiKeyRecord(apiKey);
+    if (!apiKeyRecord) return res.status(401).json({ error: 'Unauthorized' });
+    const { platform, name, clientId, botId } = req.body || {};
+    const userId = apiKeyRecord.user_id;
+    let finalBotId = botId || null;
+    if (!finalBotId) {
+      // Try to find by clientId
+      if (clientId) {
+        const { data: existing } = await supabase
+          .from('bots')
+          .select('id')
+          .eq('client_id', clientId)
+          .eq('user_id', userId)
+          .maybeSingle();
+        if (existing?.id) finalBotId = existing.id;
+      }
+    }
+    if (!finalBotId) {
+      // Create a minimal bot row
+      finalBotId = `bot_${Math.random().toString(36).slice(2)}`;
+      await supabase.from('bots').insert({
+        id: finalBotId,
+        user_id: userId,
+        platform_type: platform || 'discord',
+        bot_name: name || 'SDK Bot',
+        client_id: clientId || null,
+        token: '',
+        is_connected: true,
+      });
+    } else {
+      await supabase.from('bots').update({ is_connected: true }).eq('id', finalBotId).eq('user_id', userId);
+    }
+    return res.json({ botId: finalBotId });
+  } catch (e) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/v1/relay/heartbeat', async (req, res) => {
+  try {
+    const apiKey = req.header('x-api-key') || req.header('x-commandless-key') || '';
+    const apiKeyRecord = await findApiKeyRecord(apiKey);
+    if (!apiKeyRecord) return res.status(401).json({ error: 'Unauthorized' });
+    const { botId } = req.body || {};
+    if (botId) {
+      await supabase.from('bots').update({ is_connected: true }).eq('id', botId).eq('user_id', apiKeyRecord.user_id);
+    }
+    return res.json({ ok: true });
+  } catch (e) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---- SDK Command Sync (by botId) ----
+app.post('/v1/relay/commands/sync', async (req, res) => {
+  try {
+    const apiKey = req.header('x-api-key') || req.header('x-commandless-key') || '';
+    const apiKeyRecord = await findApiKeyRecord(apiKey);
+    if (!apiKeyRecord) return res.status(401).json({ error: 'Unauthorized' });
+    const { botId, commands } = req.body || {};
+    if (!botId || !Array.isArray(commands)) return res.status(400).json({ error: 'botId and commands[] required' });
+    const userId = apiKeyRecord.user_id;
+
+    // Upsert each command by (user_id, bot_id, name)
+    for (const c of commands) {
+      const name = String(c.name || '').trim();
+      const pattern = String(c.naturalLanguagePattern || c.pattern || '').trim();
+      const output = String(c.commandOutput || c.output || c.slash || '').trim();
+      if (!name || !pattern) continue;
+      const { data: existing } = await supabase
+        .from('command_mappings')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('bot_id', botId)
+        .eq('name', name)
+        .maybeSingle();
+      if (existing?.id) {
+        await supabase.from('command_mappings').update({
+          natural_language_pattern: pattern,
+          command_output: output,
+          status: 'active'
+        }).eq('id', existing.id);
+      } else {
+        await supabase.from('command_mappings').insert({
+          user_id: userId,
+          bot_id: botId,
+          name,
+          natural_language_pattern: pattern,
+          command_output: output,
+          status: 'active'
+        });
+      }
+    }
+    return res.json({ ok: true });
+  } catch (e) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/v1/relay/commands', async (req, res) => {
+  try {
+    const botId = String(req.query.botId || '');
+    const apiKey = req.header('x-api-key') || req.header('x-commandless-key') || '';
+    const apiKeyRecord = await findApiKeyRecord(apiKey);
+    if (!apiKeyRecord) return res.status(401).json({ error: 'Unauthorized' });
+    if (!botId) return res.status(400).json({ error: 'botId required' });
+    const { data } = await supabase
+      .from('command_mappings')
+      .select('id,name,natural_language_pattern,command_output,status')
+      .eq('user_id', apiKeyRecord.user_id)
+      .eq('bot_id', botId)
+      .eq('status', 'active');
+    return res.json({ commands: data || [] });
+  } catch (e) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Dashboard proxy: user-auth sync (no SDK key required)
+app.post('/api/relay/commands/sync', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const token = authHeader.split(' ')[1];
+    const decoded = decodeJWT(token);
+    if (!decoded) return res.status(401).json({ error: 'Invalid token' });
+    const userId = decoded.userId;
+    const { botId, commands } = req.body || {};
+    if (!botId || !Array.isArray(commands)) return res.status(400).json({ error: 'botId and commands[] required' });
+    for (const c of commands) {
+      const name = String(c.name || '').trim();
+      const pattern = String(c.naturalLanguagePattern || c.pattern || '').trim();
+      const output = String(c.commandOutput || c.output || c.slash || '').trim();
+      if (!name || !pattern) continue;
+      const { data: existing } = await supabase
+        .from('command_mappings')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('bot_id', botId)
+        .eq('name', name)
+        .maybeSingle();
+      if (existing?.id) {
+        await supabase.from('command_mappings').update({
+          natural_language_pattern: pattern,
+          command_output: output,
+          status: 'active'
+        }).eq('id', existing.id);
+      } else {
+        await supabase.from('command_mappings').insert({
+          user_id: userId,
+          bot_id: botId,
+          name,
+          natural_language_pattern: pattern,
+          command_output: output,
+          status: 'active'
+        });
+      }
+    }
+    return res.json({ ok: true });
+  } catch (e) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/api/relay/commands', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const token = authHeader.split(' ')[1];
+    const decoded = decodeJWT(token);
+    if (!decoded) return res.status(401).json({ error: 'Invalid token' });
+    const botId = String(req.query.botId || '');
+    if (!botId) return res.status(400).json({ error: 'botId required' });
+    const { data } = await supabase
+      .from('command_mappings')
+      .select('id,bot_id,name,natural_language_pattern,command_output,status,usage_count,created_at')
+      .eq('user_id', decoded.userId)
+      .eq('bot_id', botId)
+      .eq('status', 'active')
+      .order('created_at', { ascending: false });
+    return res.json((data || []).map(m => ({
+      id: m.id,
+      botId: m.bot_id,
+      name: m.name,
+      naturalLanguagePattern: m.natural_language_pattern,
+      commandOutput: m.command_output,
+      status: m.status,
+      usageCount: m.usage_count,
+      createdAt: m.created_at
+    })));
+  } catch (e) {
+    return res.status(500).json({ error: 'Internal server error' });
   }
 });
 

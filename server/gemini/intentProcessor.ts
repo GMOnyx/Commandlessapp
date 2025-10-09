@@ -41,7 +41,7 @@ export async function processIntent(
     const prompt = createIntentMatchingPrompt(input, availableCommands);
     
     // Call Gemini API
-    const model = geminiClient.getGenerativeModel({ model: "gemini-1.5-pro" });
+    const model = geminiClient.getGenerativeModel({ model: process.env.GEMINI_MODEL || "gemini-1.5-flash" });
     const result = await model.generateContent(prompt);
     const response = await result.response;
     const content = response.text();
