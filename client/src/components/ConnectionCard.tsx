@@ -252,23 +252,31 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
   if (isNewCard) {
     return (
       <>
-      <Card className="overflow-hidden border-2 border-dashed border-gray-300">
-        <CardContent className="p-5 flex justify-center items-center h-full">
-          <button 
-            type="button" 
-            className="relative block w-full py-6 text-center"
-              onClick={() => setShowCreateDialog(true)}
-          >
-            <div className="text-gray-400 text-2xl mb-2">+</div>
-              <span className="block text-sm font-medium text-gray-900">Connect new bot</span>
-          </button>
-        </CardContent>
-      </Card>
-        
-        <BotCreationDialog 
-          open={showCreateDialog} 
-          onOpenChange={setShowCreateDialog} 
-        />
+        <Card className="overflow-hidden border-2 border-dashed border-gray-300">
+          <CardContent className="p-5 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="block text-sm font-medium text-gray-900">Connect or link a bot</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <Button variant="secondary" onClick={() => setShowCreateDialog(true)}>Connect new bot</Button>
+              <Button variant="outline" onClick={async () => {
+                const clientId = window.prompt('Enter Discord Client ID for your SDK bot');
+                const botName = window.prompt('Enter a name for this bot (optional)') || 'SDK Bot';
+                if (!clientId) return;
+                try {
+                  await apiRequest('/api/bots', {
+                    method: 'PUT',
+                    body: JSON.stringify({ action: 'link-sdk', botId: 'unused', clientId, botName, platformType: 'discord' })
+                  });
+                  window.location.reload();
+                } catch (e: any) {
+                  alert(`Failed to link SDK bot: ${e?.message || 'Unknown error'}`);
+                }
+              }}>Link SDK bot</Button>
+            </div>
+          </CardContent>
+        </Card>
+        <BotCreationDialog open={showCreateDialog} onOpenChange={setShowCreateDialog} />
       </>
     );
   }

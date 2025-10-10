@@ -440,6 +440,46 @@ export default async function handler(req: any, res: any) {
         return res.status(404).json({ error: 'Bot not found' });
       }
 
+      if (finalAction === 'link-sdk') {
+        // Link an SDK-registered bot to the logged-in user by clientId
+        const { clientId, botName = 'SDK Bot', platformType = 'discord' } = req.body || {};
+        if (!clientId) return res.status(400).json({ error: 'clientId is required' });
+
+        // Try to find an existing bot for this user/clientId
+        const { data: existing } = await supabase
+          .from('bots')
+          .select('id, bot_name, platform_type, is_connected')
+          .eq('user_id', userId)
+          .eq('client_id', clientId)
+          .maybeSingle();
+
+        if (existing?.id) {
+          await supabase
+            .from('bots')
+            .update({ bot_name: botName || existing.bot_name, platform_type: platformType || existing.platform_type, is_connected: true })
+            .eq('id', existing.id)
+            .eq('user_id', userId);
+          return res.status(200).json({ success: true, botId: existing.id, message: 'SDK bot linked' });
+        }
+
+        // Create a minimal bot row linked to this user with clientId
+        const { data: newBot, error: createErr } = await supabase
+          .from('bots')
+          .insert({
+            user_id: userId,
+            bot_name: botName,
+            platform_type: platformType,
+            client_id: clientId,
+            token: '',
+            is_connected: true
+          })
+          .select('id')
+          .single();
+
+        if (createErr) return res.status(500).json({ error: 'Failed to link SDK bot' });
+        return res.status(200).json({ success: true, botId: newBot?.id, message: 'SDK bot linked' });
+      }
+
       if (finalAction === 'connect') {
         // Connect bot - this is a simplified version that just updates the database
         // In a full implementation, this would also start the bot service
