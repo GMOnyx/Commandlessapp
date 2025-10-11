@@ -58,6 +58,20 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const isSdkBot = !(bot as any).token; // SDK-linked bots don't store tokens
+  const requestSdkSync = useMutation({
+    mutationFn: async () => {
+      return await apiRequest('/api/relay/commands/request-sync', {
+        method: 'POST',
+        body: JSON.stringify({ botId: bot.id })
+      });
+    },
+    onSuccess: () => {
+      toast({ title: 'Sync requested', description: 'Your SDK bot will auto-sync on next heartbeat (≤25s).' });
+    },
+    onError: (e: any) => {
+      toast({ title: 'Sync request failed', description: e?.message || 'Unknown error', variant: 'destructive' });
+    }
+  });
   const [showErrorDialog, setShowErrorDialog] = useState(false);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -421,7 +435,13 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
             </button>
           )}
           {bot.platformType === "discord" && isSdkBot && (
-            <span className="text-xs text-gray-500">Auto-sync via SDK</span>
+            <button
+              onClick={() => requestSdkSync.mutate()}
+              disabled={requestSdkSync.isPending}
+              className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {requestSdkSync.isPending ? 'Requesting…' : 'Request Sync'}
+            </button>
           )}
         </div>
       </CardFooter>

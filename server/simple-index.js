@@ -52,6 +52,8 @@ const channelMemory = new Map(); // channelId -> Array<{ role: 'user' | 'bot'; t
 // ---------------- SDK Relay helpers (API keys, HMAC, idempotency) ----------------
 const IDEMP_TTL_MS = 2 * 60 * 1000; // 2 minutes
 const idemCache = new Map(); // key -> { decision, at }
+// Pending SDK sync requests keyed by botId (cleared when delivered via heartbeat)
+const sdkSyncRequests = new Set();
 
 function getCachedDecision(key) {
   const entry = idemCache.get(key);
@@ -1593,7 +1595,13 @@ app.post('/v1/relay/heartbeat', async (req, res) => {
     if (botId) {
       await supabase.from('bots').update({ is_connected: true }).eq('id', botId).eq('user_id', apiKeyRecord.user_id);
     }
-    return res.json({ ok: true });
+    // Deliver one-time sync request signal to SDK bots
+    let syncRequested = false;
+    if (botId && sdkSyncRequests.has(String(botId))) {
+      syncRequested = true;
+      sdkSyncRequests.delete(String(botId));
+    }
+    return res.json({ ok: true, syncRequested });
   } catch (e) {
     return res.status(500).json({ error: 'Internal server error' });
   }
@@ -1706,6 +1714,33 @@ app.post('/api/relay/commands/sync', async (req, res) => {
         });
       }
     }
+    return res.json({ ok: true });
+  } catch (e) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Dashboard -> Request SDK sync (no token required); signals via heartbeat
+app.post('/api/relay/commands/request-sync', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const token = authHeader.split(' ')[1];
+    const decoded = decodeJWT(token);
+    if (!decoded) return res.status(401).json({ error: 'Invalid token' });
+    const userId = decoded.userId;
+    const { botId } = req.body || {};
+    if (!botId) return res.status(400).json({ error: 'botId required' });
+    const { data: bot } = await supabase
+      .from('bots')
+      .select('id,user_id')
+      .eq('id', botId)
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (!bot) return res.status(404).json({ error: 'Bot not found' });
+    sdkSyncRequests.add(String(botId));
     return res.json({ ok: true });
   } catch (e) {
     return res.status(500).json({ error: 'Internal server error' });
