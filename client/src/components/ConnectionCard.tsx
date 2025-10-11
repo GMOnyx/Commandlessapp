@@ -57,6 +57,7 @@ interface ConnectionCardProps {
 export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCardProps) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const isSdkBot = !(bot as any).token; // SDK-linked bots don't store tokens
   const [showErrorDialog, setShowErrorDialog] = useState(false);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -410,7 +411,7 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
           </div>
           
           {/* Sync Commands Button - only show for Discord bots */}
-          {bot.platformType === "discord" && (
+          {bot.platformType === "discord" && !isSdkBot && (
             <button
               onClick={() => syncCommandsMutation.mutate()}
               disabled={syncCommandsMutation.isPending}
@@ -418,6 +419,9 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
             >
               {syncCommandsMutation.isPending ? "Syncing..." : "Sync Commands"}
             </button>
+          )}
+          {bot.platformType === "discord" && isSdkBot && (
+            <span className="text-xs text-gray-500">Auto-sync via SDK</span>
           )}
         </div>
       </CardFooter>
