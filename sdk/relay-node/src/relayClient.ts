@@ -42,10 +42,12 @@ export class RelayClient {
   async heartbeat(): Promise<void> {
     try {
       const url = `${this.baseUrl}/v1/relay/heartbeat`;
-      await postJson<{ ok: boolean }>(url, this.apiKey, { botId: this.botId }, {
+      const res = await postJson<{ ok: boolean; syncRequested?: boolean }>(url, this.apiKey, { botId: this.botId }, {
         hmacSecret: this.hmacSecret,
         timeoutMs: this.timeoutMs,
       });
+      // Return server response to caller (index.js checks syncRequested)
+      return (res as any).data;
     } catch {}
   }
 

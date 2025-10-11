@@ -2,11 +2,19 @@ import { QueryClient } from "@tanstack/react-query";
 
 // New universal base-URL resolver
 function getApiBaseUrl(endpoint?: string): string {
-  // 1. If a build-time env var is set (e.g. VITE_API_BASE_URL) use it
-  const envUrl = import.meta.env.VITE_API_BASE_URL as string | undefined;
+  // Special-case: relay endpoints live on the Railway backend
+  if (endpoint && (endpoint.startsWith('/api/relay/') || endpoint.startsWith('/v1/relay'))) {
+    // Prefer build-time env
+    const relayUrlEnv = (import.meta as any).env?.VITE_SERVICE_URL as string | undefined;
+    // Allow runtime override for safety/debugging
+    const relayUrlRuntime = (window as any).__CL_SERVICE_URL__ || localStorage.getItem('VITE_SERVICE_URL') || undefined;
+    const relayUrl = relayUrlEnv || relayUrlRuntime;
+    if (relayUrl) return relayUrl.replace(/\/+$/, '');
+  }
+  // Generic override for API base if provided
+  const envUrl = (import.meta as any).env.VITE_API_BASE_URL as string | undefined;
   if (envUrl) return envUrl.replace(/\/+$/, '');
-  
-  // 2. Default to Vercel for all operations
+  // Default to current origin (Vercel site)
   return window.location.origin;
 }
 

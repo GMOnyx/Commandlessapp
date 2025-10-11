@@ -6,6 +6,9 @@ import { queryClient } from "./lib/queryClient";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ClerkProvider } from "@clerk/clerk-react";
+// Allow runtime override of service URL for relay endpoints
+const runtimeServiceUrl = (window as any).__CL_SERVICE_URL__ || localStorage.getItem('VITE_SERVICE_URL');
+if (runtimeServiceUrl) (window as any).__CL_SERVICE_URL__ = runtimeServiceUrl;
 
 const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
