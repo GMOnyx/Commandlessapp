@@ -264,9 +264,9 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
                 const botName = window.prompt('Enter a name for this bot (optional)') || 'SDK Bot';
                 if (!clientId) return;
                 try {
-                  await apiRequest('/api/bots', {
+                  await apiRequest('/api/bots?action=link-sdk', {
                     method: 'PUT',
-                    body: JSON.stringify({ action: 'link-sdk', botId: 'unused', clientId, botName, platformType: 'discord' })
+                    body: JSON.stringify({ action: 'link-sdk', clientId, botName, platformType: 'discord' })
                   });
                   window.location.reload();
                 } catch (e: any) {

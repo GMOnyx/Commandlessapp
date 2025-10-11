@@ -1564,17 +1564,17 @@ app.post('/v1/relay/register', async (req, res) => {
       }
     }
     if (!finalBotId) {
-      // Create a minimal bot row
-      finalBotId = `bot_${Math.random().toString(36).slice(2)}`;
-      await supabase.from('bots').insert({
-        id: finalBotId,
+      // Create a minimal bot row letting DB assign numeric id
+      const { data: inserted, error: insErr } = await supabase.from('bots').insert({
         user_id: userId,
         platform_type: platform || 'discord',
         bot_name: name || 'SDK Bot',
         client_id: clientId || null,
         token: '',
         is_connected: true,
-      });
+      }).select('id').single();
+      if (insErr) return res.status(500).json({ error: 'Failed to create bot' });
+      finalBotId = inserted?.id;
     } else {
       await supabase.from('bots').update({ is_connected: true }).eq('id', finalBotId).eq('user_id', userId);
     }

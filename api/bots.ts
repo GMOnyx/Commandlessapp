@@ -420,13 +420,48 @@ export default async function handler(req: any, res: any) {
       });
     }
 
-    // Handle body-based actions (connect, disconnect, sync-commands)
+    // Handle body-based actions (connect, disconnect, sync-commands, link-sdk)
     if (req.method === 'PUT' && finalAction) {
-      const { botId } = req.body;
-      
-      if (!botId) {
-        return res.status(400).json({ error: 'Bot ID is required for this action' });
+      // Link SDK bot does NOT require an existing botId
+      if (finalAction === 'link-sdk') {
+        const { clientId, botName = 'SDK Bot', platformType = 'discord' } = req.body || {};
+        if (!clientId) return res.status(400).json({ error: 'clientId is required' });
+
+        const { data: existing } = await supabase
+          .from('bots')
+          .select('id')
+          .eq('user_id', userId)
+          .eq('client_id', clientId)
+          .maybeSingle();
+
+        if (existing?.id) {
+          await supabase
+            .from('bots')
+            .update({ bot_name: botName, platform_type: platformType, is_connected: true })
+            .eq('id', existing.id)
+            .eq('user_id', userId);
+          return res.status(200).json({ success: true, botId: existing.id, message: 'SDK bot linked' });
+        }
+
+        const { data: newBot, error: createErr } = await supabase
+          .from('bots')
+          .insert({
+            user_id: userId,
+            bot_name: botName,
+            platform_type: platformType,
+            client_id: clientId,
+            token: '',
+            is_connected: true
+          })
+          .select('id')
+          .single();
+
+        if (createErr) return res.status(500).json({ error: 'Failed to link SDK bot' });
+        return res.status(200).json({ success: true, botId: newBot?.id, message: 'SDK bot linked' });
       }
+
+      const { botId } = req.body;
+      if (!botId) return res.status(400).json({ error: 'Bot ID is required for this action' });
 
       // Get bot to verify ownership
       const { data: bot, error: fetchError } = await supabase
