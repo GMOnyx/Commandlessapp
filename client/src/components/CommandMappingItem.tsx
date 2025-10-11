@@ -1,4 +1,6 @@
 import { CommandMapping, Bot } from "@shared/schema";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import { SiDiscord, SiTelegram } from "react-icons/si";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -10,6 +12,15 @@ interface CommandMappingItemProps {
 }
 
 export default function CommandMappingItem({ mapping, bots }: CommandMappingItemProps) {
+  const queryClient = useQueryClient();
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest(`/api/mappings/${mapping.id}`, { method: 'DELETE' });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/mappings"] });
+    }
+  });
   const bot = bots.find(b => b.id === mapping.botId);
   const usageCount = mapping.usageCount || 0;
   
@@ -86,6 +97,15 @@ export default function CommandMappingItem({ mapping, bots }: CommandMappingItem
                 {usageCount > 0 && (
                   <p className="text-xs text-gray-400 mt-0.5">this week</p>
                 )}
+                <div className="mt-2">
+                  <button
+                    onClick={() => deleteMutation.mutate()}
+                    disabled={deleteMutation.isPending}
+                    className="text-xs text-red-600 hover:text-red-700"
+                  >
+                    {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
+                  </button>
+                </div>
               </div>
             </div>
             

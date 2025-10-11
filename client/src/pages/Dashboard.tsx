@@ -6,14 +6,13 @@ import CommandMappingItem from "@/components/CommandMappingItem";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import CommandMappingBuilder from "@/components/CommandMappingBuilder";
 import { Button } from "@/components/ui/button";
-import SyncCommandsDialog from "@/components/SyncCommandsDialog";
+// Removed manual paste dialog; direct sync lives on the card/button
 import { PlusIcon, BotIcon, CheckCircleIcon, XCircleIcon, SparklesIcon, WandIcon } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function Dashboard() {
   const [showBuilder, setShowBuilder] = useState(false);
-  const [syncOpen, setSyncOpen] = useState(false);
-  const [selectedBotId, setSelectedBotId] = useState<string | null>(null);
+  // removed sync dialog state
   
   // Fetch bots
   const { 
@@ -134,11 +133,7 @@ export default function Dashboard() {
             {bots && bots.map((bot) => (
               <div key={bot.id} className="relative">
                 <ConnectionCard bot={bot} />
-                <div className="absolute right-4 bottom-4">
-                  <Button variant="secondary" size="sm" onClick={() => { setSelectedBotId(bot.id); setSyncOpen(true); }}>
-                    Sync Commands
-                  </Button>
-                </div>
+                {/* Button lives inside ConnectionCard now; no overlay */}
               </div>
             ))}
             <ConnectionCard isNewCard={true} bot={{} as Bot} />
@@ -245,7 +240,7 @@ export default function Dashboard() {
           </div>
         )}
       </div>
-      <SyncCommandsDialog botId={selectedBotId} open={syncOpen} onClose={() => setSyncOpen(false)} onSynced={() => window.location.reload()} />
+      {/* SyncCommandsDialog removed: auto-sync via SDK and direct sync button */}
     </div>
   );
 }
