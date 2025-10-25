@@ -6,7 +6,9 @@ function useDiscordAdapter(opts) {
     client.on("messageCreate", async (message) => {
         if (message.author.bot)
             return;
-        // typing indicator is shown only when sending an AI reply (see defaultExecute)
+        const mentionRequired = opts.mentionRequired !== false;
+        const mentioned = !!client.user?.id && (message.mentions?.users?.has?.(client.user.id) ?? false);
+        // Typing indicator will be driven by a short loop only when addressed
         // Detect reply-to-bot accurately
         let isReplyToBot = false;
         try {
@@ -17,6 +19,8 @@ function useDiscordAdapter(opts) {
             }
         }
         catch { }
+        if (mentionRequired && !mentioned && !isReplyToBot)
+            return;
         const evt = {
             type: "messageCreate",
             id: message.id,
@@ -31,12 +35,27 @@ function useDiscordAdapter(opts) {
             referencedMessageAuthorId: message.reference ? client.user?.id : undefined,
         };
         try {
+            let typingTimer = null;
+            try {
+                await message.channel?.sendTyping?.();
+            }
+            catch { }
+            typingTimer = setInterval(() => {
+                try {
+                    message.channel?.sendTyping?.();
+                }
+                catch { }
+            }, 8000);
             const dec = await relay.sendEvent(evt);
             if (dec)
                 await (opts.execute ? opts.execute(dec, { message }) : defaultExecute(dec, { message }, opts));
+            if (typingTimer)
+                clearInterval(typingTimer);
         }
         catch (err) {
             // swallow; user code can add logging
+            // ensure typing cleared
+            // no-op: interval cleared by GC if not set
         }
     });
     client.on("interactionCreate", async (interaction) => {
@@ -73,17 +92,65 @@ function useDiscordAdapter(opts) {
         }
     });
 }
+function getByPath(root, path) {
+    if (!root || !path)
+        return undefined;
+    try {
+        return path.split('.').reduce((o, k) => (o ? o[k] : undefined), root);
+    }
+    catch {
+        return undefined;
+    }
+}
+function pickHandler(registry, action) {
+    if (!registry || !action)
+        return null;
+    try {
+        if (typeof registry.get === 'function') {
+            return registry.get(action) || registry.get(action.toLowerCase());
+        }
+        return registry[action] || registry[action.toLowerCase?.()];
+    }
+    catch {
+        return null;
+    }
+}
+async function runHandler(handler, message, args, rest) {
+    if (!handler)
+        return false;
+    try {
+        if (typeof handler.execute === 'function') {
+            await handler.execute(message, args, rest);
+            return true;
+        }
+        if (typeof handler.run === 'function') {
+            await handler.run(message, args, rest);
+            return true;
+        }
+        if (typeof handler.messageRun === 'function') {
+            await handler.messageRun(message, { args, rest });
+            return true;
+        }
+        if (typeof handler.exec === 'function') {
+            await handler.exec(message, rest.join(' '));
+            return true;
+        }
+        if (typeof handler === 'function') {
+            await handler({ message, args, rest });
+            return true;
+        }
+    }
+    catch {
+        // swallow; user code can add logging
+        return true; // handler existed and threw; consider handled to avoid double-processing
+    }
+    return false;
+}
 async function defaultExecute(decision, ctx, opts) {
     const reply = decision.actions?.find(a => a.kind === "reply");
     const command = decision.actions?.find(a => a.kind === "command");
     if (reply) {
         if (ctx.message) {
-            try {
-                const ch = ctx.message.channel;
-                if (ch && typeof ch.sendTyping === 'function')
-                    await ch.sendTyping();
-            }
-            catch { }
             await ctx.message.reply({ content: reply.content });
         }
         else if (ctx.interaction && ctx.interaction.isRepliable())
@@ -91,14 +158,38 @@ async function defaultExecute(decision, ctx, opts) {
     }
     if (command && ctx.message) {
         const slash = String(command.slash || '').trim();
+        const disableBuiltins = String(process.env.COMMANDLESS_DISABLE_BUILTINS || '').toLowerCase() === 'true';
+        const registryPath = process.env.COMMAND_REGISTRY_PATH || '';
+        // If user provided explicit handler via onCommand, prefer it
         if (opts?.onCommand) {
             await opts.onCommand({ slash, name: command.name, args: command.args || {} }, ctx).catch(() => { });
+            return;
         }
-        else if (slash) {
-            await executeLocalDiscordCommand(slash, ctx.message).catch(() => { });
+        // Env-based auto-routing to existing registry
+        if (registryPath) {
+            const aliasesRaw = process.env.COMMAND_REGISTRY_ALIAS_JSON || '';
+            let alias = {};
+            try {
+                if (aliasesRaw)
+                    alias = JSON.parse(aliasesRaw);
+            }
+            catch { }
+            const fromSlash = slash ? parseSlash(slash).action : null;
+            const base = String(command.name || fromSlash || '').toLowerCase();
+            const action = (alias[base] || base);
+            const registry = getByPath(opts?.client, registryPath);
+            const handler = pickHandler(registry, action);
+            const ok = await runHandler(handler, ctx.message, (command.args || {}), []);
+            if (ok || disableBuiltins)
+                return; // handled or built-ins disabled
+            // fallthrough to built-ins only if not disabled
         }
-        else {
-            await executeLocalAction(String(command.name || ''), command.args || {}, ctx.message).catch(() => { });
+        // Default built-ins (only if not disabled)
+        if (!disableBuiltins) {
+            if (slash)
+                await executeLocalDiscordCommand(slash, ctx.message).catch(() => { });
+            else
+                await executeLocalAction(String(command.name || ''), command.args || {}, ctx.message).catch(() => { });
         }
     }
 }

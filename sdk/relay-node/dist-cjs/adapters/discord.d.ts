@@ -16,5 +16,6 @@ export interface DiscordAdapterOptions {
         message?: Message;
         interaction?: Interaction;
     }) => Promise<void>;
+    mentionRequired?: boolean;
 }
 export declare function useDiscordAdapter(opts: DiscordAdapterOptions): void;

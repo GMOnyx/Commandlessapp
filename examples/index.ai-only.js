@@ -1,4 +1,7 @@
-// index.ai-only.js — AI-only: conversational replies, no command execution
+// index.js — AI-Only Mode
+// Perfect for conversational bots. Your bot responds naturally using AI.
+// No local command execution needed. Just copy, paste, and run!
+
 import 'dotenv/config';
 import { Client, GatewayIntentBits } from 'discord.js';
 import { RelayClient, useDiscordAdapter } from '@commandless/relay-node';
@@ -19,16 +22,11 @@ const relay = new RelayClient({
 });
 
 if (process.env.BOT_ID) {
-	// @ts-ignore
 	relay.botId = process.env.BOT_ID;
 	console.log('[boot] Using fixed BOT_ID:', process.env.BOT_ID);
 }
 
-useDiscordAdapter({
-	client,
-	relay,
-	mentionRequired: true,
-});
+useDiscordAdapter({ client, relay, mentionRequired: true });
 
 client.once('ready', async () => {
 	console.log(`✅ Logged in as ${client.user.tag}`);
