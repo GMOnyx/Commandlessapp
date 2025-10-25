@@ -4,6 +4,7 @@ import {
   HomeIcon, 
   MessageSquareTextIcon, 
   BotIcon, 
+  BookOpenIcon,
   MenuIcon,
   XIcon
 } from "lucide-react";
@@ -35,6 +36,11 @@ export default function Sidebar({ user, mobileMenuOpen = false, onMobileMenuClos
       href: "/connections", 
       label: "Bot Connections", 
       icon: BotIcon 
+    },
+    {
+      href: "/sdk",
+      label: "SDK / API Keys",
+      icon: BookOpenIcon
     }
   ];
 

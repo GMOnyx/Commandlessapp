@@ -7,6 +7,7 @@ import Landing from "@/pages/Landing";
 import CommandMappings from "@/pages/CommandMappings";
 import CommandMappingDetail from "@/pages/CommandMappingDetail";
 import BotConnections from "@/pages/BotConnections";
+import SDKPage from "@/pages/SDK";
 import NotFound from "@/pages/not-found";
 import AuthProvider from "@/components/AuthProvider";
 import { useAuth } from "@clerk/clerk-react";
@@ -126,6 +127,7 @@ function AppContent() {
         <Route path="/mappings" component={CommandMappings} />
         <Route path="/mappings/:id" component={CommandMappingDetail} />
         <Route path="/connections" component={BotConnections} />
+        <Route path="/sdk" component={SDKPage} />
         <Route component={NotFound} />
       </Switch>
     </Layout>

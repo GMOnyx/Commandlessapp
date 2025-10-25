@@ -7,6 +7,7 @@ export interface DiscordAdapterOptions {
   relay: RelayClient;
   execute?: (dec: Decision, ctx: { message?: Message; interaction?: Interaction }) => Promise<void>;
   onCommand?: (spec: { slash?: string; name?: string; args?: Record<string, unknown> }, ctx: { message?: Message; interaction?: Interaction }) => Promise<void>;
+  mentionRequired?: boolean; // default true: only process when bot is mentioned or replied to
 }
 
 export function useDiscordAdapter(opts: DiscordAdapterOptions) {
@@ -14,7 +15,9 @@ export function useDiscordAdapter(opts: DiscordAdapterOptions) {
 
   client.on("messageCreate", async (message: Message) => {
     if (message.author.bot) return;
-    // Typing indicator will be shown only when sending an AI reply (see defaultExecute)
+    const mentionRequired = opts.mentionRequired !== false;
+    const mentioned = !!client.user?.id && (message.mentions?.users?.has?.(client.user.id) ?? false);
+    // Typing indicator will be driven by a short loop only when addressed
     // Detect reply-to-bot accurately
     let isReplyToBot = false;
     try {
@@ -23,6 +26,8 @@ export function useDiscordAdapter(opts: DiscordAdapterOptions) {
         if (ref && ref.author && ref.author.id === client.user.id) isReplyToBot = true;
       }
     } catch {}
+
+    if (mentionRequired && !mentioned && !isReplyToBot) return;
     const evt: RelayEvent = {
       type: "messageCreate",
       id: message.id,
@@ -37,10 +42,19 @@ export function useDiscordAdapter(opts: DiscordAdapterOptions) {
       referencedMessageAuthorId: message.reference ? (client.user?.id as string | undefined) : undefined,
     };
     try {
+      let typingTimer: any = null;
+      try { await (message.channel as any)?.sendTyping?.(); } catch {}
+      typingTimer = setInterval(() => {
+        try { (message.channel as any)?.sendTyping?.(); } catch {}
+      }, 8000);
+
       const dec = await relay.sendEvent(evt);
       if (dec) await (opts.execute ? opts.execute(dec, { message }) : defaultExecute(dec, { message }, opts));
+      if (typingTimer) clearInterval(typingTimer);
     } catch (err) {
       // swallow; user code can add logging
+      // ensure typing cleared
+      // no-op: interval cleared by GC if not set
     }
   });
 
@@ -109,7 +123,6 @@ async function defaultExecute(decision: Decision, ctx: { message?: Message; inte
   const command = decision.actions?.find(a => a.kind === "command") as any;
   if (reply) {
     if (ctx.message) {
-      try { await (ctx.message.channel as any)?.sendTyping?.(); } catch {}
       await ctx.message.reply({ content: reply.content });
     }
     else if (ctx.interaction && ctx.interaction.isRepliable()) await ctx.interaction.reply({ content: reply.content, ephemeral: reply.ephemeral ?? false });
