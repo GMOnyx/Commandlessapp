@@ -80,6 +80,26 @@ function hmacVerify(rawBody, secret, signatureHex) {
 
 async function findApiKeyRecord(apiKey) {
   try {
+    // 1) Database-backed keys (preferred in production)
+    try {
+      if (apiKey) {
+        const { data: row } = await supabase
+          .from('api_keys')
+          .select('key_id,user_id,scopes,expires_at,revoked_at')
+          .eq('key_id', apiKey)
+          .maybeSingle();
+        if (row && !row.revoked_at && (!row.expires_at || Date.parse(row.expires_at) > Date.now())) {
+          return {
+            key: row.key_id,
+            hmac_secret: null, // DB keys authenticate by API key; optional HMAC not enforced here
+            user_id: row.user_id,
+            scopes: Array.isArray(row.scopes) && row.scopes.length ? row.scopes : ['relay.events.write']
+          };
+        }
+      }
+    } catch {}
+
+    // 2) Env-based keys (legacy/dev)
     const envKeys = process.env.COMMANDLESS_API_KEYS;
     if (envKeys) {
       // Supports formats:
@@ -203,35 +223,148 @@ if (AI_PROVIDER !== 'openai') {
 const OPENAI_BASE_URL = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o';
+const OPENAI_TIMEOUT_MS = Number(process.env.OPENAI_TIMEOUT_MS || 15000);
+const OPENAI_RETRIES = Math.max(0, Number(process.env.OPENAI_RETRIES || 0));
+
+// Remove DeepSeek/Qwen template tokens and hidden thoughts
+function sanitizeLLMOutput(text) {
+  try {
+    let out = String(text || '');
+    // remove DeepSeek/Qwen special markers like <|begin_of_sentence|>, variants with spaces or fullwidth bars
+    out = out
+      .replace(/<\|[^>]*\|>/g, '')
+      .replace(/<\s*\|\s*[^>]*?\s*\|\s*>/g, '')
+      .replace(/<\s*｜\s*[^>]*?\s*｜\s*>/gu, '');
+    // remove think blocks (with optional spaces)
+    out = out.replace(/<\s*think\s*>[\s\S]*?<\s*\/\s*think\s*>/gi, '');
+    // collapse excess whitespace
+    out = out.replace(/[ \t\f\v]+/g, ' ').replace(/\s*\n\s*/g, '\n').trim();
+    return out;
+  } catch { return text; }
+}
 
 async function openAIChat(prompt) {
-  const res = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${OPENAI_API_KEY}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: OPENAI_MODEL,
-      messages: [{ role: 'system', content: prompt }],
-      temperature: 0.2
-    })
-  });
-  const json = await res.json();
-  if (!res.ok) throw new Error(json.error?.message || `OpenAI HTTP ${res.status}`);
-  return json.choices?.[0]?.message?.content || '';
+  const OPENROUTER_REFERER = process.env.OPENROUTER_REFERER || process.env.OPENROUTER_REFERRER || '';
+  const OPENROUTER_TITLE = process.env.OPENROUTER_TITLE || 'Commandless';
+  const headers = {
+    'Authorization': `Bearer ${OPENAI_API_KEY}`,
+    'Content-Type': 'application/json',
+  };
+  if (OPENROUTER_REFERER) headers['HTTP-Referer'] = OPENROUTER_REFERER;
+  if (OPENROUTER_TITLE) headers['X-Title'] = OPENROUTER_TITLE;
+
+  // Heuristic split: treat persona/context as system and quoted line as user
+  let systemMsg = String(prompt || 'You are a helpful assistant.');
+  let userMsg = 'Ok.';
+  try {
+    const m = /The user(?: just)? said:\s*"([\s\S]*?)"/i.exec(systemMsg);
+    if (m) {
+      userMsg = m[1];
+      systemMsg = systemMsg.replace(m[0], '').trim();
+    }
+  } catch {}
+
+  // retry on provider 429 limits, with hard timeout
+  let lastErr = null;
+  for (let i = 0; i <= OPENAI_RETRIES; i++) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), OPENAI_TIMEOUT_MS);
+    const res = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        messages: [
+          { role: 'system', content: systemMsg },
+          { role: 'system', content: 'Stay strictly in the above persona and tone. Keep replies in-character at all times.' },
+          { role: 'user', content: userMsg },
+        ],
+        temperature: 0.2,
+        // stop early if template tokens appear
+        stop: ['</think>', '<think>', '<|']
+      }),
+      signal: ctrl.signal
+    });
+    const json = await res.json().catch(() => ({}));
+    clearTimeout(timer);
+    if (res.ok) return sanitizeLLMOutput(json.choices?.[0]?.message?.content || '');
+    lastErr = new Error(json?.error?.message || `OpenAI HTTP ${res.status}`);
+    if (res.status === 429) await new Promise(r => setTimeout(r, 900 * (i + 1)));
+    else break;
+  }
+  throw lastErr || new Error('OpenAI error');
+}
+
+async function openAIChatJson(prompt) {
+  const OPENROUTER_REFERER = process.env.OPENROUTER_REFERER || process.env.OPENROUTER_REFERRER || '';
+  const OPENROUTER_TITLE = process.env.OPENROUTER_TITLE || 'Commandless';
+  const headers = {
+    'Authorization': `Bearer ${OPENAI_API_KEY}`,
+    'Content-Type': 'application/json',
+  };
+  if (OPENROUTER_REFERER) headers['HTTP-Referer'] = OPENROUTER_REFERER;
+  if (OPENROUTER_TITLE) headers['X-Title'] = OPENROUTER_TITLE;
+
+  // Build messages to strongly enforce JSON-only output
+  let systemMsg = 'You are an intent parser. Output ONLY a single JSON object with fields described. No markdown, no code fences, no extra text.';
+  let userMsg = String(prompt || '');
+
+  let lastErr = null;
+  for (let i = 0; i <= OPENAI_RETRIES; i++) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), OPENAI_TIMEOUT_MS);
+    const res = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        messages: [
+          { role: 'system', content: systemMsg },
+          { role: 'system', content: 'Stay strictly in the above persona and tone. Keep replies in-character at all times.' },
+          { role: 'user', content: userMsg },
+        ],
+        response_format: { type: 'json_object' },
+        temperature: 0.1
+      }),
+      signal: ctrl.signal
+    });
+    const json = await res.json().catch(() => ({}));
+    clearTimeout(timer);
+    if (res.ok) return String(json.choices?.[0]?.message?.content || '');
+    lastErr = new Error(json?.error?.message || `OpenAI HTTP ${res.status}`);
+    if (res.status === 429) await new Promise(r => setTimeout(r, 900 * (i + 1)));
+    else break;
+  }
+  throw lastErr || new Error('OpenAI error');
 }
 
 async function aiGenerateText(prompt) {
   if (AI_PROVIDER === 'openai') {
     if (!OPENAI_API_KEY) throw new Error('OPENAI_API_KEY not set');
-    return await openAIChat(prompt);
+    try { return await openAIChat(prompt); }
+    catch (e) {
+      // graceful fallback to Gemini if configured and OpenRouter is rate limited/unavailable
+      if (genAI) {
+        try {
+          const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+          const result = await model.generateContent(prompt);
+          const response = await result.response; return response.text();
+        } catch {}
+      }
+      throw e;
+    }
   }
   if (!genAI) throw new Error('Gemini not configured');
   const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
   const result = await model.generateContent(prompt);
   const response = await result.response;
   return response.text();
+}
+
+async function aiGenerateJson(prompt) {
+  if (AI_PROVIDER === 'openai') return await openAIChatJson(prompt);
+  // Fallback: use text path (Gemini does not support json_object in this codepath)
+  return await aiGenerateText(prompt);
 }
 
 // EXACT MIGRATION FROM LOCAL TYPESCRIPT SYSTEM
@@ -614,10 +747,8 @@ function parseAIResponse(content) {
     
   } catch (error) {
     console.log(`Error parsing AI response: ${error.message}`);
-    return {
-      isCommand: false,
-      conversationalResponse: "I'm here to help! You can chat with me or give me moderation commands."
-    };
+    // Do not emit canned text; allow upper layer to decide (may stay silent)
+    return { isCommand: false };
   }
 }
 
@@ -637,10 +768,11 @@ async function analyzeMessageWithAI(message, availableCommands, botPersonality, 
     
     const prompt = createAnalysisPrompt(enhancedMessage, availableCommands, botPersonality, conversationContext, aiExamples);
     
-    const content = await aiGenerateText(prompt);
+    // Request structured JSON to avoid parser failures
+    const content = await aiGenerateJson(prompt);
     
     if (!content) {
-      throw new Error("Empty response from Gemini");
+      throw new Error("Empty response from AI");
     }
     
     return parseAIResponse(content);
@@ -649,22 +781,20 @@ async function analyzeMessageWithAI(message, availableCommands, botPersonality, 
     console.log(`Error in AI analysis: ${error.message}`);
     
     // Fallback: check if message contains common command words
-    const commandWords = ['ban', 'kick', 'warn', 'mute', 'purge', 'role'];
+    const commandWords = ['ban', 'kick', 'warn', 'mute', 'purge', 'role', 'delete', 'clear', 'remove', 'clean'];
     const isLikelyCommand = commandWords.some(word => 
       message.toLowerCase().includes(word)
     );
-    
+    // If looks like a command but AI returned empty, ask a clear, user-friendly question
     if (isLikelyCommand) {
-      return {
-        isCommand: true,
-        clarificationQuestion: "I think you want to use a command, but I'm having trouble understanding. Could you be more specific?"
-      };
-    } else {
-      return {
-        isCommand: false,
-        conversationalResponse: "I'm here and ready to help! Feel free to ask me anything or give me a command."
-      };
+      // Special case: purge without a number → ask for amount
+      if (/\b(purge|delete|clear|clean)\b/i.test(message) && !/\b\d+\b/.test(message)) {
+        return { isCommand: true, clarificationQuestion: 'How many messages should I delete? (1-100)' };
+      }
+      return { isCommand: true, clarificationQuestion: 'Could you clarify the details for that command?' };
     }
+    // Otherwise, do not fabricate a canned conversational message
+    return { isCommand: false };
   }
 }
 
@@ -689,10 +819,8 @@ async function processDiscordMessageWithAI(message, guildId, channelId, userId, 
     // Remove mention from the message to process the actual command
     const cleanMessage = message.replace(botMentionRegex, '').trim();
     if (!cleanMessage && !skipMentionCheck) {
-      return {
-        processed: true,
-        conversationalResponse: "Hello! How can I help you today? I can help with moderation commands or just chat!"
-      };
+      // Just a bare mention: do not send canned replies
+      return { processed: false };
     }
     
     // Use the authenticated user ID if provided, otherwise fall back to user ID 1
@@ -723,10 +851,23 @@ async function processDiscordMessageWithAI(message, guildId, channelId, userId, 
       
     if (error || !commands || commands.length === 0) {
       console.log(`No commands found for user ${userIdToUse}`);
-      return {
-        processed: true,
-        conversationalResponse: "Hi there! I don't have any commands configured yet, but I'm happy to chat!"
-      };
+      // Fall back to real AI conversational reply even without commands/persona
+      try {
+        const genericPrompt = [
+          'You are a helpful Discord bot. Keep replies concise, friendly, and conversational.',
+          `The user said: "${cleanMessage}"`,
+          'Respond naturally (no placeholders), in the same language as the user.'
+        ].join('\n');
+        const genericResponse = await aiGenerateText(genericPrompt);
+        if (genericResponse) {
+          return {
+            processed: true,
+            conversationalResponse: genericResponse.trim()
+          };
+        }
+      } catch {}
+      // If AI fails, stay silent rather than sending canned text
+      return { processed: false };
     }
 
     // **CRITICAL FIX**: Fetch personality for the specific bot when provided
@@ -764,32 +905,26 @@ async function processDiscordMessageWithAI(message, guildId, channelId, userId, 
     if (isConversationalInput(cleanMessage)) {
       console.log(`🎯 CONVERSATIONAL INPUT DETECTED: "${cleanMessage}" - Using personality for response`);
       
-      // ALWAYS use AI with personality context for conversational responses
-      if (personalityContext) {
-        try {
-          const conversationalPrompt = `${personalityContext}
-
-The user just said: "${cleanMessage}"
-
-Language: Respond entirely in the same language as the user's message. Do not mix languages. If uncertain, detect and use that language.
-
-Respond in character as described above. Keep it conversational and friendly, matching your personality. Be brief but engaging.`;
-
-          const personalityResponse = await aiGenerateText(conversationalPrompt);
-          
-          if (personalityResponse) {
-            console.log(`🎭 PERSONALITY RESPONSE: ${personalityResponse}`);
-            return {
-              processed: true,
-              conversationalResponse: personalityResponse.trim()
-            };
-          }
-        } catch (error) {
-          console.log(`🎭 PERSONALITY AI ERROR: ${error.message}`);
+      // Use AI for conversational responses. Prefer persona if available, else use a generic assistant persona.
+      try {
+        const conversationalPrompt = [
+          (personalityContext || 'You are a helpful Discord bot. Be concise, friendly, and natural.'),
+          `The user just said: "${cleanMessage}"`,
+          'Language: Respond entirely in the same language as the user. Do not mix languages.',
+          'Keep it conversational and engaging. Avoid placeholders or meta commentary.'
+        ].join('\n\n');
+        const response = await aiGenerateText(conversationalPrompt);
+        if (response) {
+          console.log(`🎭 CONVERSATIONAL RESPONSE: ${response}`);
+          return {
+            processed: true,
+            conversationalResponse: response.trim()
+          };
         }
+      } catch (error) {
+        console.log(`🎭 CONVERSATION AI ERROR: ${error.message}`);
       }
-      
-      // Only fallback if we truly have nothing; stay silent
+      // If AI fails entirely, stay silent (no canned text)
       return { processed: false };
     } else {
       console.log(`🎯 NOT CONVERSATIONAL: "${cleanMessage}" - Proceeding to AI analysis`);
@@ -800,37 +935,26 @@ Respond in character as described above. Keep it conversational and friendly, ma
     if (lowerMessage.includes('help') || lowerMessage.includes('what can you do') || lowerMessage.includes('commands')) {
       console.log(`🎯 HELP REQUEST DETECTED: "${cleanMessage}" - Using AI with personality`);
       
-      // Use AI with personality for help responses too
-      if (personalityContext) {
-        try {
-          const commandNames = commands.map(cmd => cmd.name).slice(0, 5);
-          const helpPrompt = `${personalityContext}
-
-The user is asking for help or wants to know what you can do. Here are your available commands: ${commandNames.join(', ')}
-
-Language: Respond entirely in the same language as the user's message. Do not mix languages. If uncertain, detect and use that language.
-
-Respond in character as described above. Explain your capabilities and available commands in your personality style. Be helpful and engaging.`;
-
-          const personalityResponse = await aiGenerateText(helpPrompt);
-          
-          if (personalityResponse) {
-            return {
-              processed: true,
-              conversationalResponse: personalityResponse.trim()
-            };
-          }
-        } catch (error) {
-          console.log(`🎭 PERSONALITY AI ERROR: ${error.message}`);
+      // Use AI for help responses (with or without persona)
+      try {
+        const commandNames = commands.map(cmd => cmd.name).slice(0, 5);
+        const helpPrompt = [
+          (personalityContext || 'You are a helpful Discord bot. Explain capabilities succinctly.'),
+          `The user asked for help. Available commands: ${commandNames.join(', ') || 'none registered yet'}.`,
+          'Language: Respond entirely in the same language as the user. Be friendly and concise.'
+        ].join('\n');
+        const helpResponse = await aiGenerateText(helpPrompt);
+        if (helpResponse) {
+          return {
+            processed: true,
+            conversationalResponse: helpResponse.trim()
+          };
         }
+      } catch (error) {
+        console.log(`🎭 HELP AI ERROR: ${error.message}`);
       }
-      
-      // Fallback only if no personality
-      const commandNames = commands.map(cmd => cmd.name).slice(0, 5);
-      return {
-        processed: true,
-        conversationalResponse: `I can help with these commands: ${commandNames.join(', ')}. Try using natural language!`
-      };
+      // If AI fails completely, stay silent rather than sending canned text
+      return { processed: false };
     }
 
     // Process the message with enhanced AI logic (EXACT from local system)
@@ -906,8 +1030,10 @@ Respond in character as described above. Explain your capabilities and available
         };
       }
       
-      // Only ask for clarification if confidence is very low (< 0.6)
-      if (analysisResult.bestMatch.confidence < 0.6) {
+      // Only ask for clarification if confidence is very low (< 0.6) and NOT a trivial command (like purge amount)
+      const trivialNames = ['purge','pin','say','ping'];
+      const isTrivial = trivialNames.includes(String(command.name || '').toLowerCase());
+      if (!isTrivial && analysisResult.bestMatch.confidence < 0.6) {
         // Use AI with personality for clarification too
         if (personalityContext) {
           try {
@@ -951,7 +1077,88 @@ I think they want to execute a command, but I'm not confident about the details.
         processed: true,
         command: outputCommand
       };
+    } else if (analysisResult.isCommand && !analysisResult.bestMatch) {
+      // AI indicated a command but didn't return the mapping – use heuristic over synced commands
+      const lowerMsg = cleanMessage.toLowerCase();
+      let best = null;
+      for (const c of commands) {
+        const name = String(c.name || '').toLowerCase();
+        if (name && lowerMsg.includes(name)) { best = c; break; }
+      }
+      if (!best) {
+        for (const c of commands) {
+          const out = String(c.command_output || '').trim();
+          const head = out.replace(/^\//,'').split(/\s+/)[0]?.toLowerCase();
+          if (head && lowerMsg.includes(head)) { best = c; break; }
+        }
+      }
+      // If still no mapping, apply explicit purge heuristic here too
+      if (!best) {
+        const purgeLike = /(delete|clear|clean|remove)\s+(the\s+)?(last|past|previous)?\s*(\d{1,3})\s+(messages|msgs)/i.exec(lowerMsg);
+        if (purgeLike) {
+          const amt = Math.max(1, Math.min(100, Number(purgeLike[4] || '1')));
+          return { processed: true, command: `/purge amount:${amt}` };
+        }
+      }
+      if (best) {
+        const fallbackParams = extractParametersFallback(message, best.natural_language_pattern || '');
+        let output = String(best.command_output || '').trim();
+        for (const [k,v] of Object.entries(fallbackParams)) {
+          if (v) output = output.replace(new RegExp(`\\{${k}\\}`,'g'), String(v));
+        }
+        output = output.replace(/\{reason\}/g,'No reason provided')
+                       .replace(/\{message\}/g,'')
+                       .replace(/\{amount\}/g,'1')
+                       .replace(/\{duration\}/g,'5m');
+        return { processed: true, command: output };
+      }
+      // fall through to conversational
+      return { processed: true, conversationalResponse: analysisResult.conversationalResponse };
     } else {
+      // Heuristic fallback: if message looks like a command and we have a close name match, execute deterministically
+      const lowerMsg = cleanMessage.toLowerCase();
+      // Extra purge heuristic: phrases like "delete/clear last N messages"
+      try {
+        const purgeLike = /(delete|clear|clean|remove)\s+(the\s+)?(last|past|previous)?\s*(\d{1,3})\s+(messages|msgs)/i.exec(lowerMsg);
+        if (purgeLike) {
+          const amt = Math.max(1, Math.min(100, Number(purgeLike[4] || '1')));
+          return { processed: true, command: `/purge amount:${amt}` };
+        }
+      } catch {}
+      // protect 'say' vs 'pin' confusion with stricter heuristics
+      if (/\bsay\b/i.test(lowerMsg)) {
+        const textAfter = lowerMsg.split(/\bsay\b/i)[1]?.trim();
+        if (textAfter) return { processed: true, command: `/say message:${textAfter}` };
+      }
+      const likelyWords = ['ban','kick','warn','mute','purge','pin','unpin','say','timeout','unban','ping'];
+      const looksLikeCommand = likelyWords.some(w => lowerMsg.includes(w));
+      if (looksLikeCommand && Array.isArray(commands) && commands.length) {
+        let best = null;
+        for (const c of commands) {
+          const name = String(c.name || '').toLowerCase();
+          if (name && lowerMsg.includes(name)) { best = c; break; }
+        }
+        if (!best) {
+          // fallback to simple contains of command_output head token
+          for (const c of commands) {
+            const out = String(c.command_output || '').trim();
+            const head = out.replace(/^\//,'').split(/\s+/)[0]?.toLowerCase();
+            if (head && lowerMsg.includes(head)) { best = c; break; }
+          }
+        }
+        if (best) {
+          const fallbackParams = extractParametersFallback(message, best.natural_language_pattern || '');
+          let output = String(best.command_output || '').trim();
+          for (const [k,v] of Object.entries(fallbackParams)) {
+            if (v) output = output.replace(new RegExp(`\\{${k}\\}`,'g'), String(v));
+          }
+          output = output.replace(/\{reason\}/g,'No reason provided')
+                         .replace(/\{message\}/g,'')
+                         .replace(/\{amount\}/g,'1')
+                         .replace(/\{duration\}/g,'5m');
+          return { processed: true, command: output };
+        }
+      }
       // This is casual conversation - respond appropriately
       return {
         processed: true,
@@ -1046,6 +1253,143 @@ app.get('/health', (req, res) => {
     uptime: process.uptime(),
     timestamp: new Date().toISOString()
   });
+});
+
+// ---------------- API Key Management (admin-auth via user JWT) ----------------
+// Create API key (returns key_id and secret once)
+app.post('/api/keys', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const token = authHeader.split(' ')[1];
+    const decoded = decodeJWT(token);
+    if (!decoded) return res.status(401).json({ error: 'Invalid token' });
+    const userId = decoded.userId;
+
+    const { description, scopes, expiresAt } = req.body || {};
+    const keyId = `ck_${crypto.randomBytes(8).toString('hex')}`;
+    const secret = `cs_${crypto.randomBytes(24).toString('hex')}`;
+    const secretHash = crypto.createHash('sha256').update(`${keyId}:${secret}`).digest('hex');
+
+    const { error } = await supabase.from('api_keys').insert({
+      key_id: keyId,
+      secret_hash: secretHash,
+      user_id: userId,
+      scopes: Array.isArray(scopes) ? scopes : ['relay.events.write'],
+      description: description || null,
+      expires_at: expiresAt || null
+    });
+    if (error) return res.status(500).json({ error: 'Failed to create key' });
+    return res.status(201).json({ keyId, secret, scopes: Array.isArray(scopes) ? scopes : ['relay.events.write'], expiresAt: expiresAt || null });
+  } catch (e) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// List API keys (masked)
+app.get('/api/keys', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const token = authHeader.split(' ')[1];
+    const decoded = decodeJWT(token);
+    if (!decoded) return res.status(401).json({ error: 'Invalid token' });
+    const userId = decoded.userId;
+
+    const { data } = await supabase
+      .from('api_keys')
+      .select('key_id,description,scopes,created_at,expires_at,revoked_at,last_used_at,rate_limit_per_min')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+    const masked = (data || []).map(k => ({
+      keyId: k.key_id,
+      description: k.description,
+      scopes: k.scopes,
+      createdAt: k.created_at,
+      expiresAt: k.expires_at,
+      revokedAt: k.revoked_at,
+      lastUsedAt: k.last_used_at,
+      rateLimitPerMin: k.rate_limit_per_min
+    }));
+    return res.json(masked);
+  } catch (e) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Revoke key
+app.post('/api/keys/:keyId/revoke', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const token = authHeader.split(' ')[1];
+    const decoded = decodeJWT(token);
+    if (!decoded) return res.status(401).json({ error: 'Invalid token' });
+    const userId = decoded.userId;
+    const keyId = req.params.keyId;
+
+    const { error } = await supabase
+      .from('api_keys')
+      .update({ revoked_at: new Date().toISOString() })
+      .eq('key_id', keyId)
+      .eq('user_id', userId);
+    if (error) return res.status(500).json({ error: 'Failed to revoke' });
+    return res.json({ ok: true });
+  } catch (e) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Rotate key (creates new, revokes old)
+app.post('/api/keys/:keyId/rotate', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const token = authHeader.split(' ')[1];
+    const decoded = decodeJWT(token);
+    if (!decoded) return res.status(401).json({ error: 'Invalid token' });
+    const userId = decoded.userId;
+    const keyIdOld = req.params.keyId;
+
+    const { data: oldRow } = await supabase
+      .from('api_keys')
+      .select('scopes,description')
+      .eq('key_id', keyIdOld)
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (!oldRow) return res.status(404).json({ error: 'Key not found' });
+
+    const keyId = `ck_${crypto.randomBytes(8).toString('hex')}`;
+    const secret = `cs_${crypto.randomBytes(24).toString('hex')}`;
+    const secretHash = crypto.createHash('sha256').update(`${keyId}:${secret}`).digest('hex');
+
+    const { error: insErr } = await supabase.from('api_keys').insert({
+      key_id: keyId,
+      secret_hash: secretHash,
+      user_id: userId,
+      scopes: oldRow.scopes || ['relay.events.write'],
+      description: oldRow.description || null
+    });
+    if (insErr) return res.status(500).json({ error: 'Failed to create new key' });
+
+    await supabase
+      .from('api_keys')
+      .update({ revoked_at: new Date().toISOString() })
+      .eq('key_id', keyIdOld)
+      .eq('user_id', userId);
+
+    return res.json({ keyId, secret });
+  } catch (e) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // SDK Relay endpoint: POST /v1/relay/events
@@ -1411,7 +1755,8 @@ Respond conversationally. Do NOT offer tutorial guidance unless explicitly asked
               tutorialSessions.addMessage(messageData.channel_id, 'assistant', text);
               return res.json({ processed: true, response: text });
             }
-            return res.json({ processed: true, response: 'Got it.' });
+            // Avoid canned fallback; if generation failed above, keep silent in tutorial small-talk
+            return res.json({ processed: false });
           }
 
           const commandList = (commands || []).map(m => `- ${m.command_output}`).join('\n');

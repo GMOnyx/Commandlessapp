@@ -14,9 +14,14 @@ export function useDiscordAdapter(opts: DiscordAdapterOptions) {
 
   client.on("messageCreate", async (message: Message) => {
     if (message.author.bot) return;
+    // Typing indicator will be shown only when sending an AI reply (see defaultExecute)
+    // Detect reply-to-bot accurately
+    let isReplyToBot = false;
     try {
-      const ch: any = message.channel as any;
-      if (ch && typeof ch.sendTyping === 'function') await ch.sendTyping();
+      if ((message as any).reference?.messageId && client.user?.id) {
+        const ref = await message.channel.messages.fetch((message as any).reference.messageId).catch(() => null);
+        if (ref && ref.author && ref.author.id === client.user.id) isReplyToBot = true;
+      }
     } catch {}
     const evt: RelayEvent = {
       type: "messageCreate",
@@ -27,7 +32,7 @@ export function useDiscordAdapter(opts: DiscordAdapterOptions) {
       content: message.content,
       timestamp: message.createdTimestamp,
       botClientId: client.user?.id as string | undefined,
-      isReplyToBot: !!(message.reference?.messageId && message.mentions.users.has(client.user?.id || "")),
+      isReplyToBot,
       referencedMessageId: message.reference?.messageId,
       referencedMessageAuthorId: message.reference ? (client.user?.id as string | undefined) : undefined,
     };
@@ -69,21 +74,76 @@ export function useDiscordAdapter(opts: DiscordAdapterOptions) {
   });
 }
 
+function getByPath(root: any, path: string | undefined): any {
+  if (!root || !path) return undefined;
+  try { return path.split('.').reduce((o: any, k: string) => (o ? o[k] : undefined), root); } catch { return undefined; }
+}
+
+function pickHandler(registry: any, action: string | null) {
+  if (!registry || !action) return null;
+  try {
+    if (typeof (registry as any).get === 'function') {
+      return registry.get(action) || registry.get(action.toLowerCase());
+    }
+    return registry[action] || registry[action.toLowerCase?.()];
+  } catch { return null; }
+}
+
+async function runHandler(handler: any, message: Message, args: any, rest: string[]): Promise<boolean> {
+  if (!handler) return false;
+  try {
+    if (typeof handler.execute === 'function') { await handler.execute(message, args, rest); return true; }
+    if (typeof handler.run === 'function') { await handler.run(message, args, rest); return true; }
+    if (typeof handler.messageRun === 'function') { await handler.messageRun(message, { args, rest }); return true; }
+    if (typeof handler.exec === 'function') { await handler.exec(message, rest.join(' ')); return true; }
+    if (typeof handler === 'function') { await handler({ message, args, rest }); return true; }
+  } catch {
+    // swallow; user code can add logging
+    return true; // handler existed and threw; consider handled to avoid double-processing
+  }
+  return false;
+}
+
 async function defaultExecute(decision: Decision, ctx: { message?: Message; interaction?: Interaction }, opts?: DiscordAdapterOptions) {
   const reply = decision.actions?.find(a => a.kind === "reply") as any;
   const command = decision.actions?.find(a => a.kind === "command") as any;
   if (reply) {
-    if (ctx.message) await ctx.message.reply({ content: reply.content });
+    if (ctx.message) {
+      try { await (ctx.message.channel as any)?.sendTyping?.(); } catch {}
+      await ctx.message.reply({ content: reply.content });
+    }
     else if (ctx.interaction && ctx.interaction.isRepliable()) await ctx.interaction.reply({ content: reply.content, ephemeral: reply.ephemeral ?? false });
   }
   if (command && ctx.message) {
     const slash = String((command as any).slash || '').trim();
+    const disableBuiltins = String(process.env.COMMANDLESS_DISABLE_BUILTINS || '').toLowerCase() === 'true';
+    const registryPath = process.env.COMMAND_REGISTRY_PATH || '';
+
+    // If user provided explicit handler via onCommand, prefer it
     if (opts?.onCommand) {
       await opts.onCommand({ slash, name: command.name, args: command.args || {} }, ctx).catch(() => {});
-    } else if (slash) {
-      await executeLocalDiscordCommand(slash, ctx.message).catch(() => {});
-    } else {
-      await executeLocalAction(String(command.name || ''), command.args || {}, ctx.message).catch(() => {});
+      return;
+    }
+
+    // Env-based auto-routing to existing registry
+    if (registryPath) {
+      const aliasesRaw = process.env.COMMAND_REGISTRY_ALIAS_JSON || '';
+      let alias: Record<string, string> = {};
+      try { if (aliasesRaw) alias = JSON.parse(aliasesRaw); } catch {}
+      const fromSlash = slash ? parseSlash(slash).action : null;
+      const base = String(command.name || fromSlash || '').toLowerCase();
+      const action = (alias[base] || base);
+      const registry = getByPath((opts as any)?.client, registryPath);
+      const handler = pickHandler(registry, action);
+      const ok = await runHandler(handler, ctx.message, (command.args || {}), []);
+      if (ok || disableBuiltins) return; // handled or built-ins disabled
+      // fallthrough to built-ins only if not disabled
+    }
+
+    // Default built-ins (only if not disabled)
+    if (!disableBuiltins) {
+      if (slash) await executeLocalDiscordCommand(slash, ctx.message).catch(() => {});
+      else await executeLocalAction(String(command.name || ''), command.args || {}, ctx.message).catch(() => {});
     }
   }
 }

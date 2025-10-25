@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 // Removed manual paste dialog; direct sync lives on the card/button
 import { PlusIcon, BotIcon, CheckCircleIcon, XCircleIcon, SparklesIcon, WandIcon } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import APIKeysPanel from "@/components/APIKeysPanel";
 
 export default function Dashboard() {
   const [showBuilder, setShowBuilder] = useState(false);
@@ -240,6 +241,9 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+      
+      {/* API Keys management */}
+      <APIKeysPanel />
       {/* SyncCommandsDialog removed: auto-sync via SDK and direct sync button */}
     </div>
   );

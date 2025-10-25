@@ -6,10 +6,15 @@ function useDiscordAdapter(opts) {
     client.on("messageCreate", async (message) => {
         if (message.author.bot)
             return;
+        // typing indicator is shown only when sending an AI reply (see defaultExecute)
+        // Detect reply-to-bot accurately
+        let isReplyToBot = false;
         try {
-            const ch = message.channel;
-            if (ch && typeof ch.sendTyping === 'function')
-                await ch.sendTyping();
+            if (message.reference?.messageId && client.user?.id) {
+                const ref = await message.channel.messages.fetch(message.reference.messageId).catch(() => null);
+                if (ref && ref.author && ref.author.id === client.user.id)
+                    isReplyToBot = true;
+            }
         }
         catch { }
         const evt = {
@@ -21,7 +26,7 @@ function useDiscordAdapter(opts) {
             content: message.content,
             timestamp: message.createdTimestamp,
             botClientId: client.user?.id,
-            isReplyToBot: !!(message.reference?.messageId && message.mentions.users.has(client.user?.id || "")),
+            isReplyToBot,
             referencedMessageId: message.reference?.messageId,
             referencedMessageAuthorId: message.reference ? client.user?.id : undefined,
         };
@@ -72,8 +77,15 @@ async function defaultExecute(decision, ctx, opts) {
     const reply = decision.actions?.find(a => a.kind === "reply");
     const command = decision.actions?.find(a => a.kind === "command");
     if (reply) {
-        if (ctx.message)
+        if (ctx.message) {
+            try {
+                const ch = ctx.message.channel;
+                if (ch && typeof ch.sendTyping === 'function')
+                    await ch.sendTyping();
+            }
+            catch { }
             await ctx.message.reply({ content: reply.content });
+        }
         else if (ctx.interaction && ctx.interaction.isRepliable())
             await ctx.interaction.reply({ content: reply.content, ephemeral: reply.ephemeral ?? false });
     }
