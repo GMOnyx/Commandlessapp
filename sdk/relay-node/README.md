@@ -5,14 +5,20 @@ Lightweight Node SDK to integrate your Discord bot with the Commandless backend.
 ## Install
 
 ```bash
-npm i discord.js @commandless/relay-node
+npm i @abdarrahmanabdelnasir/relay-node
+```
+
+If you don't have discord.js yet (Discord.js v14):
+
+```bash
+npm i discord.js
 ```
 
 ## Quickstart (Discord.js v14)
 
 ```ts
 import { Client, GatewayIntentBits } from 'discord.js';
-import { RelayClient, useDiscordAdapter } from '@commandless/relay-node';
+import { RelayClient, useDiscordAdapter } from '@abdarrahmanabdelnasir/relay-node';
 
 const discord = new Client({
   intents: [

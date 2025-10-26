@@ -1,0 +1,36 @@
+{
+  "name": "@abdarrahmanabdelnasir/commandless-discord",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "description": "Zero-code AI runtime for Discord. Boots Commandless SDK without an index.js.",
+  "bin": {
+    "commandless-discord": "bin/commandless-discord.js"
+  },
+  "main": "bin/commandless-discord.js",
+  "files": [
+    "bin",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "prepublishOnly": "node -e \"require('fs').chmodSync('bin/commandless-discord.js',0o755)\""
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/GMOnyx/Commandlessapp"
+  },
+  "homepage": "https://github.com/GMOnyx/Commandlessapp#readme",
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "discord.js": "^14.15.3",
+    "@abdarrahmanabdelnasir/relay-node": "^0.1.6",
+    "dotenv": "^16.4.5"
+  }
+}

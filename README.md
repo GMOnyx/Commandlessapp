@@ -26,6 +26,64 @@ A modern app for creating voice-controlled commands through natural language pat
 npm install
 ```
 
+## SDK Quick Start (no Supabase required)
+
+The Commandless SDK does not require Supabase. To add AI to your Discord bot you only need:
+
+1. Install the SDK next to discord.js
+
+```
+npm install discord.js @commandless/relay-node
+```
+
+2. Add environment variables
+
+```
+BOT_TOKEN=your_discord_bot_token
+COMMANDLESS_API_KEY=ck_xxx:cs_xxx           # from the dashboard API Keys
+COMMANDLESS_SERVICE_URL=https://your-backend.example.com
+# Optional
+COMMANDLESS_HMAC_SECRET=your_hmac_secret
+BOT_ID=123                                   # lock persona to a specific bot row
+```
+
+3. Use the AI‑only template (minimal)
+
+```js
+import 'dotenv/config';
+import { Client, GatewayIntentBits } from 'discord.js';
+import { RelayClient, useDiscordAdapter } from '@commandless/relay-node';
+
+const client = new Client({ intents: [
+  GatewayIntentBits.Guilds,
+  GatewayIntentBits.GuildMessages,
+  GatewayIntentBits.MessageContent,
+  GatewayIntentBits.DirectMessages,
+]});
+
+const relay = new RelayClient({
+  apiKey: process.env.COMMANDLESS_API_KEY,
+  baseUrl: process.env.COMMANDLESS_SERVICE_URL,
+  hmacSecret: process.env.COMMANDLESS_HMAC_SECRET || undefined,
+});
+
+useDiscordAdapter({ client, relay, mentionRequired: true });
+
+client.once('ready', async () => {
+  try {
+    const id = await relay.registerBot({ platform: 'discord', name: client.user.username, clientId: client.user.id });
+    if (id && !relay.botId) relay.botId = id;
+  } catch {}
+  setInterval(async () => { try { await relay.heartbeat(); } catch {} }, 30_000);
+});
+
+client.login(process.env.BOT_TOKEN);
+```
+
+For an advanced template that routes AI commands to your own handlers, use the "With Registry" version on the dashboard under SDK / API Keys.
+
+---
+
 ## Security Configuration
 
 ### Required Environment Variables
@@ -33,11 +91,6 @@ npm install
 Create a `.env` file in the root directory with the following variables:
 
 ```bash
-# Database Configuration
-USE_SUPABASE=true
-SUPABASE_URL=your_supabase_project_url
-SUPABASE_ANON_KEY=your_supabase_anon_key
-
 # Authentication
 CLERK_SECRET_KEY=sk_test_your_clerk_secret_key_here
 JWT_SECRET=your_jwt_secret_for_fallback_auth
@@ -78,9 +131,9 @@ Run the development server:
 npm run dev
 ```
 
-## Supabase Setup
+## Optional: Supabase (backend database)
 
-The app can use either in-memory storage or Supabase. To use Supabase:
+The app can run with in-memory storage, Postgres, or Supabase. Supabase is **not required for the SDK**. If you want to use Supabase for the dashboard/backend data:
 
 1. Create a Supabase project at [https://supabase.com](https://supabase.com)
 
@@ -114,8 +167,8 @@ openssl rand -hex 32
 ENCRYPTION_KEY=<generated_key>
 CLERK_SECRET_KEY=<production_clerk_key>
 GEMINI_API_KEY=<production_gemini_key>
-SUPABASE_URL=<production_supabase_url>
-SUPABASE_ANON_KEY=<production_supabase_key>
+SUPABASE_URL=<production_supabase_url>             # optional
+SUPABASE_ANON_KEY=<production_supabase_key>        # optional
 NODE_ENV=production
 ```
 

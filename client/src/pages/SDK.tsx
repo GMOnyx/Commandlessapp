@@ -258,16 +258,16 @@ export default function SDKPage() {
               <div className="flex items-center justify-center h-8 w-8 rounded-full bg-gray-100 text-gray-700 font-medium text-sm">1</div>
             </div>
             <div className="flex-1">
-              <h3 className="text-base font-medium text-gray-900 mb-2">Install the SDK</h3>
-              <p className="text-sm text-gray-600 mb-3">Add the Commandless SDK to your bot project:</p>
+              <h3 className="text-base font-medium text-gray-900 mb-2">Install the AI runtime (no index.js)</h3>
+              <p className="text-sm text-gray-600 mb-3">Install the zero‑code runtime package:</p>
               <div className="bg-gray-800 text-gray-100 p-4 rounded-lg font-mono text-sm relative">
-                <code>npm install discord.js @commandless/relay-node</code>
+                <code>npm i @abdarrahmanabdelnasir/commandless-discord</code>
                 <Button
                   size="sm"
                   variant="ghost"
                   className="absolute top-2 right-2 text-gray-400 hover:text-white"
                   onClick={() => {
-                    navigator.clipboard.writeText('npm install discord.js @commandless/relay-node');
+                    navigator.clipboard.writeText('npm i @abdarrahmanabdelnasir/commandless-discord');
                     toast({ title: "Copied!", description: "Install command copied" });
                   }}
                 >
@@ -294,7 +294,7 @@ export default function SDKPage() {
               <div className="flex items-center justify-center h-8 w-8 rounded-full bg-gray-100 text-gray-700 font-medium text-sm">3</div>
             </div>
             <div className="flex-1">
-              <h3 className="text-base font-medium text-gray-900 mb-2">Set Environment Variables</h3>
+              <h3 className="text-base font-medium text-gray-900 mb-2">Set Environment Variables (BOT_ID required)</h3>
               <p className="text-sm text-gray-600 mb-3">Create a <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">.env</code> file:</p>
               <div className="space-y-2 text-sm">
                 <div className="flex items-start gap-2">
@@ -311,7 +311,7 @@ export default function SDKPage() {
                 </div>
                 <div className="flex items-start gap-2">
                   <code className="font-mono text-xs bg-gray-50 px-2 py-1 rounded border border-gray-200">BOT_ID</code>
-                  <span className="text-xs text-gray-600">Optional: lock to specific bot</span>
+                  <span className="text-xs text-gray-600">Required: link persona/config to this bot</span>
                 </div>
               </div>
             </div>

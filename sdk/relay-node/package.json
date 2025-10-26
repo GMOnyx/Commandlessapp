@@ -1,6 +1,6 @@
 {
-  "name": "@commandless/relay-node",
-  "version": "0.1.1",
+  "name": "@abdarrahmanabdelnasir/relay-node",
+  "version": "0.1.8",
   "private": false,
   "type": "module",
   "main": "dist/index.js",
@@ -38,8 +38,14 @@
     "url": "https://github.com/GMOnyx/Commandlessapp/issues"
   },
   "author": "Commandless",
-  "keywords": ["commandless", "discord", "relay", "sdk", "nlp", "intent"],
-  "dependencies": {},
+  "keywords": [
+    "commandless",
+    "discord",
+    "relay",
+    "sdk",
+    "nlp",
+    "intent"
+  ],
   "peerDependencies": {
     "discord.js": ">=14.0.0"
   },
@@ -47,8 +53,7 @@
     "access": "public"
   },
   "devDependencies": {
-    "typescript": "^5.4.0",
-    "rimraf": "^5.0.5"
+    "rimraf": "^5.0.5",
+    "typescript": "^5.4.0"
   }
 }
-
