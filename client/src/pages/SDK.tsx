@@ -8,7 +8,53 @@ import { SparklesIcon, BotIcon, CodeIcon, KeyIcon, RocketIcon, InfoIcon, CheckCi
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 
-const AI_CLI_SNIPPET = `# 1) Install zero-code runtime\nnpm i @abdarrahmanabdelnasir/commandless-discord\n\n# 2) Run with environment variables (no index.js needed)\nBOT_TOKEN=... \\\nCOMMANDLESS_API_KEY=... \\\nCOMMANDLESS_SERVICE_URL=... \\\nBOT_ID=... \\\nnpx commandless-discord`;
+const AI_ONLY_CODE = `import 'dotenv/config';
+import { Client, GatewayIntentBits } from 'discord.js';
+import { RelayClient, useDiscordAdapter } from '@abdarrahmanabdelnasir/relay-node';
+
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.DirectMessages,
+  ],
+});
+
+const relay = new RelayClient({
+  apiKey: process.env.COMMANDLESS_API_KEY,
+  baseUrl: process.env.COMMANDLESS_SERVICE_URL,
+  hmacSecret: process.env.COMMANDLESS_HMAC_SECRET || undefined,
+});
+
+if (process.env.BOT_ID) {
+  relay.botId = process.env.BOT_ID;
+  console.log('[boot] Using fixed BOT_ID:', process.env.BOT_ID);
+}
+
+useDiscordAdapter({ client, relay, mentionRequired: true });
+
+client.once('ready', async () => {
+  console.log(`✅ Logged in as ${client.user.tag}`);
+  try {
+    const id = await relay.registerBot({
+      platform: 'discord',
+      name: client.user.username,
+      clientId: client.user.id,
+    });
+    if (id && !relay.botId) relay.botId = id;
+  } catch (e) {
+    console.warn('registerBot error:', e?.message || e);
+  }
+  setInterval(async () => {
+    try { await relay.heartbeat(); } catch {}
+  }, 30_000);
+});
+
+client.login(process.env.BOT_TOKEN).catch((err) => {
+  console.error('❌ Discord login failed:', err?.message || err);
+  process.exit(1);
+});`;
 
 export default function SDKPage() {
   const { toast } = useToast();
@@ -55,16 +101,16 @@ export default function SDKPage() {
               <div className="flex items-center justify-center h-8 w-8 rounded-full bg-gray-100 text-gray-700 font-medium text-sm">1</div>
             </div>
             <div className="flex-1">
-              <h3 className="text-base font-medium text-gray-900 mb-2">Install the AI runtime (no index.js)</h3>
-              <p className="text-sm text-gray-600 mb-3">Install the zero‑code runtime package:</p>
+              <h3 className="text-base font-medium text-gray-900 mb-2">Install the SDK</h3>
+              <p className="text-sm text-gray-600 mb-3">Add the SDK (and discord.js) to your bot project:</p>
               <div className="bg-gray-800 text-gray-100 p-4 rounded-lg font-mono text-sm relative">
-                <code>npm i @abdarrahmanabdelnasir/commandless-discord</code>
+                <code>npm install discord.js @abdarrahmanabdelnasir/relay-node</code>
                 <Button
                   size="sm"
                   variant="ghost"
                   className="absolute top-2 right-2 text-gray-400 hover:text-white"
                   onClick={() => {
-                    navigator.clipboard.writeText('npm i @abdarrahmanabdelnasir/commandless-discord');
+                    navigator.clipboard.writeText('npm install discord.js @abdarrahmanabdelnasir/relay-node');
                     toast({ title: "Copied!", description: "Install command copied" });
                   }}
                 >
@@ -125,7 +171,7 @@ export default function SDKPage() {
                 <div className="border border-gray-200 rounded-lg p-4 bg-white hover:border-indigo-300 hover:shadow-sm transition-all">
                   <div className="flex items-center gap-2 mb-2">
                     <SparklesIcon className="h-5 w-5 text-indigo-600" />
-                    <div className="font-medium text-gray-900">AI-Only (CLI)</div>
+                    <div className="font-medium text-gray-900">AI-Only</div>
                   </div>
                   <div className="text-xs text-gray-600 leading-relaxed">
                     Conversational AI replies only. No command execution. Minimal setup.
@@ -152,14 +198,14 @@ export default function SDKPage() {
       <Card className="overflow-hidden border border-gray-200/50 shadow-sm">
         <div className="px-6 py-4 border-b border-gray-100">
           <h2 className="text-xl font-semibold text-gray-900">Templates</h2>
-          <p className="text-sm text-gray-600 mt-1">Use the zero‑code CLI now. Command execution is coming soon.</p>
+          <p className="text-sm text-gray-600 mt-1">Copy the template matching your integration mode.</p>
         </div>
         <div className="p-6">
           <Tabs defaultValue="ai" className="w-full">
             <TabsList className="grid w-full grid-cols-2 mb-4">
               <TabsTrigger value="ai" className="flex items-center gap-2">
                 <SparklesIcon className="h-4 w-4" />
-                AI-Only (CLI)
+                AI-Only
               </TabsTrigger>
               <TabsTrigger value="advanced" className="flex items-center gap-2">
                 <CodeIcon className="h-4 w-4" />
@@ -168,15 +214,15 @@ export default function SDKPage() {
             </TabsList>
             
             <TabsContent value="ai" className="space-y-3">
-              <p className="text-sm text-gray-600">AI-powered conversational replies with a no-code CLI. No local command execution.</p>
+              <p className="text-sm text-gray-600">AI-powered conversational replies. No local command execution.</p>
               <div className="relative">
                 <pre className="overflow-auto bg-gray-800 text-gray-100 p-4 rounded-lg text-xs leading-relaxed max-h-96 border border-gray-700/50">
-                  <code>{AI_CLI_SNIPPET}</code>
+                  <code>{AI_ONLY_CODE}</code>
                 </pre>
                 <Button
                   size="sm"
                   className="absolute top-3 right-3 bg-indigo-600 hover:bg-indigo-700"
-                  onClick={() => copyToClipboard(AI_CLI_SNIPPET, false)}
+                  onClick={() => copyToClipboard(AI_ONLY_CODE, false)}
                 >
                   {copiedAI ? <CheckCircleIcon className="h-4 w-4 mr-1" /> : <CopyIcon className="h-4 w-4 mr-1" />}
                   {copiedAI ? 'Copied!' : 'Copy'}
@@ -189,7 +235,7 @@ export default function SDKPage() {
                 <div className="flex items-start gap-2">
                   <AlertCircleIcon className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
                   <div className="text-xs text-gray-700">
-                    <strong className="font-medium">Coming soon:</strong> Command execution routed to your handlers. Today we ship AI‑only via the CLI above.
+                    <strong className="font-medium">Coming soon:</strong> Command execution routed to your handlers. Today we ship AI‑only.
                   </div>
                 </div>
               </div>
