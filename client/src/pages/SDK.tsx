@@ -8,210 +8,7 @@ import { SparklesIcon, BotIcon, CodeIcon, KeyIcon, RocketIcon, InfoIcon, CheckCi
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 
-const AI_ONLY_CODE = `import 'dotenv/config';
-import { Client, GatewayIntentBits } from 'discord.js';
-import { RelayClient, useDiscordAdapter } from '@commandless/relay-node';
-
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.DirectMessages,
-  ],
-});
-
-const relay = new RelayClient({
-  apiKey: process.env.COMMANDLESS_API_KEY,
-  baseUrl: process.env.COMMANDLESS_SERVICE_URL,
-  hmacSecret: process.env.COMMANDLESS_HMAC_SECRET || undefined,
-});
-
-if (process.env.BOT_ID) {
-  relay.botId = process.env.BOT_ID;
-  console.log('[boot] Using fixed BOT_ID:', process.env.BOT_ID);
-}
-
-useDiscordAdapter({ client, relay, mentionRequired: true });
-
-client.once('ready', async () => {
-  console.log(\`✅ Logged in as \${client.user.tag}\`);
-  try {
-    const id = await relay.registerBot({
-      platform: 'discord',
-      name: client.user.username,
-      clientId: client.user.id,
-    });
-    if (id && !relay.botId) relay.botId = id;
-  } catch (e) {
-    console.warn('registerBot error:', e?.message || e);
-  }
-  setInterval(async () => {
-    try { await relay.heartbeat(); } catch {}
-  }, 30_000);
-});
-
-client.login(process.env.BOT_TOKEN).catch((err) => {
-  console.error('❌ Discord login failed:', err?.message || err);
-  process.exit(1);
-});`;
-
-const WITH_REGISTRY_CODE = `import 'dotenv/config';
-import { Client, GatewayIntentBits } from 'discord.js';
-import { RelayClient, useDiscordAdapter } from '@commandless/relay-node';
-
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.DirectMessages,
-  ],
-});
-
-const relay = new RelayClient({
-  apiKey: process.env.COMMANDLESS_API_KEY,
-  baseUrl: process.env.COMMANDLESS_SERVICE_URL,
-  hmacSecret: process.env.COMMANDLESS_HMAC_SECRET || undefined,
-});
-
-if (process.env.BOT_ID) {
-  relay.botId = process.env.BOT_ID;
-  console.log('[boot] Using fixed BOT_ID:', process.env.BOT_ID);
-}
-
-// ━━━━━━━━━━━━━━ PASTE ZONE START ━━━━━━━━━━━━━━
-// 👉 Paste your command registry + handlers HERE
-// 👉 A handler is the function that executes when AI matches your command
-// 👉 Example: registry.set('kick', { async execute(message, args) { ... } })
-
-const registry = new Map();
-
-registry.set('pin', {
-  async execute(message) {
-    let target = null;
-    if (message.reference?.messageId) {
-      try { target = await message.channel.messages.fetch(message.reference.messageId); } catch {}
-    }
-    if (!target) {
-      const fetched = await message.channel.messages.fetch({ limit: 2 });
-      target = fetched.filter(m => m.id !== message.id).first() || fetched.first();
-    }
-    try {
-      if (target?.pin) {
-        await target.pin();
-        await message.reply('✅ Pinned.');
-      } else {
-        await message.reply('⚠️ Could not find a message to pin.');
-      }
-    } catch { await message.reply('❌ Failed to pin.'); }
-  }
-});
-
-registry.set('purge', {
-  async execute(message, args) {
-    const n = Math.max(0, Math.min(100, Number(args?.amount ?? args?.n ?? 0)));
-    if (!n) { await message.reply('Provide an amount 1-100.'); return; }
-    try {
-      if ('bulkDelete' in message.channel) {
-        const res = await message.channel.bulkDelete(n, true);
-        await message.reply(\`🧹 Deleted \${res.size} messages.\`);
-      } else {
-        await message.reply('Channel does not support bulk delete.');
-      }
-    } catch { await message.reply('❌ Failed to purge.'); }
-  }
-});
-
-registry.set('say', {
-  async execute(message, args) {
-    const text = String(args?.message || args?.text || '').trim();
-    if (!text) { await message.reply('Provide text to send.'); return; }
-    try { await message.channel.send({ content: text }); }
-    catch { await message.reply('❌ Failed to send.'); }
-  }
-});
-
-// ━━━━━━━━━━━━━━ PASTE ZONE END ━━━━━━━━━━━━━━
-
-function pickHandler(action) {
-  const key = String(action || '').toLowerCase();
-  return registry.get(key) || registry.get(key.toLowerCase());
-}
-
-function parseSlashToAction(slash, fallbackName) {
-  const clean = String(slash || '').trim();
-  if (!clean) return { action: String(fallbackName || '').toLowerCase(), args: {} };
-  const without = clean.replace(/^\\//, '');
-  const parts = without.split(/\\s+/);
-  const action = String(parts.shift() || fallbackName || '').toLowerCase();
-  const args = {};
-  for (const p of parts) {
-    const m = /^([a-zA-Z_][\\w-]*):(.*)$/.exec(p);
-    if (m) { args[m[1]] = m[2]; continue; }
-    if (!isNaN(Number(p))) { args.amount = Number(p); continue; }
-    if (!args.message) { args.message = p; } else { args.message += ' ' + p; }
-  }
-  return { action, args };
-}
-
-async function runHandler(handler, message, args, rest) {
-  if (!handler) return false;
-  if (typeof handler.execute === 'function') { await handler.execute(message, args, rest); return true; }
-  if (typeof handler.run === 'function') { await handler.run(message, args, rest); return true; }
-  if (typeof handler.messageRun === 'function') { await handler.messageRun(message, { args, rest }); return true; }
-  if (typeof handler.exec === 'function') { await handler.exec(message, rest?.join(' ') ?? ''); return true; }
-  if (typeof handler === 'function') { await handler({ message, args, rest }); return true; }
-  return false;
-}
-
-useDiscordAdapter({
-  client,
-  relay,
-  mentionRequired: true,
-  execute: async (decision, ctx) => {
-    try {
-      const reply = decision?.actions?.find(a => a?.kind === 'reply');
-      if (reply?.content) {
-        if (ctx?.message) await ctx.message.reply({ content: reply.content }).catch(() => {});
-        else if (ctx?.interaction?.isRepliable?.()) await ctx.interaction.reply({ content: reply.content }).catch(() => {});
-      }
-    } catch {}
-    try {
-      const command = decision?.actions?.find(a => a?.kind === 'command');
-      if (command && ctx?.message) {
-        const providedSlash = String(command?.slash || (command?.args?.slash ?? '')).trim();
-        let action = String(command?.name || '').toLowerCase();
-        let args = command?.args || {};
-        if (!action || action === 'execute' || providedSlash) {
-          const parsed = parseSlashToAction(providedSlash, action);
-          action = parsed.action; args = { ...args, ...parsed.args };
-        }
-        const handler = pickHandler(action);
-        const ok = await runHandler(handler, ctx.message, args, []);
-        if (!ok) console.log('[registry] no handler for', action);
-      }
-    } catch {}
-  },
-});
-
-client.once('ready', async () => {
-  console.log(\`✅ Logged in as \${client.user.tag}\`);
-  try {
-    const id = await relay.registerBot({
-      platform: 'discord',
-      name: client.user.username,
-      clientId: client.user.id,
-    });
-    if (id && !relay.botId) relay.botId = id;
-  } catch (e) { console.warn('registerBot error:', e?.message || e); }
-  setInterval(async () => { try { await relay.heartbeat(); } catch {} }, 30_000);
-});
-
-client.login(process.env.BOT_TOKEN).catch((err) => {
-  console.error('❌ Discord login failed:', err?.message || err);
-  process.exit(1);
-});`;
+const AI_CLI_SNIPPET = `# 1) Install zero-code runtime\nnpm i @abdarrahmanabdelnasir/commandless-discord\n\n# 2) Run with environment variables (no index.js needed)\nBOT_TOKEN=... \\\nCOMMANDLESS_API_KEY=... \\\nCOMMANDLESS_SERVICE_URL=... \\\nBOT_ID=... \\\nnpx commandless-discord`;
 
 export default function SDKPage() {
   const { toast } = useToast();
@@ -294,7 +91,7 @@ export default function SDKPage() {
               <div className="flex items-center justify-center h-8 w-8 rounded-full bg-gray-100 text-gray-700 font-medium text-sm">3</div>
             </div>
             <div className="flex-1">
-              <h3 className="text-base font-medium text-gray-900 mb-2">Set Environment Variables (BOT_ID required)</h3>
+              <h3 className="text-base font-medium text-gray-900 mb-2">Set Environment Variables</h3>
               <p className="text-sm text-gray-600 mb-3">Create a <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">.env</code> file:</p>
               <div className="space-y-2 text-sm">
                 <div className="flex items-start gap-2">
@@ -328,7 +125,7 @@ export default function SDKPage() {
                 <div className="border border-gray-200 rounded-lg p-4 bg-white hover:border-indigo-300 hover:shadow-sm transition-all">
                   <div className="flex items-center gap-2 mb-2">
                     <SparklesIcon className="h-5 w-5 text-indigo-600" />
-                    <div className="font-medium text-gray-900">AI-Only</div>
+                    <div className="font-medium text-gray-900">AI-Only (CLI)</div>
                   </div>
                   <div className="text-xs text-gray-600 leading-relaxed">
                     Conversational AI replies only. No command execution. Minimal setup.
@@ -338,12 +135,12 @@ export default function SDKPage() {
                 <div className="border border-gray-200 rounded-lg p-4 bg-white hover:border-purple-300 hover:shadow-sm transition-all">
                   <div className="flex items-center gap-2 mb-2">
                     <CodeIcon className="h-5 w-5 text-purple-600" />
-                    <div className="font-medium text-gray-900">With Registry</div>
+                    <div className="font-medium text-gray-900">Command Execution (coming soon)</div>
                   </div>
                   <div className="text-xs text-gray-600 leading-relaxed">
-                    AI + command routing to your handlers. Paste your registry in the template.
+                    We’ll add routing to your handlers after initial AI‑only release.
                   </div>
-                  <Badge variant="outline" className="mt-2 text-xs">Advanced</Badge>
+                  <Badge variant="outline" className="mt-2 text-xs">Planned</Badge>
                 </div>
               </div>
             </div>
@@ -355,31 +152,31 @@ export default function SDKPage() {
       <Card className="overflow-hidden border border-gray-200/50 shadow-sm">
         <div className="px-6 py-4 border-b border-gray-100">
           <h2 className="text-xl font-semibold text-gray-900">Templates</h2>
-          <p className="text-sm text-gray-600 mt-1">Copy the template matching your integration mode.</p>
+          <p className="text-sm text-gray-600 mt-1">Use the zero‑code CLI now. Command execution is coming soon.</p>
         </div>
         <div className="p-6">
           <Tabs defaultValue="ai" className="w-full">
             <TabsList className="grid w-full grid-cols-2 mb-4">
               <TabsTrigger value="ai" className="flex items-center gap-2">
                 <SparklesIcon className="h-4 w-4" />
-                AI-Only
+                AI-Only (CLI)
               </TabsTrigger>
               <TabsTrigger value="advanced" className="flex items-center gap-2">
                 <CodeIcon className="h-4 w-4" />
-                With Registry
+                Command Execution (coming soon)
               </TabsTrigger>
             </TabsList>
             
             <TabsContent value="ai" className="space-y-3">
-              <p className="text-sm text-gray-600">AI-powered conversational replies. No local command execution.</p>
+              <p className="text-sm text-gray-600">AI-powered conversational replies with a no-code CLI. No local command execution.</p>
               <div className="relative">
                 <pre className="overflow-auto bg-gray-800 text-gray-100 p-4 rounded-lg text-xs leading-relaxed max-h-96 border border-gray-700/50">
-                  <code>{AI_ONLY_CODE}</code>
+                  <code>{AI_CLI_SNIPPET}</code>
                 </pre>
                 <Button
                   size="sm"
                   className="absolute top-3 right-3 bg-indigo-600 hover:bg-indigo-700"
-                  onClick={() => copyToClipboard(AI_ONLY_CODE, false)}
+                  onClick={() => copyToClipboard(AI_CLI_SNIPPET, false)}
                 >
                   {copiedAI ? <CheckCircleIcon className="h-4 w-4 mr-1" /> : <CopyIcon className="h-4 w-4 mr-1" />}
                   {copiedAI ? 'Copied!' : 'Copy'}
@@ -390,24 +187,11 @@ export default function SDKPage() {
             <TabsContent value="advanced" className="space-y-3">
               <div className="bg-amber-50/50 border border-amber-200/50 rounded-lg p-3">
                 <div className="flex items-start gap-2">
-                  <InfoIcon className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                  <AlertCircleIcon className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
                   <div className="text-xs text-gray-700">
-                    <strong className="font-medium">What's a handler?</strong> The function that runs when AI matches a command. Paste BOTH registry entries AND handler functions in the <code className="bg-amber-100 px-1 rounded">PASTE ZONE</code>. Examples (pin/purge/say) are included.
+                    <strong className="font-medium">Coming soon:</strong> Command execution routed to your handlers. Today we ship AI‑only via the CLI above.
                   </div>
                 </div>
-              </div>
-              <div className="relative">
-                <pre className="overflow-auto bg-gray-800 text-gray-100 p-4 rounded-lg text-xs leading-relaxed max-h-[500px] border border-gray-700/50">
-                  <code>{WITH_REGISTRY_CODE}</code>
-                </pre>
-                <Button
-                  size="sm"
-                  className="absolute top-3 right-3 bg-purple-600 hover:bg-purple-700"
-                  onClick={() => copyToClipboard(WITH_REGISTRY_CODE, true)}
-                >
-                  {copiedRegistry ? <CheckCircleIcon className="h-4 w-4 mr-1" /> : <CopyIcon className="h-4 w-4 mr-1" />}
-                  {copiedRegistry ? 'Copied!' : 'Copy'}
-                </Button>
               </div>
             </TabsContent>
           </Tabs>
