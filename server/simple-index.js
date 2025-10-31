@@ -211,11 +211,11 @@ const AI_PROVIDER = (process.env.AI_PROVIDER || 'gemini').toLowerCase();
 let genAI = null;
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
 if (AI_PROVIDER !== 'openai') {
-  if (process.env.GEMINI_API_KEY) {
-    genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    console.log('🤖 Gemini AI initialized');
-  } else {
-    console.warn('⚠️ GEMINI_API_KEY not found - AI features will be limited');
+if (process.env.GEMINI_API_KEY) {
+  genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+  console.log('🤖 Gemini AI initialized');
+} else {
+  console.warn('⚠️ GEMINI_API_KEY not found - AI features will be limited');
   }
 }
 
@@ -330,7 +330,33 @@ async function openAIChatJson(prompt) {
     });
     const json = await res.json().catch(() => ({}));
     clearTimeout(timer);
-    if (res.ok) return String(json.choices?.[0]?.message?.content || '');
+    if (res.ok) {
+      let out = String(json.choices?.[0]?.message?.content || '');
+      // Some OpenRouter models ignore response_format and return empty content.
+      if (!out) {
+        // Retry once without response_format as a compatibility fallback.
+        const ctrl2 = new AbortController();
+        const timer2 = setTimeout(() => ctrl2.abort(), OPENAI_TIMEOUT_MS);
+        const res2 = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
+          method: 'POST', headers,
+          body: JSON.stringify({
+            model: OPENAI_MODEL,
+            messages: [
+              { role: 'system', content: systemMsg },
+              { role: 'user', content: userMsg }
+            ],
+            temperature: 0.1
+          }),
+          signal: ctrl2.signal
+        });
+        const json2 = await res2.json().catch(() => ({}));
+        clearTimeout(timer2);
+        if (res2.ok) {
+          out = String(json2.choices?.[0]?.message?.content || '');
+        }
+      }
+      return out;
+    }
     lastErr = new Error(json?.error?.message || `OpenAI HTTP ${res.status}`);
     if (res.status === 429) await new Promise(r => setTimeout(r, 900 * (i + 1)));
     else break;
@@ -390,7 +416,33 @@ function isConversationalInput(input) {
     /^(doing good|doing well|doing fine|doing great|doing awesome).*$/i,
     /^not much[\s,].*$/i,
     /^just.*$/i,
-    /^nothing much[\s,].*$/i
+    /^nothing much[\s,].*$/i,
+    // Add more conversational patterns
+    /^who are you[\s?]*$/i,
+    /^what are you[\s?]*$/i,
+    /^tell me about yourself[\s?]*$/i,
+    /^what can you do[\s?]*$/i,
+    /^what do you do[\s?]*$/i,
+    /^how do you work[\s?]*$/i,
+    /^what's your name[\s?]*$/i,
+    /^whats your name[\s?]*$/i,
+    /^introduce yourself[\s?]*$/i,
+    /^tell me a story[\s?]*$/i,
+    /^what's the weather[\s?]*$/i,
+    /^whats the weather[\s?]*$/i,
+    /^how's it going[\s?]*$/i,
+    /^hows it going[\s?]*$/i,
+    /^what's happening[\s?]*$/i,
+    /^whats happening[\s?]*$/i,
+    /^what's new[\s?]*$/i,
+    /^whats new[\s?]*$/i,
+    /^how's your day[\s?]*$/i,
+    /^hows your day[\s?]*$/i,
+    /^what's good[\s?]*$/i,
+    /^whats good[\s?]*$/i,
+    /^how are things[\s?]*$/i,
+    /^how's everything[\s?]*$/i,
+    /^hows everything[\s?]*$/i
   ];
   
   return conversationalPatterns.some(pattern => pattern.test(input.trim()));
@@ -823,16 +875,16 @@ async function processDiscordMessageWithAI(message, guildId, channelId, userId, 
       return { processed: false };
     }
     
-    // Use the authenticated user ID if provided, otherwise fall back to user ID 1
-    const userIdToUse = authenticatedUserId || "user_2yMTRvIng7ljDfRRUlXFvQkWSb5";
+    // Use the authenticated user ID if provided, otherwise fall back to a default
+    let userIdToUse = authenticatedUserId || "user_2yMTRvIng7ljDfRRUlXFvQkWSb5";
 
     // Get all command mappings for the user
     let commands = null, error = null;
     try {
       if (targetBotId) {
         const q = await supabase
-          .from('command_mappings')
-          .select('*')
+      .from('command_mappings')
+      .select('*')
           .eq('user_id', userIdToUse)
           .eq('bot_id', targetBotId)
           .eq('status', 'active');
@@ -851,43 +903,32 @@ async function processDiscordMessageWithAI(message, guildId, channelId, userId, 
       
     if (error || !commands || commands.length === 0) {
       console.log(`No commands found for user ${userIdToUse}`);
-      // Fall back to real AI conversational reply even without commands/persona
-      try {
-        const genericPrompt = [
-          'You are a helpful Discord bot. Keep replies concise, friendly, and conversational.',
-          `The user said: "${cleanMessage}"`,
-          'Respond naturally (no placeholders), in the same language as the user.'
-        ].join('\n');
-        const genericResponse = await aiGenerateText(genericPrompt);
-        if (genericResponse) {
-          return {
-            processed: true,
-            conversationalResponse: genericResponse.trim()
-          };
-        }
-      } catch {}
-      // If AI fails, stay silent rather than sending canned text
-      return { processed: false };
+      // Do NOT return early. Proceed to persona loading and conversational flow.
+      commands = [];
     }
 
     // **CRITICAL FIX**: Fetch personality for the specific bot when provided
+    // If a concrete botId is provided, trust it and derive the owning user from that bot
     let personalityContext = null;
     let aiExamples = null;
     if (targetBotId) {
       const { data: botRow } = await supabase
         .from('bots')
-        .select('personality_context, ai_examples')
+        .select('user_id, personality_context, ai_examples')
         .eq('id', targetBotId)
-        .eq('user_id', userIdToUse)
         .maybeSingle();
-      personalityContext = botRow ? botRow.personality_context : null;
-      aiExamples = botRow ? botRow.ai_examples : null;
+      if (botRow) {
+        // Align user context to the bot owner to avoid mismatches when API key belongs to a different user
+        userIdToUse = botRow.user_id || userIdToUse;
+        personalityContext = botRow.personality_context || null;
+        aiExamples = botRow.ai_examples || null;
+      }
     } else {
-      const { data: bots, error: botError } = await supabase
-        .from('bots')
-        .select('personality_context, ai_examples')
-        .eq('user_id', userIdToUse)
-        .limit(1);
+    const { data: bots, error: botError } = await supabase
+      .from('bots')
+      .select('personality_context, ai_examples')
+      .eq('user_id', userIdToUse)
+      .limit(1);
       personalityContext = bots && bots[0] ? bots[0].personality_context : null;
       aiExamples = bots && bots[0] ? bots[0].ai_examples : null;
     }
@@ -900,299 +941,47 @@ async function processDiscordMessageWithAI(message, guildId, channelId, userId, 
       console.log('🎯 AI EXAMPLES PREVIEW:', aiExamples.substring(0, 100) + '...');
     }
 
-    // **CRITICAL PREPROCESSING**: Check for conversational input BEFORE AI
-    // This matches the sophisticated local TypeScript system
-    if (isConversationalInput(cleanMessage)) {
-      console.log(`🎯 CONVERSATIONAL INPUT DETECTED: "${cleanMessage}" - Using personality for response`);
+    // **USE PROPER SEMANTIC DETECTION**: Let AI determine conversational vs command intent
+    console.log(`🎯 ANALYZING MESSAGE WITH AI: "${cleanMessage}"`);
+    
+    try {
+      const aiResult = await analyzeMessageWithAI(
+        cleanMessage,
+        commands,
+        personalityContext,
+        conversationContext,
+        aiExamples
+      );
       
-      // Use AI for conversational responses. Prefer persona if available, else use a generic assistant persona.
-      try {
-        const conversationalPrompt = [
-          (personalityContext || 'You are a helpful Discord bot. Be concise, friendly, and natural.'),
-          `The user just said: "${cleanMessage}"`,
-          'Language: Respond entirely in the same language as the user. Do not mix languages.',
-          'Keep it conversational and engaging. Avoid placeholders or meta commentary.'
-        ].join('\n\n');
-        const response = await aiGenerateText(conversationalPrompt);
-        if (response) {
-          console.log(`🎭 CONVERSATIONAL RESPONSE: ${response}`);
-          return {
-            processed: true,
-            conversationalResponse: response.trim()
+      // Lean handling: do not depend on a 'processed' flag (JSON may not include it)
+      if (aiResult) {
+        if (aiResult.conversationalResponse) {
+          console.log(`🎭 CONVERSATIONAL RESPONSE: ${aiResult.conversationalResponse}`);
+            return {
+              processed: true,
+            conversationalResponse: aiResult.conversationalResponse
           };
         }
-      } catch (error) {
-        console.log(`🎭 CONVERSATION AI ERROR: ${error.message}`);
-      }
-      // If AI fails entirely, stay silent (no canned text)
-      return { processed: false };
-    } else {
-      console.log(`🎯 NOT CONVERSATIONAL: "${cleanMessage}" - Proceeding to AI analysis`);
-    }
-
-    // **EXACT LOCAL IMPLEMENTATION**: Check for help requests BEFORE AI processing
-    const lowerMessage = cleanMessage.toLowerCase();
-    if (lowerMessage.includes('help') || lowerMessage.includes('what can you do') || lowerMessage.includes('commands')) {
-      console.log(`🎯 HELP REQUEST DETECTED: "${cleanMessage}" - Using AI with personality`);
-      
-      // Use AI for help responses (with or without persona)
-      try {
-        const commandNames = commands.map(cmd => cmd.name).slice(0, 5);
-        const helpPrompt = [
-          (personalityContext || 'You are a helpful Discord bot. Explain capabilities succinctly.'),
-          `The user asked for help. Available commands: ${commandNames.join(', ') || 'none registered yet'}.`,
-          'Language: Respond entirely in the same language as the user. Be friendly and concise.'
-        ].join('\n');
-        const helpResponse = await aiGenerateText(helpPrompt);
-        if (helpResponse) {
+        if (aiResult.clarificationQuestion) {
           return {
             processed: true,
-            conversationalResponse: helpResponse.trim()
+            needsClarification: true,
+            clarificationQuestion: aiResult.clarificationQuestion
           };
         }
-      } catch (error) {
-        console.log(`🎭 HELP AI ERROR: ${error.message}`);
+        // For now, skip command execution path to keep flow minimal and low-latency.
       }
-      // If AI fails completely, stay silent rather than sending canned text
-      return { processed: false };
-    }
-
-    // Process the message with enhanced AI logic (EXACT from local system)
-    const analysisResult = await analyzeMessageWithAI(
-      cleanMessage, 
-      commands, 
-      personalityContext,
-      conversationContext,
-      aiExamples
-    );
-    
-    // Handle different types of responses (EXACT from local system)
-    if (analysisResult.isCommand && analysisResult.bestMatch) {
-      // This is a command - execute it
-      const command = commands.find(cmd => cmd.id.toString() === analysisResult.bestMatch.commandId.toString());
-      
-      if (!command) {
-        console.log(`Command with ID ${analysisResult.bestMatch.commandId} not found`);
-        return {
-          processed: true,
-          conversationalResponse: "I found a command but couldn't execute it. Please try again!"
-        };
-      }
-      
-      // Apply fallback parameter extraction if AI missed Discord mentions
-      const fallbackParams = extractParametersFallback(message, command.natural_language_pattern);
-      
-      // Merge params properly - don't let fallback override AI results unless AI missed them
-      const finalParams = {};
-      
-      // Start with AI extracted parameters
-      if (analysisResult.bestMatch.params) {
-        Object.assign(finalParams, analysisResult.bestMatch.params);
-      }
-      
-      // Only add fallback parameters if AI didn't extract them
-      for (const [key, value] of Object.entries(fallbackParams)) {
-        if (!finalParams[key] || !finalParams[key].trim()) {
-          finalParams[key] = value;
-        }
-      }
-      
-      // Build the command output using extracted parameters
-      let outputCommand = command.command_output;
-      
-      // Replace placeholders with extracted parameters
-      if (finalParams) {
-        for (const [key, value] of Object.entries(finalParams)) {
-          if (value && value.trim()) {
-            outputCommand = outputCommand.replace(new RegExp(`\\{${key}\\}`, 'g'), value);
-          }
-        }
-      }
-      
-      // Replace any remaining placeholders with defaults (but NOT user - if user is missing, it's an error)
-      outputCommand = outputCommand.replace(/\{reason\}/g, 'No reason provided');
-      outputCommand = outputCommand.replace(/\{message\}/g, 'No message provided');
-      outputCommand = outputCommand.replace(/\{amount\}/g, '1');
-      outputCommand = outputCommand.replace(/\{duration\}/g, '5m');
-      // DON'T replace {user} with default - if user is missing, command should fail
-      
-      // Check if user parameter is still missing for commands that require it
-      if (outputCommand.includes('{user}')) {
-        console.log('❌ USER PARAMETER MISSING - Command requires user but none extracted');
-        console.log('🔍 Original message:', message);
-        console.log('🔍 Clean message:', cleanMessage);
-        console.log('🔍 Final params:', finalParams);
-        console.log('🔍 Command output before user fix:', outputCommand);
-        
-        return {
-          processed: true,
-          conversationalResponse: "I understand you want to use a moderation command, but I couldn't identify which user you're referring to. Please mention the user clearly (e.g., @username)."
-        };
-      }
-      
-      // Only ask for clarification if confidence is very low (< 0.6) and NOT a trivial command (like purge amount)
-      const trivialNames = ['purge','pin','say','ping'];
-      const isTrivial = trivialNames.includes(String(command.name || '').toLowerCase());
-      if (!isTrivial && analysisResult.bestMatch.confidence < 0.6) {
-        // Use AI with personality for clarification too
-        if (personalityContext) {
-          try {
-            const clarificationPrompt = `${personalityContext}
-
-The user said: "${cleanMessage}"
-
-Language: Respond entirely in the same language as the user's message. Do not mix languages. If uncertain, detect and use that language.
-
-I think they want to execute a command, but I'm not confident about the details. Respond in character and ask for clarification in your personality style. Be helpful and specific about what information you need.`;
-
-            const personalityResponse = await aiGenerateText(clarificationPrompt);
-            
-            if (personalityResponse) {
-              return {
-                processed: true,
-                needsClarification: true,
-                clarificationQuestion: personalityResponse.trim()
-              };
-            }
-          } catch (error) {
-            console.log(`🎭 PERSONALITY AI ERROR: ${error.message}`);
-          }
-        }
-        
-        return {
-          processed: true,
-          needsClarification: true,
-          clarificationQuestion: analysisResult.clarificationQuestion || 
-            `I think you want to use a command, but I'm not sure about the details. Can you be more specific?`
-        };
-      }
-      
-      // Increment usage count
-      await supabase
-        .from('command_mappings')
-        .update({ usage_count: (command.usage_count || 0) + 1 })
-        .eq('id', command.id);
-      
-      return {
-        processed: true,
-        command: outputCommand
-      };
-    } else if (analysisResult.isCommand && !analysisResult.bestMatch) {
-      // AI indicated a command but didn't return the mapping – use heuristic over synced commands
-      const lowerMsg = cleanMessage.toLowerCase();
-      let best = null;
-      for (const c of commands) {
-        const name = String(c.name || '').toLowerCase();
-        if (name && lowerMsg.includes(name)) { best = c; break; }
-      }
-      if (!best) {
-        for (const c of commands) {
-          const out = String(c.command_output || '').trim();
-          const head = out.replace(/^\//,'').split(/\s+/)[0]?.toLowerCase();
-          if (head && lowerMsg.includes(head)) { best = c; break; }
-        }
-      }
-      // If still no mapping, apply explicit purge heuristic here too
-      if (!best) {
-        const purgeLike = /(delete|clear|clean|remove)\s+(the\s+)?(last|past|previous)?\s*(\d{1,3})\s+(messages|msgs)/i.exec(lowerMsg);
-        if (purgeLike) {
-          const amt = Math.max(1, Math.min(100, Number(purgeLike[4] || '1')));
-          return { processed: true, command: `/purge amount:${amt}` };
-        }
-      }
-      if (best) {
-        const fallbackParams = extractParametersFallback(message, best.natural_language_pattern || '');
-        let output = String(best.command_output || '').trim();
-        for (const [k,v] of Object.entries(fallbackParams)) {
-          if (v) output = output.replace(new RegExp(`\\{${k}\\}`,'g'), String(v));
-        }
-        output = output.replace(/\{reason\}/g,'No reason provided')
-                       .replace(/\{message\}/g,'')
-                       .replace(/\{amount\}/g,'1')
-                       .replace(/\{duration\}/g,'5m');
-        return { processed: true, command: output };
-      }
-      // fall through to conversational
-      return { processed: true, conversationalResponse: analysisResult.conversationalResponse };
-    } else {
-      // Heuristic fallback: if message looks like a command and we have a close name match, execute deterministically
-      const lowerMsg = cleanMessage.toLowerCase();
-      // Extra purge heuristic: phrases like "delete/clear last N messages"
-      try {
-        const purgeLike = /(delete|clear|clean|remove)\s+(the\s+)?(last|past|previous)?\s*(\d{1,3})\s+(messages|msgs)/i.exec(lowerMsg);
-        if (purgeLike) {
-          const amt = Math.max(1, Math.min(100, Number(purgeLike[4] || '1')));
-          return { processed: true, command: `/purge amount:${amt}` };
-        }
-      } catch {}
-      // protect 'say' vs 'pin' confusion with stricter heuristics
-      if (/\bsay\b/i.test(lowerMsg)) {
-        const textAfter = lowerMsg.split(/\bsay\b/i)[1]?.trim();
-        if (textAfter) return { processed: true, command: `/say message:${textAfter}` };
-      }
-      const likelyWords = ['ban','kick','warn','mute','purge','pin','unpin','say','timeout','unban','ping'];
-      const looksLikeCommand = likelyWords.some(w => lowerMsg.includes(w));
-      if (looksLikeCommand && Array.isArray(commands) && commands.length) {
-        let best = null;
-        for (const c of commands) {
-          const name = String(c.name || '').toLowerCase();
-          if (name && lowerMsg.includes(name)) { best = c; break; }
-        }
-        if (!best) {
-          // fallback to simple contains of command_output head token
-          for (const c of commands) {
-            const out = String(c.command_output || '').trim();
-            const head = out.replace(/^\//,'').split(/\s+/)[0]?.toLowerCase();
-            if (head && lowerMsg.includes(head)) { best = c; break; }
-          }
-        }
-        if (best) {
-          const fallbackParams = extractParametersFallback(message, best.natural_language_pattern || '');
-          let output = String(best.command_output || '').trim();
-          for (const [k,v] of Object.entries(fallbackParams)) {
-            if (v) output = output.replace(new RegExp(`\\{${k}\\}`,'g'), String(v));
-          }
-          output = output.replace(/\{reason\}/g,'No reason provided')
-                         .replace(/\{message\}/g,'')
-                         .replace(/\{amount\}/g,'1')
-                         .replace(/\{duration\}/g,'5m');
-          return { processed: true, command: output };
-        }
-      }
-      // This is casual conversation - respond appropriately
-      return {
-        processed: true,
-        conversationalResponse: analysisResult.conversationalResponse
-      };
+    } catch (error) {
+      console.log(`🎯 AI ANALYSIS ERROR: ${error.message}`);
     }
     
+    // No response if AI produced nothing
+    console.log(`🎯 NO RESPONSE GENERATED: "${cleanMessage}"`);
+    return { processed: false };
   } catch (error) {
-    console.log(`Error processing Discord message with AI: ${error.message}`);
-    
-    // Use AI with personality for error messages too
-    if (personalityContext) {
-      try {
-        const errorPrompt = `${personalityContext}
-
-Language: Respond entirely in the same language as the user's message. Do not mix languages. If uncertain, detect and use that language.
-
-I encountered a technical error while processing the user's request. Respond in character and apologize for the issue in your personality style. Ask them to try again and be supportive.`;
-
-        const personalityResponse = await aiGenerateText(errorPrompt);
-        
-        if (personalityResponse) {
-          return {
-            processed: true,
-            conversationalResponse: personalityResponse.trim()
-          };
-        }
-      } catch (aiError) {
-        console.log(`🎭 PERSONALITY AI ERROR IN ERROR HANDLER: ${aiError.message}`);
-      }
-    }
-    
-    return {
-      processed: true,
+    console.log(`Error in AI analysis: ${error.message}`);
+      return {
+        processed: true,
       conversationalResponse: "Sorry, I had some trouble processing that. Could you try again?"
     };
   }
@@ -1207,39 +996,28 @@ async function generateCommandExamples(commands) {
       `- ${cmd.name}: ${cmd.description || 'Discord command'}`
     ).join('\n');
     
-    const prompt = `Generate natural language examples for these Discord bot commands. Each command should have 2-3 natural phrases that users might say to trigger it.
+    const prompt = `Generate 3-5 example phrases users might say to trigger these Discord bot commands:
 
-Commands:
 ${commandList}
 
-Format: "natural phrase → COMMAND_NAME"
-Examples:
-- "ban john from the server" → BAN
-- "remove this user" → BAN  
-- "kick him out" → KICK
-- "warn about spam" → WARN
-- "give warning to user" → WARN
+Return only the example phrases, one per line, without numbering or bullets.`;
 
-Generate examples for ALL commands above. Be creative with natural language variations:`;
-
-    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const examples = response.text();
-    
-    console.log('✅ Generated AI examples:', examples.substring(0, 200) + '...');
-    return examples;
-    
-  } catch (error) {
-    console.error('❌ Error generating AI examples:', error);
-    // Return fallback examples if AI fails
-    return commands.map(cmd => 
-      `"execute ${cmd.name}" → ${cmd.name.toUpperCase()}`
-    ).join('\n');
+    const response = await aiGenerateText(prompt);
+    if (response) {
+      return response.split('\n')
+        .map(line => line.trim())
+        .filter(line => line.length > 0)
+        .slice(0, 5);
+          }
+        } catch (error) {
+    console.log('Error generating AI examples:', error.message);
   }
+  
+  // Return fallback examples if AI fails
+  return commands.map(cmd => 
+    `"execute ${cmd.name}" → ${cmd.name.toUpperCase()}`
+  ).join('\n');
 }
-
-// API Routes
 app.get('/', (req, res) => {
   res.json({ 
     message: 'Commandless Discord Bot Server is running!',
@@ -1438,18 +1216,29 @@ app.post('/v1/relay/events', async (req, res) => {
     const explicitBotId = String(event.botId || '');
     const userIdForContext = apiKeyRecord.user_id || 'user_2yMTRvIng7ljDfRRUlXFvQkWSb5';
 
+    try {
+      console.log(`[relay] evt messageCreate content="${content}" botId=${explicitBotId || 'none'} botClientId=${botClientId || 'none'} userId=${userIdForContext}`);
+    } catch {}
+
     // Resolve bot for persona by explicit botId or clientId; never use a different bot's persona
     let personaBotId = explicitBotId || null;
     if (!personaBotId && botClientId) {
       try {
         const { data: botRow } = await supabase
           .from('bots')
-          .select('id')
+          .select('id,user_id')
           .eq('client_id', botClientId)
           .maybeSingle();
-        if (botRow?.id) personaBotId = botRow.id;
+        if (botRow?.id) {
+          // Only adopt when owned by the same user as the API key, to avoid cross-tenant leaks
+          if (!botRow.user_id || botRow.user_id === userIdForContext) {
+            personaBotId = botRow.id;
+          }
+        }
       } catch {}
     }
+
+    try { console.log(`[relay] personaBotId resolved: ${personaBotId || 'none'}`); } catch {}
 
     // Decide path: if starts with a slash, emit command action directly
     const slashMatch = /^\s*\/([\w-]+)(?:\s+(.+))?/i.exec(content);
@@ -1481,6 +1270,20 @@ app.post('/v1/relay/events', async (req, res) => {
         channelMemory.set(channelId, turns.slice(-8));
       } catch {}
 
+      // Build conversational context from last 8 turns in this channel
+      let convoContext = '';
+      try {
+        const mem = channelMemory.get(channelId);
+        if (Array.isArray(mem) && mem.length) {
+          convoContext = mem.map(t => `${t.role === 'bot' ? 'Assistant' : 'User'}: ${t.text}`).join('\n');
+        }
+      } catch {}
+      if (event.referencedMessageContent) {
+        convoContext = convoContext
+          ? `${convoContext}\nEarlier referenced: ${event.referencedMessageContent}`
+          : `Earlier referenced: ${event.referencedMessageContent}`;
+      }
+
       // Use the existing AI pipeline for Discord-style messages when mentioned or replied
       let processed = null;
       try {
@@ -1491,7 +1294,7 @@ app.post('/v1/relay/events', async (req, res) => {
           authorId,
           Boolean(event.isReplyToBot),
           userIdForContext,
-          event.referencedMessageContent || '',
+          convoContext,
           personaBotId
         );
         processed = result;

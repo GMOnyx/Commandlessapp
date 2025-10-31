@@ -1,6 +1,6 @@
 {
   "name": "@abdarrahmanabdelnasir/relay-node",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "private": false,
   "type": "module",
   "main": "dist/index.js",
@@ -13,16 +13,20 @@
       "types": "./dist/index.d.ts"
     }
   },
+  "bin": {
+    "commandless-discord": "bin/commandless-discord.js"
+  },
   "files": [
     "dist",
     "dist-cjs",
+    "bin",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.cjs.json && node -e \"require('fs').writeFileSync('dist-cjs/package.cjs','')\" && node -e \"const fs=require('fs');fs.renameSync('dist-cjs/index.js','dist-cjs/index.cjs')\"",
     "clean": "rimraf dist || rm -rf dist",
-    "prepublishOnly": "npm run clean && npm run build"
+    "prepublishOnly": "npm run clean && npm run build && node -e \"try{require('fs').chmodSync('bin/commandless-discord.js',0o755)}catch(e){}\""
   },
   "engines": {
     "node": ">=18"

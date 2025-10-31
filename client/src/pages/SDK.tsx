@@ -35,7 +35,7 @@ if (process.env.BOT_ID) {
 useDiscordAdapter({ client, relay, mentionRequired: true });
 
 client.once('ready', async () => {
-  console.log(`✅ Logged in as ${client.user.tag}`);
+  console.log(\`Logged in as \${client.user.tag}\`);
   try {
     const id = await relay.registerBot({
       platform: 'discord',
@@ -52,7 +52,7 @@ client.once('ready', async () => {
 });
 
 client.login(process.env.BOT_TOKEN).catch((err) => {
-  console.error('❌ Discord login failed:', err?.message || err);
+  console.error('Discord login failed:', err?.message || err);
   process.exit(1);
 });`;
 

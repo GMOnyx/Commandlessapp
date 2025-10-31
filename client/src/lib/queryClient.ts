@@ -2,8 +2,8 @@ import { QueryClient } from "@tanstack/react-query";
 
 // New universal base-URL resolver
 function getApiBaseUrl(endpoint?: string): string {
-  // Special-case: relay endpoints live on the Railway backend
-  if (endpoint && (endpoint.startsWith('/api/relay/') || endpoint.startsWith('/v1/relay'))) {
+  // Backend endpoints (Railway) live off-site: relay and server /api/* routes
+  if (endpoint && (endpoint.startsWith('/api/') || endpoint.startsWith('/v1/relay'))) {
     // Prefer build-time env
     const relayUrlEnv = (import.meta as any).env?.VITE_SERVICE_URL as string | undefined;
     // Allow runtime override for safety/debugging
