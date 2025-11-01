@@ -1034,6 +1034,48 @@ app.get('/health', (req, res) => {
   });
 });
 
+// ---------------- Bot Management ----------------
+// Get user's bots
+app.get('/api/bots', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    const decodedToken = decodeJWT(token);
+    
+    if (!decodedToken) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    const { data: bots, error } = await supabase
+      .from('bots')
+      .select('*')
+      .eq('user_id', decodedToken.userId);
+
+    if (error) {
+      console.error('Supabase error:', error);
+      return res.status(500).json({ error: 'Failed to fetch bots' });
+    }
+
+    const formattedBots = bots.map(bot => ({
+      id: bot.id,
+      botName: bot.bot_name,
+      platformType: bot.platform_type,
+      personalityContext: bot.personality_context,
+      isConnected: bot.is_connected,
+      createdAt: bot.created_at
+    }));
+
+    res.json(formattedBots);
+  } catch (error) {
+    console.error('Error fetching bots:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ---------------- API Key Management (admin-auth via user JWT) ----------------
 // Create API key (returns key_id and secret once)
 app.post('/api/keys', async (req, res) => {

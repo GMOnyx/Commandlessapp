@@ -1,4 +1,3 @@
-import APIKeysPanel from "@/components/APIKeysPanel";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
@@ -26,11 +25,6 @@ const relay = new RelayClient({
   baseUrl: process.env.COMMANDLESS_SERVICE_URL,
   hmacSecret: process.env.COMMANDLESS_HMAC_SECRET || undefined,
 });
-
-if (process.env.BOT_ID) {
-  relay.botId = process.env.BOT_ID;
-  console.log('[boot] Using fixed BOT_ID:', process.env.BOT_ID);
-}
 
 useDiscordAdapter({ client, relay, mentionRequired: true });
 
@@ -127,7 +121,7 @@ export default function SDKPage() {
             </div>
             <div className="flex-1">
               <h3 className="text-base font-medium text-gray-900 mb-2">Generate Your API Key</h3>
-              <p className="text-sm text-gray-600 mb-3">Scroll down to the API Keys section and click "New Key". Copy the full key (you'll only see it once).</p>
+              <p className="text-sm text-gray-600 mb-3">Go to the <strong>API Keys</strong> page in the sidebar, click "New Key", select a bot, and copy the full key (you'll only see it once).</p>
             </div>
           </div>
 
@@ -151,10 +145,6 @@ export default function SDKPage() {
                 <div className="flex items-start gap-2">
                   <code className="font-mono text-xs bg-gray-50 px-2 py-1 rounded border border-gray-200">COMMANDLESS_SERVICE_URL</code>
                   <span className="text-xs text-gray-600">Your backend URL</span>
-                </div>
-                <div className="flex items-start gap-2">
-                  <code className="font-mono text-xs bg-gray-50 px-2 py-1 rounded border border-gray-200">BOT_ID</code>
-                  <span className="text-xs text-gray-600">Required: link persona/config to this bot</span>
                 </div>
               </div>
             </div>
@@ -244,11 +234,6 @@ export default function SDKPage() {
         </div>
       </Card>
 
-      {/* API Keys Management */}
-      <div id="api-keys-section">
-        <APIKeysPanel />
-      </div>
-
       {/* Troubleshooting */}
       <Card className="p-6 bg-white border border-gray-200/50 shadow-sm">
         <h2 className="text-lg font-medium text-gray-900 mb-4">Troubleshooting</h2>
@@ -259,7 +244,7 @@ export default function SDKPage() {
           </div>
           <div className="flex items-start gap-3">
             <div className="font-medium text-gray-900 min-w-[130px] text-xs">Personality missing?</div>
-            <div className="text-xs text-gray-600">Set BOT_ID • Match API key to bot owner • Add personality in dashboard</div>
+            <div className="text-xs text-gray-600">Ensure API key is bound to the correct bot • Add personality in dashboard</div>
           </div>
           <div className="flex items-start gap-3">
             <div className="font-medium text-gray-900 min-w-[130px] text-xs">Commands failing?</div>

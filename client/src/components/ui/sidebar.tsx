@@ -5,6 +5,7 @@ import {
   MessageSquareTextIcon, 
   BotIcon, 
   BookOpenIcon,
+  KeyIcon,
   MenuIcon,
   XIcon
 } from "lucide-react";
@@ -39,8 +40,13 @@ export default function Sidebar({ user, mobileMenuOpen = false, onMobileMenuClos
     },
     {
       href: "/sdk",
-      label: "SDK / API Keys",
+      label: "SDK",
       icon: BookOpenIcon
+    },
+    {
+      href: "/api-keys",
+      label: "API Keys",
+      icon: KeyIcon
     }
   ];
 

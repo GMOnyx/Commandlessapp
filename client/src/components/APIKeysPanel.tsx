@@ -5,10 +5,13 @@ import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useState } from "react";
+import { Bot } from "@shared/schema";
 
 type ApiKeyRow = {
   keyId: string;
+  botId?: number | null;
   description?: string | null;
   scopes: string[];
   createdAt: string;
@@ -21,20 +24,27 @@ type ApiKeyRow = {
 export default function APIKeysPanel() {
   const qc = useQueryClient();
   const { data: keys, isLoading } = useQuery<ApiKeyRow[]>({ queryKey: ["/api/keys"] });
+  const { data: bots } = useQuery<Bot[]>({ queryKey: ["/api/bots"] });
 
   const [openCreate, setOpenCreate] = useState(false);
   const [created, setCreated] = useState<{ keyId: string; secret: string } | null>(null);
   const [rotated, setRotated] = useState<{ keyId: string; secret: string } | null>(null);
   const [description, setDescription] = useState("");
+  const [selectedBotId, setSelectedBotId] = useState<string>("");
 
   const createKey = useMutation({
     mutationFn: async () => {
-      const body = { description: description || undefined };
+      if (!selectedBotId) throw new Error("Please select a bot");
+      const body = { 
+        description: description || undefined,
+        botId: parseInt(selectedBotId, 10)
+      };
       return apiRequest("/api/keys", { method: "POST", body: JSON.stringify(body) });
     },
     onSuccess: (res: any) => {
       setCreated({ keyId: res.keyId, secret: res.secret });
       setDescription("");
+      setSelectedBotId("");
       setOpenCreate(false);
       qc.invalidateQueries({ queryKey: ["/api/keys"] });
     }
@@ -69,11 +79,16 @@ export default function APIKeysPanel() {
         <div className="text-sm text-gray-500">No keys yet.</div>
       ) : (
         <div className="space-y-3">
-          {keys.map(k => (
+          {keys.map(k => {
+            const bot = bots?.find(b => b.id === k.botId);
+            return (
             <div key={k.keyId} className="flex items-center justify-between border rounded-md px-3 py-2">
               <div className="min-w-0">
                 <div className="font-mono text-sm truncate">{k.keyId}</div>
                 <div className="text-xs text-gray-500 truncate">{k.description || ""}</div>
+                {bot && (
+                  <div className="text-xs text-gray-600 mt-1">Bot: {bot.botName}</div>
+                )}
                 <div className="flex flex-wrap gap-1 mt-1">
                   {(k.scopes || []).map(s => (<Badge key={s} variant="secondary">{s}</Badge>))}
                   {k.revokedAt && (<Badge variant="destructive">revoked</Badge>)}
@@ -84,7 +99,8 @@ export default function APIKeysPanel() {
                 <Button variant="destructive" onClick={() => revokeKey.mutate(k.keyId)} disabled={!!k.revokedAt}>Revoke</Button>
               </div>
             </div>
-          ))}
+          );
+          })}
         </div>
       )}
 
@@ -94,13 +110,35 @@ export default function APIKeysPanel() {
           <DialogHeader>
             <DialogTitle>Create API Key</DialogTitle>
           </DialogHeader>
-          <div className="space-y-3">
-            <label className="text-sm text-gray-700">Description (optional)</label>
-            <Input value={description} onChange={e => setDescription(e.target.value)} placeholder="e.g. staging bot" />
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">Bot *</label>
+              <Select value={selectedBotId} onValueChange={setSelectedBotId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a bot" />
+                </SelectTrigger>
+                <SelectContent>
+                  {bots && bots.length > 0 ? (
+                    bots.map(bot => (
+                      <SelectItem key={bot.id} value={String(bot.id)}>
+                        {bot.botName}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <SelectItem value="" disabled>No bots available</SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-gray-500">This key will use this bot's personality and configuration.</p>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">Description (optional)</label>
+              <Input value={description} onChange={e => setDescription(e.target.value)} placeholder="e.g. staging bot" />
+            </div>
           </div>
           <DialogFooter>
             <Button variant="secondary" onClick={() => setOpenCreate(false)}>Cancel</Button>
-            <Button onClick={() => createKey.mutate()} disabled={createKey.isPending}>Create</Button>
+            <Button onClick={() => createKey.mutate()} disabled={createKey.isPending || !selectedBotId}>Create</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
