@@ -1,70 +1,20 @@
 import { Card } from "@/components/ui/card";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { SparklesIcon, BotIcon, CodeIcon, KeyIcon, RocketIcon, InfoIcon, CheckCircleIcon, CopyIcon, AlertCircleIcon, ZapIcon } from "lucide-react";
+import { SparklesIcon, CodeIcon, RocketIcon, CopyIcon, CheckCircleIcon, AlertCircleIcon } from "lucide-react";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 
-const AI_ONLY_CODE = `import 'dotenv/config';
-import { Client, GatewayIntentBits } from 'discord.js';
-import { RelayClient, useDiscordAdapter } from '@abdarrahmanabdelnasir/relay-node';
-
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.DirectMessages,
-  ],
-});
-
-const relay = new RelayClient({
-  apiKey: process.env.COMMANDLESS_API_KEY,
-  baseUrl: process.env.COMMANDLESS_SERVICE_URL,
-  hmacSecret: process.env.COMMANDLESS_HMAC_SECRET || undefined,
-});
-
-useDiscordAdapter({ client, relay, mentionRequired: true });
-
-client.once('ready', async () => {
-  console.log(\`Logged in as \${client.user.tag}\`);
-  try {
-    const id = await relay.registerBot({
-      platform: 'discord',
-      name: client.user.username,
-      clientId: client.user.id,
-    });
-    if (id && !relay.botId) relay.botId = id;
-  } catch (e) {
-    console.warn('registerBot error:', e?.message || e);
-  }
-  setInterval(async () => {
-    try { await relay.heartbeat(); } catch {}
-  }, 30_000);
-});
-
-client.login(process.env.BOT_TOKEN).catch((err) => {
-  console.error('Discord login failed:', err?.message || err);
-  process.exit(1);
-});`;
-
 export default function SDKPage() {
   const { toast } = useToast();
-  const [copiedAI, setCopiedAI] = useState(false);
-  const [copiedRegistry, setCopiedRegistry] = useState(false);
+  const [selectedIntegration, setSelectedIntegration] = useState<'ai-only' | 'command-execution' | null>(null);
+  const [copied, setCopied] = useState(false);
 
-  const copyToClipboard = (text: string, isRegistry: boolean) => {
+  const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    if (isRegistry) {
-      setCopiedRegistry(true);
-      setTimeout(() => setCopiedRegistry(false), 2000);
-    } else {
-      setCopiedAI(true);
-      setTimeout(() => setCopiedAI(false), 2000);
-    }
-    toast({ title: "Copied!", description: "Template copied to clipboard" });
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+    toast({ title: "Copied!", description: "Command copied to clipboard" });
   };
 
   return (
@@ -84,155 +34,133 @@ export default function SDKPage() {
         </p>
       </div>
 
-      {/* Step-by-step Guide */}
+      {/* Choose Your Integration */}
       <Card className="p-6 md:p-8 border border-gray-200/50 shadow-sm">
-        <h2 className="text-2xl font-semibold text-gray-900 mb-6">Quick Setup</h2>
-
-        <div className="space-y-6">
-          {/* Step 1 */}
-          <div className="flex gap-4">
-            <div className="flex-shrink-0">
-              <div className="flex items-center justify-center h-8 w-8 rounded-full bg-gray-100 text-gray-700 font-medium text-sm">1</div>
-            </div>
-            <div className="flex-1">
-              <h3 className="text-base font-medium text-gray-900 mb-2">Install the SDK</h3>
-              <p className="text-sm text-gray-600 mb-3">Add the SDK (and discord.js) to your bot project:</p>
-              <div className="bg-gray-800 text-gray-100 p-4 rounded-lg font-mono text-sm relative">
-                <code>npm install discord.js @abdarrahmanabdelnasir/relay-node</code>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="absolute top-2 right-2 text-gray-400 hover:text-white"
-                  onClick={() => {
-                    navigator.clipboard.writeText('npm install discord.js @abdarrahmanabdelnasir/relay-node');
-                    toast({ title: "Copied!", description: "Install command copied" });
-                  }}
-                >
-                  <CopyIcon className="h-4 w-4" />
-                </Button>
+        <h2 className="text-2xl font-semibold text-gray-900 mb-6">Choose Your Integration</h2>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <button
+            onClick={() => setSelectedIntegration('ai-only')}
+            className={`border rounded-lg p-6 bg-white text-left transition-all ${
+              selectedIntegration === 'ai-only'
+                ? 'border-indigo-300 shadow-md ring-2 ring-indigo-100'
+                : 'border-gray-200 hover:border-indigo-300 hover:shadow-sm'
+            }`}
+          >
+            <div className="flex items-center gap-3 mb-3">
+              <div className={`p-2 rounded-lg ${
+                selectedIntegration === 'ai-only' ? 'bg-indigo-100' : 'bg-indigo-50'
+              }`}>
+                <SparklesIcon className={`h-5 w-5 ${
+                  selectedIntegration === 'ai-only' ? 'text-indigo-600' : 'text-indigo-500'
+                }`} />
               </div>
+              <div className="font-medium text-gray-900 text-lg">AI Only</div>
             </div>
-          </div>
+            <p className="text-sm text-gray-600 leading-relaxed mb-3">
+              Conversational AI replies only. No command execution. Minimal setup.
+            </p>
+            <Badge className="bg-indigo-50 text-indigo-700 hover:bg-indigo-50 text-xs">Recommended</Badge>
+          </button>
 
-          {/* Step 2 */}
-          <div className="flex gap-4">
-            <div className="flex-shrink-0">
-              <div className="flex items-center justify-center h-8 w-8 rounded-full bg-gray-100 text-gray-700 font-medium text-sm">2</div>
-            </div>
-            <div className="flex-1">
-              <h3 className="text-base font-medium text-gray-900 mb-2">Generate Your API Key</h3>
-              <p className="text-sm text-gray-600 mb-3">Go to the <strong>API Keys</strong> page in the sidebar, click "New Key", select a bot, and copy the full key (you'll only see it once).</p>
-            </div>
-          </div>
-
-          {/* Step 3 */}
-          <div className="flex gap-4">
-            <div className="flex-shrink-0">
-              <div className="flex items-center justify-center h-8 w-8 rounded-full bg-gray-100 text-gray-700 font-medium text-sm">3</div>
-            </div>
-            <div className="flex-1">
-              <h3 className="text-base font-medium text-gray-900 mb-2">Set Environment Variables</h3>
-              <p className="text-sm text-gray-600 mb-3">Create a <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">.env</code> file:</p>
-              <div className="space-y-2 text-sm">
-                <div className="flex items-start gap-2">
-                  <code className="font-mono text-xs bg-gray-50 px-2 py-1 rounded border border-gray-200">BOT_TOKEN</code>
-                  <span className="text-xs text-gray-600">Discord bot token</span>
-                </div>
-                <div className="flex items-start gap-2">
-                  <code className="font-mono text-xs bg-gray-50 px-2 py-1 rounded border border-gray-200">COMMANDLESS_API_KEY</code>
-                  <span className="text-xs text-gray-600">From step 2 (ck_xxxxx:cs_xxxxx)</span>
-                </div>
-                <div className="flex items-start gap-2">
-                  <code className="font-mono text-xs bg-gray-50 px-2 py-1 rounded border border-gray-200">COMMANDLESS_SERVICE_URL</code>
-                  <span className="text-xs text-gray-600">Your backend URL</span>
-                </div>
+          <div
+            className={`border rounded-lg p-6 bg-white text-left transition-all cursor-not-allowed opacity-60 ${
+              'border-gray-200'
+            }`}
+          >
+            <div className="flex items-center gap-3 mb-3">
+              <div className="p-2 rounded-lg bg-gray-100">
+                <CodeIcon className="h-5 w-5 text-gray-400" />
               </div>
+              <div className="font-medium text-gray-900 text-lg">Command Execution</div>
             </div>
-          </div>
-
-          {/* Step 4 */}
-          <div className="flex gap-4">
-            <div className="flex-shrink-0">
-              <div className="flex items-center justify-center h-8 w-8 rounded-full bg-gray-100 text-gray-700 font-medium text-sm">4</div>
-            </div>
-            <div className="flex-1">
-              <h3 className="text-base font-medium text-gray-900 mb-2">Choose Your Integration</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
-                <div className="border border-gray-200 rounded-lg p-4 bg-white hover:border-indigo-300 hover:shadow-sm transition-all">
-                  <div className="flex items-center gap-2 mb-2">
-                    <SparklesIcon className="h-5 w-5 text-indigo-600" />
-                    <div className="font-medium text-gray-900">AI-Only</div>
-                  </div>
-                  <div className="text-xs text-gray-600 leading-relaxed">
-                    Conversational AI replies only. No command execution. Minimal setup.
-                  </div>
-                  <Badge className="bg-indigo-50 text-indigo-700 hover:bg-indigo-50 mt-2 text-xs">Recommended</Badge>
-                </div>
-                <div className="border border-gray-200 rounded-lg p-4 bg-white hover:border-purple-300 hover:shadow-sm transition-all">
-                  <div className="flex items-center gap-2 mb-2">
-                    <CodeIcon className="h-5 w-5 text-purple-600" />
-                    <div className="font-medium text-gray-900">Command Execution (coming soon)</div>
-                  </div>
-                  <div className="text-xs text-gray-600 leading-relaxed">
-                    We’ll add routing to your handlers after initial AI‑only release.
-                  </div>
-                  <Badge variant="outline" className="mt-2 text-xs">Planned</Badge>
-                </div>
-              </div>
-            </div>
+            <p className="text-sm text-gray-600 leading-relaxed mb-3">
+              Route parsed commands to your custom handlers.
+            </p>
+            <Badge variant="outline" className="text-xs">Coming Soon</Badge>
           </div>
         </div>
       </Card>
 
-      {/* Code Templates */}
-      <Card className="overflow-hidden border border-gray-200/50 shadow-sm">
-        <div className="px-6 py-4 border-b border-gray-100">
-          <h2 className="text-xl font-semibold text-gray-900">Templates</h2>
-          <p className="text-sm text-gray-600 mt-1">Copy the template matching your integration mode.</p>
-        </div>
-        <div className="p-6">
-          <Tabs defaultValue="ai" className="w-full">
-            <TabsList className="grid w-full grid-cols-2 mb-4">
-              <TabsTrigger value="ai" className="flex items-center gap-2">
-                <SparklesIcon className="h-4 w-4" />
-                AI-Only
-              </TabsTrigger>
-              <TabsTrigger value="advanced" className="flex items-center gap-2">
-                <CodeIcon className="h-4 w-4" />
-                Command Execution (coming soon)
-              </TabsTrigger>
-            </TabsList>
-            
-            <TabsContent value="ai" className="space-y-3">
-              <p className="text-sm text-gray-600">AI-powered conversational replies. No local command execution.</p>
-              <div className="relative">
-                <pre className="overflow-auto bg-gray-800 text-gray-100 p-4 rounded-lg text-xs leading-relaxed max-h-96 border border-gray-700/50">
-                  <code>{AI_ONLY_CODE}</code>
-                </pre>
-                <Button
-                  size="sm"
-                  className="absolute top-3 right-3 bg-indigo-600 hover:bg-indigo-700"
-                  onClick={() => copyToClipboard(AI_ONLY_CODE, false)}
-                >
-                  {copiedAI ? <CheckCircleIcon className="h-4 w-4 mr-1" /> : <CopyIcon className="h-4 w-4 mr-1" />}
-                  {copiedAI ? 'Copied!' : 'Copy'}
-                </Button>
+      {/* AI Only Steps */}
+      {selectedIntegration === 'ai-only' && (
+        <Card className="p-6 md:p-8 border border-gray-200/50 shadow-sm">
+          <h2 className="text-2xl font-semibold text-gray-900 mb-6">AI Only Setup</h2>
+
+          <div className="space-y-6">
+            {/* Step 1 */}
+            <div className="flex gap-4">
+              <div className="flex-shrink-0">
+                <div className="flex items-center justify-center h-8 w-8 rounded-full bg-indigo-100 text-indigo-700 font-medium text-sm">1</div>
               </div>
-            </TabsContent>
-            
-            <TabsContent value="advanced" className="space-y-3">
-              <div className="bg-amber-50/50 border border-amber-200/50 rounded-lg p-3">
-                <div className="flex items-start gap-2">
-                  <AlertCircleIcon className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
-                  <div className="text-xs text-gray-700">
-                    <strong className="font-medium">Coming soon:</strong> Command execution routed to your handlers. Today we ship AI‑only.
+              <div className="flex-1">
+                <h3 className="text-base font-medium text-gray-900 mb-2">Install the SDK</h3>
+                <p className="text-sm text-gray-600 mb-3">Add the SDK (and discord.js) to your bot project:</p>
+                <div className="bg-gray-800 text-gray-100 p-4 rounded-lg font-mono text-sm relative">
+                  <code>npm install discord.js @abdarrahmanabdelnasir/relay-node</code>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="absolute top-2 right-2 text-gray-400 hover:text-white"
+                    onClick={() => copyToClipboard('npm install discord.js @abdarrahmanabdelnasir/relay-node')}
+                  >
+                    {copied ? <CheckCircleIcon className="h-4 w-4" /> : <CopyIcon className="h-4 w-4" />}
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            {/* Step 2 */}
+            <div className="flex gap-4">
+              <div className="flex-shrink-0">
+                <div className="flex items-center justify-center h-8 w-8 rounded-full bg-indigo-100 text-indigo-700 font-medium text-sm">2</div>
+              </div>
+              <div className="flex-1">
+                <h3 className="text-base font-medium text-gray-900 mb-2">Run from Terminal</h3>
+                <p className="text-sm text-gray-600 mb-3">Run the bot using the CLI command. Make sure your <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">.env</code> file is set up with:</p>
+                <div className="bg-gray-800 text-gray-100 p-4 rounded-lg font-mono text-sm relative mb-3">
+                  <code>npx commandless-discord</code>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="absolute top-2 right-2 text-gray-400 hover:text-white"
+                    onClick={() => copyToClipboard('npx commandless-discord')}
+                  >
+                    {copied ? <CheckCircleIcon className="h-4 w-4" /> : <CopyIcon className="h-4 w-4" />}
+                  </Button>
+                </div>
+                <div className="space-y-2 text-sm bg-gray-50 p-3 rounded-lg">
+                  <div className="flex items-start gap-2">
+                    <code className="font-mono text-xs bg-white px-2 py-1 rounded border border-gray-200">BOT_TOKEN</code>
+                    <span className="text-xs text-gray-600">Discord bot token</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <code className="font-mono text-xs bg-white px-2 py-1 rounded border border-gray-200">COMMANDLESS_API_KEY</code>
+                    <span className="text-xs text-gray-600">From API Keys page (ck_xxxxx:cs_xxxxx)</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <code className="font-mono text-xs bg-white px-2 py-1 rounded border border-gray-200">COMMANDLESS_SERVICE_URL</code>
+                    <span className="text-xs text-gray-600">Your backend URL</span>
                   </div>
                 </div>
               </div>
-            </TabsContent>
-          </Tabs>
-        </div>
-      </Card>
+            </div>
+
+            {/* Step 3 */}
+            <div className="flex gap-4">
+              <div className="flex-shrink-0">
+                <div className="flex items-center justify-center h-8 w-8 rounded-full bg-indigo-100 text-indigo-700 font-medium text-sm">3</div>
+              </div>
+              <div className="flex-1">
+                <h3 className="text-base font-medium text-gray-900 mb-2">You're Good to Go!</h3>
+                <p className="text-sm text-gray-600">
+                  Your bot is now running with AI-powered natural language processing. The bot will automatically use the personality and configuration from the bot you selected when creating your API key.
+                </p>
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
 
       {/* Troubleshooting */}
       <Card className="p-6 bg-white border border-gray-200/50 shadow-sm">
@@ -255,5 +183,3 @@ export default function SDKPage() {
     </div>
   );
 }
-
-
