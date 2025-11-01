@@ -120,6 +120,11 @@ export default function APIKeysPanel() {
           <DialogHeader>
             <DialogTitle>Create API Key</DialogTitle>
           </DialogHeader>
+          {(!bots || bots.length === 0) && (
+            <div className="text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded p-3">
+              You need to create a bot first before you can create an API key.
+            </div>
+          )}
           <div className="space-y-4">
             <div className="space-y-2">
               <label className="text-sm font-medium text-gray-700">Bot *</label>
@@ -135,7 +140,7 @@ export default function APIKeysPanel() {
                       </SelectItem>
                     ))
                   ) : (
-                    <SelectItem value="" disabled>No bots available</SelectItem>
+                    <div className="px-2 py-1.5 text-sm text-gray-500">No bots available</div>
                   )}
                 </SelectContent>
               </Select>
