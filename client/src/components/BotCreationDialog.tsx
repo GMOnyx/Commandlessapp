@@ -120,15 +120,30 @@ export default function BotCreationDialog({ open, onOpenChange, editBot }: BotCr
         });
       }
     },
-    onSuccess: () => {
+    onSuccess: async (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/bots"] });
+      const botId = data?.id || data?.botId || editBot?.id;
       toast({
         title: "Success",
-        description: isEditMode ? "Bot updated successfully" : "Bot created successfully",
+        description: isEditMode 
+          ? "Bot updated successfully" 
+          : `Bot created successfully! Bot ID: ${botId}`,
+        duration: 8000,
       });
       form.reset();
       setTokenValidation({ isValidating: false });
       onOpenChange(false);
+      
+      // Show bot ID prominently if this is a new bot
+      if (!isEditMode && botId) {
+        setTimeout(() => {
+          toast({
+            title: "Important: Save Your Bot ID",
+            description: `Your Bot ID is ${botId}. You'll need this for your BOT_ID environment variable when using the SDK.`,
+            duration: 10000,
+          });
+        }, 500);
+      }
     },
     onError: (error) => {
       toast({
@@ -245,10 +260,29 @@ export default function BotCreationDialog({ open, onOpenChange, editBot }: BotCr
             )}
             
             {isEditMode && (
-              <div className="p-3 bg-gray-50 rounded-md">
+              <div className="p-3 bg-gray-50 rounded-md space-y-2">
                 <p className="text-sm text-gray-600">
                   <strong>Platform:</strong> {editBot.platformType.charAt(0).toUpperCase() + editBot.platformType.slice(1)}
                 </p>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm text-gray-600">
+                    <strong>Bot ID:</strong> <code className="font-mono text-xs bg-white px-2 py-1 rounded border">{editBot.id}</code>
+                  </p>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(String(editBot.id));
+                      toast({
+                        title: "Copied!",
+                        description: "Bot ID copied to clipboard",
+                        duration: 2000,
+                      });
+                    }}
+                    className="text-xs text-primary hover:text-primary-600 focus:outline-none"
+                  >
+                    Copy
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 italic">Use this Bot ID for your BOT_ID environment variable in the SDK</p>
               </div>
             )}
             

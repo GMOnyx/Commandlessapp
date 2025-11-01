@@ -255,6 +255,38 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
             </div>
             <div className="flex items-center gap-3">
               <Button variant="secondary" onClick={() => setShowCreateDialog(true)}>Connect new bot</Button>
+              <Button variant="outline" onClick={async () => {
+                const clientId = window.prompt('Enter Discord Client ID for your SDK bot:');
+                if (!clientId) return;
+                
+                const botName = window.prompt('Enter a name for this bot (optional):') || 'SDK Bot';
+                
+                try {
+                  // Create bot without token (SDK bot)
+                  const response = await apiRequest('/api/bots', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                      botName,
+                      platformType: 'discord',
+                      clientId,
+                      token: '' // Empty token indicates SDK bot
+                    })
+                  });
+                  const botData = await response.json();
+                  
+                  if (botData.id) {
+                    toast({
+                      title: "SDK Bot Created!",
+                      description: `Bot ID: ${botData.id}. Save this - you'll need it for BOT_ID env var!`,
+                      duration: 10000,
+                    });
+                    queryClient.invalidateQueries({ queryKey: ["/api/bots"] });
+                    window.location.reload();
+                  }
+                } catch (e: any) {
+                  alert(`Failed to create SDK bot: ${e?.message || 'Unknown error'}`);
+                }
+              }}>Link SDK bot</Button>
             </div>
           </CardContent>
         </Card>
@@ -295,24 +327,44 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
                 {bot.platformType === "discord" ? "Discord" : "Telegram"}
               </dt>
               <dd>
-                <div className="flex items-center">
-                  <div className="text-lg font-medium text-gray-900">{bot.botName}</div>
-                  <span className="ml-2 flex-shrink-0">
-                    <span className={cn(
-                      "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium",
-                      bot.isConnected 
-                        ? "bg-green-100 text-green-800" 
-                        : "bg-red-100 text-red-800"
-                    )}>
-                      <div className={cn(
-                        "h-2 w-2 mr-1 rounded-full",
+                <div className="space-y-1">
+                  <div className="flex items-center">
+                    <div className="text-lg font-medium text-gray-900">{bot.botName}</div>
+                    <span className="ml-2 flex-shrink-0">
+                      <span className={cn(
+                        "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium",
                         bot.isConnected 
-                          ? "bg-green-400 animate-pulse" 
-                          : "bg-red-400"
-                      )}></div>
-                      {bot.isConnected ? "Connected" : "Disconnected"}
+                          ? "bg-green-100 text-green-800" 
+                          : "bg-red-100 text-red-800"
+                      )}>
+                        <div className={cn(
+                          "h-2 w-2 mr-1 rounded-full",
+                          bot.isConnected 
+                            ? "bg-green-400 animate-pulse" 
+                            : "bg-red-400"
+                        )}></div>
+                        {bot.isConnected ? "Connected" : "Disconnected"}
+                      </span>
                     </span>
-                  </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono text-gray-600 bg-gray-100 px-2 py-0.5 rounded">
+                      Bot ID: {bot.id}
+                    </span>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(String(bot.id));
+                        toast({
+                          title: "Copied!",
+                          description: "Bot ID copied to clipboard",
+                          duration: 2000,
+                        });
+                      }}
+                      className="text-xs text-primary hover:text-primary-600 focus:outline-none"
+                    >
+                      Copy
+                    </button>
+                  </div>
                 </div>
               </dd>
             </dl>
