@@ -85,7 +85,7 @@ async function findApiKeyRecord(apiKey) {
       if (apiKey) {
         const { data: row } = await supabase
           .from('api_keys')
-          .select('key_id,user_id,scopes,expires_at,revoked_at')
+          .select('key_id,user_id,bot_id,scopes,expires_at,revoked_at')
           .eq('key_id', apiKey)
           .maybeSingle();
         if (row && !row.revoked_at && (!row.expires_at || Date.parse(row.expires_at) > Date.now())) {
@@ -93,6 +93,7 @@ async function findApiKeyRecord(apiKey) {
             key: row.key_id,
             hmac_secret: null, // DB keys authenticate by API key; optional HMAC not enforced here
             user_id: row.user_id,
+            bot_id: row.bot_id || null,
             scopes: Array.isArray(row.scopes) && row.scopes.length ? row.scopes : ['relay.events.write']
           };
         }
@@ -1046,7 +1047,8 @@ app.post('/api/keys', async (req, res) => {
     if (!decoded) return res.status(401).json({ error: 'Invalid token' });
     const userId = decoded.userId;
 
-    const { description, scopes, expiresAt } = req.body || {};
+    const { description, scopes, expiresAt, botId } = req.body || {};
+    if (!botId) return res.status(400).json({ error: 'botId is required' });
     const keyId = `ck_${crypto.randomBytes(8).toString('hex')}`;
     const secret = `cs_${crypto.randomBytes(24).toString('hex')}`;
     const secretHash = crypto.createHash('sha256').update(`${keyId}:${secret}`).digest('hex');
@@ -1055,12 +1057,13 @@ app.post('/api/keys', async (req, res) => {
       key_id: keyId,
       secret_hash: secretHash,
       user_id: userId,
+      bot_id: botId,
       scopes: Array.isArray(scopes) ? scopes : ['relay.events.write'],
       description: description || null,
       expires_at: expiresAt || null
     });
     if (error) return res.status(500).json({ error: 'Failed to create key' });
-    return res.status(201).json({ keyId, secret, scopes: Array.isArray(scopes) ? scopes : ['relay.events.write'], expiresAt: expiresAt || null });
+    return res.status(201).json({ keyId, secret, botId, scopes: Array.isArray(scopes) ? scopes : ['relay.events.write'], expiresAt: expiresAt || null });
   } catch (e) {
     return res.status(500).json({ error: 'Internal server error' });
   }
@@ -1080,11 +1083,12 @@ app.get('/api/keys', async (req, res) => {
 
     const { data } = await supabase
       .from('api_keys')
-      .select('key_id,description,scopes,created_at,expires_at,revoked_at,last_used_at,rate_limit_per_min')
+      .select('key_id,bot_id,description,scopes,created_at,expires_at,revoked_at,last_used_at,rate_limit_per_min')
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
     const masked = (data || []).map(k => ({
       keyId: k.key_id,
+      botId: k.bot_id,
       description: k.description,
       scopes: k.scopes,
       createdAt: k.created_at,
@@ -1094,6 +1098,30 @@ app.get('/api/keys', async (req, res) => {
       rateLimitPerMin: k.rate_limit_per_min
     }));
     return res.json(masked);
+  } catch (e) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// List user's bots (for key binding)
+app.get('/api/bots', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const token = authHeader.split(' ')[1];
+    const decoded = decodeJWT(token);
+    if (!decoded) return res.status(401).json({ error: 'Invalid token' });
+    const userId = decoded.userId;
+
+    const { data, error } = await supabase
+      .from('bots')
+      .select('id, bot_name, created_at')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+    if (error) return res.status(500).json({ error: 'Failed to fetch bots' });
+    return res.json((data || []).map(b => ({ id: b.id, name: b.bot_name })));
   } catch (e) {
     return res.status(500).json({ error: 'Internal server error' });
   }
@@ -1139,7 +1167,7 @@ app.post('/api/keys/:keyId/rotate', async (req, res) => {
 
     const { data: oldRow } = await supabase
       .from('api_keys')
-      .select('scopes,description')
+      .select('scopes,description,bot_id')
       .eq('key_id', keyIdOld)
       .eq('user_id', userId)
       .maybeSingle();
@@ -1153,6 +1181,7 @@ app.post('/api/keys/:keyId/rotate', async (req, res) => {
       key_id: keyId,
       secret_hash: secretHash,
       user_id: userId,
+      bot_id: oldRow.bot_id || null,
       scopes: oldRow.scopes || ['relay.events.write'],
       description: oldRow.description || null
     });
@@ -1220,8 +1249,8 @@ app.post('/v1/relay/events', async (req, res) => {
       console.log(`[relay] evt messageCreate content="${content}" botId=${explicitBotId || 'none'} botClientId=${botClientId || 'none'} userId=${userIdForContext}`);
     } catch {}
 
-    // Resolve bot for persona by explicit botId or clientId; never use a different bot's persona
-    let personaBotId = explicitBotId || null;
+    // Resolve bot persona: prefer the API key's bound bot
+    let personaBotId = apiKeyRecord?.bot_id || explicitBotId || null;
     if (!personaBotId && botClientId) {
       try {
         const { data: botRow } = await supabase
