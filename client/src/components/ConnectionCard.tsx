@@ -263,7 +263,7 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
                 
                 try {
                   // Create bot without token (SDK bot)
-                  const response = await apiRequest('/api/bots', {
+                  const botData = await apiRequest('/api/bots', {
                     method: 'POST',
                     body: JSON.stringify({
                       botName,
@@ -272,7 +272,6 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
                       token: '' // Empty token indicates SDK bot
                     })
                   });
-                  const botData = await response.json();
                   
                   if (botData.id) {
                     toast({

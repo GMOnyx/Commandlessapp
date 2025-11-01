@@ -1042,6 +1042,130 @@ app.get('/api/bots', async (req, res) => {
   }
 });
 
+// Create new bot (supports both regular bots with tokens and SDK bots without tokens)
+app.post('/api/bots', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    const decodedToken = decodeJWT(token);
+    
+    if (!decodedToken) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    const { botName, platformType, token: botToken, clientId, personalityContext } = req.body;
+    
+    // For SDK bots, token is optional (can be empty string)
+    // For regular bots, token is required
+    const isSdkBot = !botToken || botToken.trim() === '';
+    
+    if (!botName || !platformType) {
+      return res.status(400).json({ error: 'Bot name and platform type are required' });
+    }
+    
+    if (!isSdkBot && (!botToken || botToken.trim().length < 50)) {
+      return res.status(400).json({ 
+        error: 'Bot token is required',
+        details: 'Discord bot tokens are typically 59+ characters. SDK bots can be created without a token.'
+      });
+    }
+
+    // Validate Discord token if provided (skip for SDK bots)
+    if (!isSdkBot && platformType === 'discord') {
+      try {
+        const cleanToken = botToken.trim().replace(/^Bot\s+/i, '');
+        
+        if (cleanToken.length < 50) {
+          return res.status(400).json({ 
+            error: 'Invalid Discord bot token',
+            details: 'Token appears too short. Discord bot tokens are typically 59+ characters.'
+          });
+        }
+
+        // Check if token is already in use
+        const { data: existingBot } = await supabase
+          .from('bots')
+          .select('id, bot_name, user_id')
+          .eq('token', cleanToken)
+          .maybeSingle();
+
+        if (existingBot) {
+          if (existingBot.user_id === decodedToken.userId) {
+            return res.status(409).json({ 
+              error: 'You already have a bot with this token',
+              details: `A bot named "${existingBot.bot_name}" already uses this token.`
+            });
+          } else {
+            return res.status(409).json({ 
+              error: 'This Discord bot token is already in use',
+              details: 'Another user is already using this Discord bot token.'
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Error validating token:', error);
+        // Continue anyway - validation is best effort
+      }
+    }
+
+    // Create bot
+    const { data: newBot, error } = await supabase
+      .from('bots')
+      .insert({
+        user_id: decodedToken.userId,
+        bot_name: botName,
+        platform_type: platformType,
+        token: botToken && botToken.trim() ? botToken.trim() : '',
+        client_id: clientId || null,
+        personality_context: personalityContext || 'A helpful Discord bot that responds conversationally.',
+        is_connected: false
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error creating bot:', error);
+      return res.status(500).json({ 
+        error: 'Failed to create bot',
+        details: error.message
+      });
+    }
+
+    // Create activity log
+    await supabase
+      .from('activities')
+      .insert({
+        user_id: decodedToken.userId,
+        activity_type: 'bot_created',
+        description: `Bot "${botName}" was created`,
+        metadata: { 
+          botId: newBot.id,
+          platformType,
+          isSdkBot
+        }
+      });
+
+    res.status(201).json({
+      id: newBot.id,
+      botName: newBot.bot_name,
+      platformType: newBot.platform_type,
+      personalityContext: newBot.personality_context,
+      isConnected: newBot.is_connected,
+      createdAt: newBot.created_at
+    });
+  } catch (error) {
+    console.error('Error creating bot:', error);
+    res.status(500).json({ 
+      error: 'Internal server error',
+      details: 'An unexpected error occurred while creating your bot.'
+    });
+  }
+});
+
 // ---------------- API Key Management (admin-auth via user JWT) ----------------
 // Create API key (returns key_id and secret once)
 app.post('/api/keys', async (req, res) => {
@@ -1082,7 +1206,10 @@ app.post('/api/keys', async (req, res) => {
       description: description || null,
       expires_at: expiresAt || null
     });
-    if (error) return res.status(500).json({ error: 'Failed to create key' });
+    if (error) {
+      console.error('[api/keys] Database error creating key:', error);
+      return res.status(500).json({ error: 'Failed to create key', details: error.message });
+    }
     return res.status(201).json({ keyId, secret, botId: botId || null, scopes: Array.isArray(scopes) ? scopes : ['relay.events.write'], expiresAt: expiresAt || null });
   } catch (e) {
     return res.status(500).json({ error: 'Internal server error' });
