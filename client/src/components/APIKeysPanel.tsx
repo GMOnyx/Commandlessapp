@@ -122,12 +122,12 @@ export default function APIKeysPanel() {
           <div className="space-y-4">
             <div className="space-y-2">
               <label className="text-sm font-medium text-gray-700">Bot (optional)</label>
-              <Select value={selectedBotId || ""} onValueChange={(val) => setSelectedBotId(val || null)}>
+              <Select value={selectedBotId || "none"} onValueChange={(val) => setSelectedBotId(val === "none" ? null : val)}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select a bot (optional)" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">No bot (bind later)</SelectItem>
+                  <SelectItem value="none">No bot (bind later)</SelectItem>
                   {bots && bots.length > 0 && (
                     bots.map(bot => (
                       <SelectItem key={bot.id} value={String(bot.id)}>
