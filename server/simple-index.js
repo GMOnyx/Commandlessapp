@@ -1170,6 +1170,31 @@ app.post('/api/keys/:keyId/revoke', async (req, res) => {
   }
 });
 
+// Delete key (permanently remove)
+app.delete('/api/keys/:keyId', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const token = authHeader.split(' ')[1];
+    const decoded = decodeJWT(token);
+    if (!decoded) return res.status(401).json({ error: 'Invalid token' });
+    const userId = decoded.userId;
+    const keyId = req.params.keyId;
+
+    const { error } = await supabase
+      .from('api_keys')
+      .delete()
+      .eq('key_id', keyId)
+      .eq('user_id', userId);
+    if (error) return res.status(500).json({ error: 'Failed to delete' });
+    return res.json({ ok: true });
+  } catch (e) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Rotate key (creates new, revokes old)
 app.post('/api/keys/:keyId/rotate', async (req, res) => {
   try {

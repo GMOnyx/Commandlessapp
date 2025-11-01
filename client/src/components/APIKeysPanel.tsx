@@ -29,6 +29,7 @@ export default function APIKeysPanel() {
   const [openCreate, setOpenCreate] = useState(false);
   const [created, setCreated] = useState<{ keyId: string; secret: string } | null>(null);
   const [rotated, setRotated] = useState<{ keyId: string; secret: string } | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [description, setDescription] = useState("");
   const [selectedBotId, setSelectedBotId] = useState<string>("");
 
@@ -59,6 +60,14 @@ export default function APIKeysPanel() {
     mutationFn: async (keyId: string) => apiRequest(`/api/keys/${keyId}/rotate`, { method: "POST" }),
     onSuccess: (res: any) => {
       setRotated({ keyId: res.keyId, secret: res.secret });
+      qc.invalidateQueries({ queryKey: ["/api/keys"] });
+    }
+  });
+
+  const deleteKey = useMutation({
+    mutationFn: async (keyId: string) => apiRequest(`/api/keys/${keyId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      setDeleteConfirm(null);
       qc.invalidateQueries({ queryKey: ["/api/keys"] });
     }
   });
@@ -96,7 +105,8 @@ export default function APIKeysPanel() {
               </div>
               <div className="flex items-center gap-2">
                 <Button variant="secondary" onClick={() => rotateKey.mutate(k.keyId)} disabled={!!k.revokedAt}>Rotate</Button>
-                <Button variant="destructive" onClick={() => revokeKey.mutate(k.keyId)} disabled={!!k.revokedAt}>Revoke</Button>
+                <Button variant="secondary" onClick={() => revokeKey.mutate(k.keyId)} disabled={!!k.revokedAt}>Revoke</Button>
+                <Button variant="destructive" onClick={() => setDeleteConfirm(k.keyId)} disabled={deleteKey.isPending}>Delete</Button>
               </div>
             </div>
           );
@@ -174,6 +184,31 @@ export default function APIKeysPanel() {
           )}
           <DialogFooter>
             <Button onClick={() => setRotated(null)}>Done</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirmation dialog */}
+      <Dialog open={!!deleteConfirm} onOpenChange={(o) => { if (!o) setDeleteConfirm(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete API Key</DialogTitle>
+          </DialogHeader>
+          {deleteConfirm && (
+            <div className="space-y-3">
+              <div className="text-sm text-gray-700">
+                Are you sure you want to permanently delete <span className="font-mono font-semibold">{deleteConfirm}</span>?
+              </div>
+              <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded p-2">
+                This action cannot be undone. Any applications using this key will stop working immediately.
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setDeleteConfirm(null)} disabled={deleteKey.isPending}>Cancel</Button>
+            <Button variant="destructive" onClick={() => deleteConfirm && deleteKey.mutate(deleteConfirm)} disabled={deleteKey.isPending}>
+              {deleteKey.isPending ? "Deleting..." : "Delete"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
