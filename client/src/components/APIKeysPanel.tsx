@@ -146,7 +146,7 @@ export default function APIKeysPanel() {
           </div>
           <DialogFooter>
             <Button variant="secondary" onClick={() => setOpenCreate(false)}>Cancel</Button>
-            <Button onClick={() => createKey.mutate()} disabled={createKey.isPending || !selectedBotId}>Create</Button>
+            <Button onClick={() => createKey.mutate()} disabled={createKey.isPending}>Create</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
