@@ -25,9 +25,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { MoreVertical, Edit, Trash2 } from "lucide-react";
-import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import TutorialSettingsDialog from "@/components/TutorialSettingsDialog";
 import BotCreationDialog from "@/components/BotCreationDialog";
 
 // Response type interfaces
@@ -76,7 +74,6 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
-  const [showTutorialDialog, setShowTutorialDialog] = useState(false);
   const [errorDetails, setErrorDetails] = useState<{
     message: string;
     troubleshooting?: string[];
@@ -200,7 +197,7 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
 
   const deleteMutation = useMutation({
     mutationFn: async () => {
-      await apiRequest(`/api/bots?botId=${bot.id}`, {
+      await apiRequest(`/api/bots/${bot.id}`, {
         method: "DELETE",
       });
     },
@@ -248,22 +245,6 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
     },
   });
 
-  const updateTutorialMutation = useMutation({
-    mutationFn: async (data: { tutorialEnabled?: boolean; tutorialPersona?: string }) => {
-      return await apiRequest(`/api/bots?botId=${bot.id}`, {
-        method: "PUT",
-        body: JSON.stringify(data),
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/bots"] });
-      toast({ title: "Saved", description: "Tutorial settings updated." });
-    },
-    onError: (error) => {
-      toast({ title: "Error", description: `Failed to update tutorial settings. ${error instanceof Error ? error.message : ''}`, variant: "destructive" });
-    }
-  });
-  
   if (isNewCard) {
     return (
       <>
@@ -373,34 +354,6 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
             </DropdownMenu>
           </div>
         </div>
-        {/* Tutorial Mode Controls */}
-        {bot.platformType === "discord" && (
-          <div className="mt-5 space-y-3 border-t border-gray-200 pt-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-900">Tutorial Mode</p>
-                <p className="text-xs text-gray-500">Simulate commands with explanations; no actions executed.</p>
-              </div>
-              <Switch
-                checked={!!bot.tutorialEnabled}
-                onCheckedChange={(value) => {
-                  updateTutorialMutation.mutate({ tutorialEnabled: value });
-                  if (value) setShowTutorialDialog(true);
-                }}
-              />
-            </div>
-            {bot.tutorialEnabled && (
-              <div className="flex justify-end">
-                <button
-                  className="text-sm text-primary hover:text-primary-600"
-                  onClick={() => setShowTutorialDialog(true)}
-                >
-                  Configure tutorial settings
-                </button>
-              </div>
-            )}
-          </div>
-        )}
       </CardContent>
       <CardFooter className="bg-gray-50 px-5 py-3 border-t border-gray-200">
         <div className="flex items-center justify-between w-full">
@@ -520,12 +473,6 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
       editBot={bot}
     />
 
-    {/* Tutorial Settings Dialog */}
-    <TutorialSettingsDialog
-      open={showTutorialDialog}
-      onOpenChange={setShowTutorialDialog}
-      bot={bot}
-    />
     </>
   );
 }

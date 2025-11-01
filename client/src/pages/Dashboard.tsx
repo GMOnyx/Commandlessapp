@@ -68,7 +68,7 @@ export default function Dashboard() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-3xl md:text-4xl font-bold text-gray-900">Dashboard</h1>
-          <p className="text-xs text-gray-500 mt-1">Toggle Tutorial Mode per bot to simulate commands with explanations (no execution).</p>
+          <p className="text-xs text-gray-500 mt-1">Manage your bot connections and configurations.</p>
         </div>
         
         {/* Live Bot Status Summary */}
