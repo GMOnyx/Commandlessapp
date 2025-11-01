@@ -1103,30 +1103,6 @@ app.get('/api/keys', async (req, res) => {
   }
 });
 
-// List user's bots (for key binding)
-app.get('/api/bots', async (req, res) => {
-  try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-    const token = authHeader.split(' ')[1];
-    const decoded = decodeJWT(token);
-    if (!decoded) return res.status(401).json({ error: 'Invalid token' });
-    const userId = decoded.userId;
-
-    const { data, error } = await supabase
-      .from('bots')
-      .select('id, bot_name, created_at')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false });
-    if (error) return res.status(500).json({ error: 'Failed to fetch bots' });
-    return res.json((data || []).map(b => ({ id: b.id, name: b.bot_name })));
-  } catch (e) {
-    return res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
 // Revoke key
 app.post('/api/keys/:keyId/revoke', async (req, res) => {
   try {
