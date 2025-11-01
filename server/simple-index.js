@@ -1056,16 +1056,18 @@ app.post('/api/keys', async (req, res) => {
     const userId = decoded.userId;
 
     const { description, scopes, expiresAt, botId } = req.body || {};
-    if (!botId) return res.status(400).json({ error: 'botId is required' });
+    // botId is optional - can be set later when linking SDK bot or using with existing bot
     
-    // Verify bot exists and belongs to user
-    const { data: bot } = await supabase
-      .from('bots')
-      .select('id,user_id')
-      .eq('id', botId)
-      .eq('user_id', userId)
-      .maybeSingle();
-    if (!bot) return res.status(404).json({ error: 'Bot not found' });
+    // If botId is provided, verify it exists and belongs to user
+    if (botId) {
+      const { data: bot } = await supabase
+        .from('bots')
+        .select('id,user_id')
+        .eq('id', botId)
+        .eq('user_id', userId)
+        .maybeSingle();
+      if (!bot) return res.status(404).json({ error: 'Bot not found' });
+    }
     
     const keyId = `ck_${crypto.randomBytes(8).toString('hex')}`;
     const secret = `cs_${crypto.randomBytes(24).toString('hex')}`;
@@ -1075,13 +1077,13 @@ app.post('/api/keys', async (req, res) => {
       key_id: keyId,
       secret_hash: secretHash,
       user_id: userId,
-      bot_id: botId,
+      bot_id: botId || null,
       scopes: Array.isArray(scopes) ? scopes : ['relay.events.write'],
       description: description || null,
       expires_at: expiresAt || null
     });
     if (error) return res.status(500).json({ error: 'Failed to create key' });
-    return res.status(201).json({ keyId, secret, botId, scopes: Array.isArray(scopes) ? scopes : ['relay.events.write'], expiresAt: expiresAt || null });
+    return res.status(201).json({ keyId, secret, botId: botId || null, scopes: Array.isArray(scopes) ? scopes : ['relay.events.write'], expiresAt: expiresAt || null });
   } catch (e) {
     return res.status(500).json({ error: 'Internal server error' });
   }

@@ -35,10 +35,9 @@ export default function APIKeysPanel() {
 
   const createKey = useMutation({
     mutationFn: async () => {
-      if (!selectedBotId) throw new Error("Please select a bot");
       const body = { 
         description: description || undefined,
-        botId: parseInt(String(selectedBotId), 10)
+        botId: selectedBotId ? parseInt(String(selectedBotId), 10) : undefined
       };
       return apiRequest("/api/keys", { method: "POST", body: JSON.stringify(body) });
     },
@@ -122,24 +121,23 @@ export default function APIKeysPanel() {
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">Bot *</label>
-              <Select value={selectedBotId || ""} onValueChange={(val) => setSelectedBotId(val || null)} required>
+              <label className="text-sm font-medium text-gray-700">Bot (optional)</label>
+              <Select value={selectedBotId || ""} onValueChange={(val) => setSelectedBotId(val || null)}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select a bot" />
+                  <SelectValue placeholder="Select a bot (optional)" />
                 </SelectTrigger>
                 <SelectContent>
-                  {bots && bots.length > 0 ? (
+                  <SelectItem value="">No bot (bind later)</SelectItem>
+                  {bots && bots.length > 0 && (
                     bots.map(bot => (
                       <SelectItem key={bot.id} value={String(bot.id)}>
                         {bot.botName}
                       </SelectItem>
                     ))
-                  ) : (
-                    <div className="px-2 py-1.5 text-sm text-gray-500">No bots available. Create a bot first.</div>
                   )}
                 </SelectContent>
               </Select>
-              <p className="text-xs text-gray-500">This API key will be bound to this bot. Use this bot's ID as your BOT_ID environment variable.</p>
+              <p className="text-xs text-gray-500">You can bind this key to a bot now or later. When using the SDK, you'll need to set BOT_ID in your environment variables.</p>
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium text-gray-700">Description (optional)</label>
