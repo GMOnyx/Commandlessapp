@@ -1,6 +1,6 @@
 {
   "name": "@abdarrahmanabdelnasir/relay-node",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "private": false,
   "type": "module",
   "main": "dist/index.js",

@@ -117,7 +117,7 @@ export default function SDKPage() {
               </div>
               <div className="flex-1">
                 <h3 className="text-base font-medium text-gray-900 mb-2">Run from Terminal</h3>
-                <p className="text-sm text-gray-600 mb-3">Run the bot using the CLI command. Make sure your <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">.env</code> file is set up with:</p>
+                <p className="text-sm text-gray-600 mb-3">Run the bot using the CLI command. Set up your <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">.env</code> file with:</p>
                 <div className="bg-gray-800 text-gray-100 p-4 rounded-lg font-mono text-sm relative mb-3">
                   <code>npx commandless-discord</code>
                   <Button
@@ -138,9 +138,8 @@ export default function SDKPage() {
                     <code className="font-mono text-xs bg-white px-2 py-1 rounded border border-gray-200">COMMANDLESS_API_KEY</code>
                     <span className="text-xs text-gray-600">From API Keys page (ck_xxxxx:cs_xxxxx)</span>
                   </div>
-                  <div className="flex items-start gap-2">
-                    <code className="font-mono text-xs bg-white px-2 py-1 rounded border border-gray-200">COMMANDLESS_SERVICE_URL</code>
-                    <span className="text-xs text-gray-600">Your backend URL</span>
+                  <div className="text-xs text-gray-500 italic mt-2">
+                    Note: SERVICE_URL is optional and defaults to the Commandless backend service.
                   </div>
                 </div>
               </div>
