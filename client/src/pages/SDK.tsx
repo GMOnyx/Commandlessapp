@@ -95,18 +95,21 @@ export default function SDKPage() {
               </div>
               <div className="flex-1">
                 <h3 className="text-base font-medium text-gray-900 mb-2">Install the SDK</h3>
-                <p className="text-sm text-gray-600 mb-3">Add the SDK (and discord.js) to your bot project:</p>
+                <p className="text-sm text-gray-600 mb-3">Add the SDK to your bot project:</p>
                 <div className="bg-gray-800 text-gray-100 p-4 rounded-lg font-mono text-sm relative">
-                  <code>npm install discord.js @abdarrahmanabdelnasir/relay-node</code>
+                  <code>npm install @abdarrahmanabdelnasir/relay-node</code>
                   <Button
                     size="sm"
                     variant="ghost"
                     className="absolute top-2 right-2 text-gray-400 hover:text-white"
-                    onClick={() => copyToClipboard('npm install discord.js @abdarrahmanabdelnasir/relay-node')}
+                    onClick={() => copyToClipboard('npm install @abdarrahmanabdelnasir/relay-node')}
                   >
                     {copied ? <CheckCircleIcon className="h-4 w-4" /> : <CopyIcon className="h-4 w-4" />}
                   </Button>
                 </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  Note: If you don't already have <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">discord.js</code> installed, you'll need it as well: <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">npm install discord.js</code>
+                </p>
               </div>
             </div>
 
