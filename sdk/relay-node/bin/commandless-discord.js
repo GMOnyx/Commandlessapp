@@ -14,6 +14,7 @@ function getEnv(name, optional = false) {
 
 const token = getEnv('BOT_TOKEN');
 const apiKey = getEnv('COMMANDLESS_API_KEY');
+const botId = getEnv('BOT_ID');
 const baseUrl = process.env.COMMANDLESS_SERVICE_URL; // Optional - defaults to Commandless backend
 const hmacSecret = process.env.COMMANDLESS_HMAC_SECRET;
 
@@ -34,10 +35,17 @@ useDiscordAdapter({ client, relay, mentionRequired: true });
 client.once('ready', async () => {
   console.log(`[commandless] Logged in as ${client.user.tag}`);
   try {
-    const botId = await relay.registerBot({ platform: 'discord', name: client.user.username, clientId: client.user.id });
-    if (botId) relay.botId = botId;
+    const registeredBotId = await relay.registerBot({ 
+      platform: 'discord', 
+      name: client.user.username, 
+      clientId: client.user.id,
+      botId: parseInt(botId, 10)
+    });
+    if (registeredBotId) relay.botId = registeredBotId;
+    console.log(`[commandless] Bot registered with ID: ${registeredBotId}`);
   } catch (e) {
-    console.warn('[commandless] registerBot failed:', e?.message || e);
+    console.error('[commandless] registerBot failed:', e?.message || e);
+    process.exit(1);
   }
   setInterval(async () => { try { await relay.heartbeat(); } catch {} }, 30_000);
 });

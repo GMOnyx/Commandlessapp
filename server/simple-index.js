@@ -1057,6 +1057,16 @@ app.post('/api/keys', async (req, res) => {
 
     const { description, scopes, expiresAt, botId } = req.body || {};
     if (!botId) return res.status(400).json({ error: 'botId is required' });
+    
+    // Verify bot exists and belongs to user
+    const { data: bot } = await supabase
+      .from('bots')
+      .select('id,user_id')
+      .eq('id', botId)
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (!bot) return res.status(404).json({ error: 'Bot not found' });
+    
     const keyId = `ck_${crypto.randomBytes(8).toString('hex')}`;
     const secret = `cs_${crypto.randomBytes(24).toString('hex')}`;
     const secretHash = crypto.createHash('sha256').update(`${keyId}:${secret}`).digest('hex');
@@ -1258,8 +1268,13 @@ app.post('/v1/relay/events', async (req, res) => {
       console.log(`[relay] evt messageCreate content="${content}" botId=${explicitBotId || 'none'} botClientId=${botClientId || 'none'} userId=${userIdForContext}`);
     } catch {}
 
-    // Resolve bot persona: prefer the API key's bound bot
-    let personaBotId = apiKeyRecord?.bot_id || explicitBotId || null;
+    // Resolve bot persona: prefer explicitBotId (from BOT_ID env), fall back to API key's bound bot
+    // Validate explicitBotId matches API key's bot_id if both exist
+    let personaBotId = explicitBotId || apiKeyRecord?.bot_id || null;
+    if (explicitBotId && apiKeyRecord?.bot_id && String(explicitBotId) !== String(apiKeyRecord.bot_id)) {
+      console.warn(`[relay] Bot ID mismatch: explicitBotId=${explicitBotId} vs apiKeyRecord.bot_id=${apiKeyRecord.bot_id}`);
+      // Still use explicitBotId but warn
+    }
     if (!personaBotId && botClientId) {
       try {
         const { data: botRow } = await supabase
@@ -1512,36 +1527,49 @@ app.post('/v1/relay/register', async (req, res) => {
     if (!apiKeyRecord) return res.status(401).json({ error: 'Unauthorized' });
     const { platform, name, clientId, botId } = req.body || {};
     const userId = apiKeyRecord.user_id;
-    let finalBotId = botId || null;
-    if (!finalBotId) {
-      // Try to find by clientId
-      if (clientId) {
-        const { data: existing } = await supabase
-          .from('bots')
-          .select('id')
-          .eq('client_id', clientId)
-          .eq('user_id', userId)
-          .maybeSingle();
-        if (existing?.id) finalBotId = existing.id;
-      }
+    
+    // BOT_ID is required - validate it matches API key's bound bot
+    if (!botId) {
+      return res.status(400).json({ error: 'botId is required. Set BOT_ID in your environment variables.' });
     }
-    if (!finalBotId) {
-      // Create a minimal bot row letting DB assign numeric id
-      const { data: inserted, error: insErr } = await supabase.from('bots').insert({
-        user_id: userId,
-        platform_type: platform || 'discord',
-        bot_name: name || 'SDK Bot',
-        client_id: clientId || null,
-        token: '',
+    
+    // Verify botId matches the API key's bound bot
+    if (apiKeyRecord.bot_id && String(apiKeyRecord.bot_id) !== String(botId)) {
+      return res.status(403).json({ 
+        error: 'Bot ID mismatch',
+        details: `The BOT_ID (${botId}) does not match the bot bound to this API key (${apiKeyRecord.bot_id}). Please check your BOT_ID environment variable.`
+      });
+    }
+    
+    // Verify bot exists and belongs to user
+    const { data: bot } = await supabase
+      .from('bots')
+      .select('id,user_id,bot_name')
+      .eq('id', botId)
+      .eq('user_id', userId)
+      .maybeSingle();
+    
+    if (!bot) {
+      return res.status(404).json({ 
+        error: 'Bot not found',
+        details: `Bot ID ${botId} not found or does not belong to your account.`
+      });
+    }
+    
+    // Update bot connection status and metadata
+    await supabase
+      .from('bots')
+      .update({ 
         is_connected: true,
-      }).select('id').single();
-      if (insErr) return res.status(500).json({ error: 'Failed to create bot' });
-      finalBotId = inserted?.id;
-    } else {
-      await supabase.from('bots').update({ is_connected: true }).eq('id', finalBotId).eq('user_id', userId);
-    }
-    return res.json({ botId: finalBotId });
+        client_id: clientId || undefined,
+        bot_name: name || bot.bot_name
+      })
+      .eq('id', botId)
+      .eq('user_id', userId);
+    
+    return res.json({ botId: Number(botId), botName: bot.bot_name });
   } catch (e) {
+    console.error('[relay/register] Error:', e);
     return res.status(500).json({ error: 'Internal server error' });
   }
 });

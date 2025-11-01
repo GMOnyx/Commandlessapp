@@ -31,21 +31,21 @@ export default function APIKeysPanel() {
   const [rotated, setRotated] = useState<{ keyId: string; secret: string } | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [description, setDescription] = useState("");
-  const [selectedBotId, setSelectedBotId] = useState<string>("");
+  const [selectedBotId, setSelectedBotId] = useState<string | null>(null);
 
   const createKey = useMutation({
     mutationFn: async () => {
       if (!selectedBotId) throw new Error("Please select a bot");
       const body = { 
         description: description || undefined,
-        botId: parseInt(selectedBotId, 10)
+        botId: parseInt(String(selectedBotId), 10)
       };
       return apiRequest("/api/keys", { method: "POST", body: JSON.stringify(body) });
     },
     onSuccess: (res: any) => {
       setCreated({ keyId: res.keyId, secret: res.secret });
       setDescription("");
-      setSelectedBotId("");
+      setSelectedBotId(null);
       setOpenCreate(false);
       qc.invalidateQueries({ queryKey: ["/api/keys"] });
     }
@@ -120,15 +120,10 @@ export default function APIKeysPanel() {
           <DialogHeader>
             <DialogTitle>Create API Key</DialogTitle>
           </DialogHeader>
-          {(!bots || bots.length === 0) && (
-            <div className="text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded p-3">
-              You need to create a bot first before you can create an API key.
-            </div>
-          )}
           <div className="space-y-4">
             <div className="space-y-2">
               <label className="text-sm font-medium text-gray-700">Bot *</label>
-              <Select value={selectedBotId} onValueChange={setSelectedBotId}>
+              <Select value={selectedBotId || ""} onValueChange={(val) => setSelectedBotId(val || null)} required>
                 <SelectTrigger>
                   <SelectValue placeholder="Select a bot" />
                 </SelectTrigger>
@@ -140,11 +135,11 @@ export default function APIKeysPanel() {
                       </SelectItem>
                     ))
                   ) : (
-                    <div className="px-2 py-1.5 text-sm text-gray-500">No bots available</div>
+                    <div className="px-2 py-1.5 text-sm text-gray-500">No bots available. Create a bot first.</div>
                   )}
                 </SelectContent>
               </Select>
-              <p className="text-xs text-gray-500">This key will use this bot's personality and configuration.</p>
+              <p className="text-xs text-gray-500">This API key will be bound to this bot. Use this bot's ID as your BOT_ID environment variable.</p>
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium text-gray-700">Description (optional)</label>

@@ -255,20 +255,6 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
             </div>
             <div className="flex items-center gap-3">
               <Button variant="secondary" onClick={() => setShowCreateDialog(true)}>Connect new bot</Button>
-              <Button variant="outline" onClick={async () => {
-                const clientId = window.prompt('Enter Discord Client ID for your SDK bot');
-                const botName = window.prompt('Enter a name for this bot (optional)') || 'SDK Bot';
-                if (!clientId) return;
-                try {
-                  await apiRequest('/api/bots?action=link-sdk', {
-                    method: 'PUT',
-                    body: JSON.stringify({ action: 'link-sdk', clientId, botName, platformType: 'discord' })
-                  });
-                  window.location.reload();
-                } catch (e: any) {
-                  alert(`Failed to link SDK bot: ${e?.message || 'Unknown error'}`);
-                }
-              }}>Link SDK bot</Button>
             </div>
           </CardContent>
         </Card>

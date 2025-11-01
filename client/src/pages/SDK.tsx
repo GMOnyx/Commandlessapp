@@ -141,6 +141,10 @@ export default function SDKPage() {
                     <code className="font-mono text-xs bg-white px-2 py-1 rounded border border-gray-200">COMMANDLESS_API_KEY</code>
                     <span className="text-xs text-gray-600">From API Keys page (ck_xxxxx:cs_xxxxx)</span>
                   </div>
+                  <div className="flex items-start gap-2">
+                    <code className="font-mono text-xs bg-white px-2 py-1 rounded border border-gray-200">BOT_ID</code>
+                    <span className="text-xs text-gray-600">Bot ID from your dashboard (bound to your API key)</span>
+                  </div>
                   <div className="text-xs text-gray-500 italic mt-2">
                     Note: SERVICE_URL is optional and defaults to the Commandless backend service.
                   </div>
