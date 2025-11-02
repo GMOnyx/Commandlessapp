@@ -1,7 +1,7 @@
 import { Decision, RelayClientOptions, RelayEvent } from "./types.js";
 import { postJson } from "./http.js";
 
-const DEFAULT_BASE = "https://api.commandless.app";
+const DEFAULT_BASE = "https://commandless-app-production.up.railway.app";
 
 export class RelayClient {
   private readonly apiKey: string;
@@ -15,15 +15,22 @@ export class RelayClient {
 
   constructor(opts: RelayClientOptions) {
     this.apiKey = opts.apiKey;
-    this.baseUrl = (opts.baseUrl ?? DEFAULT_BASE).replace(/\/$/, "");
+    let base = opts.baseUrl ?? DEFAULT_BASE;
+    // Auto-add https:// if no protocol provided
+    if (base && !base.match(/^https?:\/\//)) {
+      base = `https://${base}`;
+    }
+    this.baseUrl = base.replace(/\/$/, "");
     this.hmacSecret = opts.hmacSecret;
     this.timeoutMs = opts.timeoutMs ?? 15000;
   }
 
   // Optional: register this SDK bot and obtain/confirm botId
-  async registerBot(info: { platform: 'discord'; name?: string; clientId?: string }): Promise<string | null> {
+  async registerBot(info: { platform: 'discord'; name?: string; clientId?: string; botId?: number }): Promise<string | null> {
     try {
       const url = `${this.baseUrl}/v1/relay/register`;
+      console.log(`[commandless] registerBot URL: ${url}`);
+      console.log(`[commandless] registerBot payload:`, { ...info, botId: info.botId });
       const res = await postJson<{ botId: string }>(url, this.apiKey, info, {
         hmacSecret: this.hmacSecret,
         timeoutMs: this.timeoutMs,
@@ -32,8 +39,16 @@ export class RelayClient {
         this.botId = res.data.botId;
         return this.botId;
       }
+      // Log error for debugging
+      if (!res.ok) {
+        console.error(`[commandless] registerBot failed: ${res.status} ${res.error || 'Unknown error'}`);
+      } else if (!res.data?.botId) {
+        console.error(`[commandless] registerBot: response missing botId`, res.data);
+      }
       return null;
-    } catch {
+    } catch (err: any) {
+      console.error(`[commandless] registerBot exception:`, err?.message || err);
+      console.error(`[commandless] Full error:`, err);
       return null;
     }
   }

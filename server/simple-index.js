@@ -49,12 +49,50 @@ async function findApiKeyRecord(apiKey) {
     // 1) Database-backed keys (preferred in production)
     try {
       if (apiKey) {
-        const { data: row } = await supabase
+        // Extract key_id if user provided full format (ck_xxxxx:cs_xxxxx)
+        // The key_id is everything before the first colon
+        const keyId = apiKey.includes(':') ? apiKey.split(':')[0] : apiKey;
+        console.log(`[findApiKeyRecord] Looking up key_id: ${keyId.substring(0, 15)}... (full length: ${keyId.length})`);
+        
+        // Try to select with bot_id, but handle gracefully if column doesn't exist
+        let { data: row, error: lookupError } = await supabase
           .from('api_keys')
-          .select('key_id,user_id,bot_id,scopes,expires_at,revoked_at')
-          .eq('key_id', apiKey)
+          .select('key_id,user_id,scopes,expires_at,revoked_at')
+          .eq('key_id', keyId)
           .maybeSingle();
+        
+        console.log(`[findApiKeyRecord] Query result: row=${!!row}, error=${!!lookupError}`);
+        if (lookupError) {
+          console.error('[findApiKeyRecord] Supabase query error:', lookupError);
+        }
+        if (row) {
+          console.log(`[findApiKeyRecord] Found row: key_id=${row.key_id?.substring(0, 15)}..., revoked_at=${row.revoked_at}, expires_at=${row.expires_at}`);
+        }
+        
+        // If bot_id column exists, add it to the select (non-blocking if it doesn't exist)
+        if (row && !lookupError) {
+          try {
+            const { data: botIdRow, error: botIdError } = await supabase
+              .from('api_keys')
+              .select('bot_id')
+              .eq('key_id', keyId)
+              .maybeSingle();
+            if (botIdError) {
+              console.warn('[findApiKeyRecord] Error fetching bot_id (non-critical):', botIdError);
+              row.bot_id = null;
+            } else if (botIdRow && botIdRow.bot_id !== undefined) {
+              row.bot_id = botIdRow.bot_id;
+            } else {
+              row.bot_id = null;
+            }
+          } catch (botIdErr) {
+            console.warn('[findApiKeyRecord] Exception fetching bot_id (non-critical):', botIdErr);
+            row.bot_id = null;
+          }
+        }
+        
         if (row && !row.revoked_at && (!row.expires_at || Date.parse(row.expires_at) > Date.now())) {
+          console.log(`[findApiKeyRecord] Found valid key: ${keyId.substring(0, 10)}... (user: ${row.user_id})`);
           return {
             key: row.key_id,
             hmac_secret: null, // DB keys authenticate by API key; optional HMAC not enforced here
@@ -62,9 +100,16 @@ async function findApiKeyRecord(apiKey) {
             bot_id: row.bot_id || null,
             scopes: Array.isArray(row.scopes) && row.scopes.length ? row.scopes : ['relay.events.write']
           };
+        } else if (row) {
+          console.warn(`[findApiKeyRecord] Key found but invalid: revoked=${!!row.revoked_at}, expired=${row.expires_at ? Date.parse(row.expires_at) <= Date.now() : false}`);
+        } else {
+          console.warn(`[findApiKeyRecord] Key not found in database: ${keyId.substring(0, 10)}...`);
         }
       }
-    } catch {}
+    } catch (dbErr) {
+      console.error('[findApiKeyRecord] Database lookup exception:', dbErr);
+      console.error('[findApiKeyRecord] Stack:', dbErr?.stack);
+    }
 
     // 2) Env-based keys (legacy/dev)
     const envKeys = process.env.COMMANDLESS_API_KEYS;
@@ -82,7 +127,11 @@ async function findApiKeyRecord(apiKey) {
         }
       }
     }
-  } catch {}
+  } catch (outerErr) {
+    console.error('[findApiKeyRecord] Outer exception:', outerErr);
+    console.error('[findApiKeyRecord] Stack:', outerErr?.stack);
+  }
+  console.warn('[findApiKeyRecord] Returning null - key not found');
   return null; // env-only for now
 }
 
@@ -1397,13 +1446,9 @@ app.post('/v1/relay/events', async (req, res) => {
       console.log(`[relay] evt messageCreate content="${content}" botId=${explicitBotId || 'none'} botClientId=${botClientId || 'none'} userId=${userIdForContext}`);
     } catch {}
 
-    // Resolve bot persona: prefer explicitBotId (from BOT_ID env), fall back to API key's bound bot
-    // Validate explicitBotId matches API key's bot_id if both exist
-    let personaBotId = explicitBotId || apiKeyRecord?.bot_id || null;
-    if (explicitBotId && apiKeyRecord?.bot_id && String(explicitBotId) !== String(apiKeyRecord.bot_id)) {
-      console.warn(`[relay] Bot ID mismatch: explicitBotId=${explicitBotId} vs apiKeyRecord.bot_id=${apiKeyRecord.bot_id}`);
-      // Still use explicitBotId but warn
-    }
+    // Resolve bot persona: BOT_ID from env var is the source of truth
+    // API key's bot_id is ignored - BOT_ID env var determines which bot to use
+    let personaBotId = explicitBotId || null;
     if (!personaBotId && botClientId) {
       try {
         const { data: botRow } = await supabase
@@ -1651,42 +1696,67 @@ app.get('/api/discord', (req, res) => {
 // Register & Heartbeat endpoints for SDK bots
 app.post('/v1/relay/register', async (req, res) => {
   try {
+    console.log('[relay/register] Starting registration request');
     const apiKey = req.header('x-api-key') || req.header('x-commandless-key') || '';
+    if (!apiKey) {
+      console.error('[relay/register] No API key provided in headers');
+      return res.status(401).json({ error: 'Unauthorized', details: 'No API key provided' });
+    }
+    
+    // Log the full API key received (first 15 chars for debugging)
+    console.log(`[relay/register] Received API key: ${apiKey.substring(0, 15)}... (full length: ${apiKey.length})`);
+    
+    console.log('[relay/register] Looking up API key record...');
     const apiKeyRecord = await findApiKeyRecord(apiKey);
-    if (!apiKeyRecord) return res.status(401).json({ error: 'Unauthorized' });
+    if (!apiKeyRecord) {
+      console.error('[relay/register] API key not found in database:', apiKey.substring(0, 15) + '...');
+      // List all keys in database for debugging
+      const { data: allKeys } = await supabase
+        .from('api_keys')
+        .select('key_id')
+        .limit(10);
+      console.log(`[relay/register] Available keys in DB:`, allKeys?.map(k => k.key_id.substring(0, 15) + '...') || 'none');
+      return res.status(401).json({ error: 'Unauthorized', details: 'Invalid API key' });
+    }
+    console.log(`[relay/register] API key record found, user_id: ${apiKeyRecord.user_id}`);
+    
     const { platform, name, clientId, botId } = req.body || {};
     const userId = apiKeyRecord.user_id;
     
-    // BOT_ID is required - validate it matches API key's bound bot
+    console.log(`[relay/register] Request: platform=${platform}, clientId=${clientId}, botId=${botId}, userId=${userId}`);
+    
+    // BOT_ID is required from environment variable
     if (!botId) {
+      console.error('[relay/register] Missing botId in request body');
       return res.status(400).json({ error: 'botId is required. Set BOT_ID in your environment variables.' });
     }
     
-    // Verify botId matches the API key's bound bot
-    if (apiKeyRecord.bot_id && String(apiKeyRecord.bot_id) !== String(botId)) {
-      return res.status(403).json({ 
-        error: 'Bot ID mismatch',
-        details: `The BOT_ID (${botId}) does not match the bot bound to this API key (${apiKeyRecord.bot_id}). Please check your BOT_ID environment variable.`
-      });
-    }
-    
-    // Verify bot exists and belongs to user
-    const { data: bot } = await supabase
+    // Verify bot exists and belongs to user (BOT_ID is the source of truth)
+    console.log(`[relay/register] Looking up bot with id=${botId}, user_id=${userId}`);
+    const { data: bot, error: botError } = await supabase
       .from('bots')
       .select('id,user_id,bot_name')
       .eq('id', botId)
       .eq('user_id', userId)
       .maybeSingle();
     
+    if (botError) {
+      console.error('[relay/register] Error querying bot:', botError);
+      return res.status(500).json({ error: 'Database error', details: botError.message });
+    }
+    
     if (!bot) {
+      console.error(`[relay/register] Bot not found: id=${botId}, user_id=${userId}`);
       return res.status(404).json({ 
         error: 'Bot not found',
         details: `Bot ID ${botId} not found or does not belong to your account.`
       });
     }
     
+    console.log(`[relay/register] Bot found: ${bot.bot_name}, updating connection status...`);
+    
     // Update bot connection status and metadata
-    await supabase
+    const { error: updateError } = await supabase
       .from('bots')
       .update({ 
         is_connected: true,
@@ -1696,10 +1766,20 @@ app.post('/v1/relay/register', async (req, res) => {
       .eq('id', botId)
       .eq('user_id', userId);
     
-    return res.json({ botId: Number(botId), botName: bot.bot_name });
+    if (updateError) {
+      console.error('[relay/register] Error updating bot:', updateError);
+      return res.status(500).json({ error: 'Database error', details: updateError.message });
+    }
+    
+    console.log(`[relay/register] Success! Returning botId: ${botId}`);
+    // Return the botId that was registered (as string - SDK expects string)
+    return res.json({ botId: String(botId), botName: bot.bot_name, success: true });
   } catch (e) {
-    console.error('[relay/register] Error:', e);
-    return res.status(500).json({ error: 'Internal server error' });
+    console.error('[relay/register] Unhandled exception:', e);
+    console.error('[relay/register] Stack:', e?.stack);
+    if (!res.headersSent) {
+      return res.status(500).json({ error: 'Internal server error', details: e?.message || String(e) });
+    }
   }
 });
 
@@ -2468,7 +2548,7 @@ app.delete('/api/bots/:id', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Commandless server running on port ${PORT}`);
   console.log(`🤖 Gemini AI initialized`);
 });

@@ -108,7 +108,7 @@ export default function BotCreationDialog({ open, onOpenChange, editBot }: BotCr
         if (data.token && data.token.trim()) updateData.token = data.token;
         if (data.personalityContext !== undefined) updateData.personalityContext = data.personalityContext;
         
-        return await apiRequest(`/api/bots?botId=${editBot.id}`, {
+        return await apiRequest(`/api/bots/${editBot.id}`, {
           method: "PUT",
           body: JSON.stringify(updateData),
         });

@@ -18,16 +18,20 @@ async function postJson(url, apiKey, body, opts) {
     if (opts?.idempotencyKey)
         headers["x-idempotency-key"] = opts.idempotencyKey;
     try {
+        console.log(`[commandless] postJson: ${url.substring(0, 50)}...`);
         const res = await fetch(url, { method: "POST", body: json, headers, signal: controller.signal });
         const requestId = res.headers.get("x-request-id") ?? undefined;
         if (!res.ok) {
             const text = await safeText(res);
+            console.error(`[commandless] postJson failed: ${res.status} ${text.substring(0, 200)}`);
             return { ok: false, status: res.status, error: text, requestId };
         }
         const data = (await res.json());
         return { ok: true, status: res.status, data, requestId };
     }
     catch (err) {
+        console.error(`[commandless] postJson fetch error:`, err?.message || err);
+        console.error(`[commandless] postJson URL was:`, url);
         return { ok: false, status: 0, error: err?.message ?? String(err) };
     }
     finally {

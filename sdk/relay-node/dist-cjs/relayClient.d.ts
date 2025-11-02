@@ -13,6 +13,7 @@ export declare class RelayClient {
         platform: 'discord';
         name?: string;
         clientId?: string;
+        botId?: number;
     }): Promise<string | null>;
     heartbeat(): Promise<void>;
     sendEvent(event: RelayEvent): Promise<Decision | null>;

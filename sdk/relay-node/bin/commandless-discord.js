@@ -18,6 +18,11 @@ const botId = getEnv('BOT_ID');
 const baseUrl = process.env.COMMANDLESS_SERVICE_URL; // Optional - defaults to Commandless backend
 const hmacSecret = process.env.COMMANDLESS_HMAC_SECRET;
 
+// Log API key for debugging (first 15 chars only)
+console.log(`[commandless] Using API key: ${apiKey.substring(0, 15)}... (full length: ${apiKey.length})`);
+console.log(`[commandless] Using BOT_ID: ${botId}`);
+console.log(`[commandless] Using base URL: ${baseUrl || 'https://commandless-app-production.up.railway.app'}`);
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,

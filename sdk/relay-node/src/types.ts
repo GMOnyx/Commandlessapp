@@ -42,7 +42,7 @@ export interface Decision {
 
 export interface RelayClientOptions {
   apiKey: string;
-  baseUrl?: string; // default https://api.commandless.app
+  baseUrl?: string; // default https://commandless-app-production.up.railway.app
   hmacSecret?: string; // optional per-key signing
   timeoutMs?: number;
 }
