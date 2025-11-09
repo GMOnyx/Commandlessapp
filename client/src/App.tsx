@@ -9,6 +9,7 @@ import CommandMappingDetail from "@/pages/CommandMappingDetail";
 import BotConnections from "@/pages/BotConnections";
 import SDKPage from "@/pages/SDK";
 import APIKeysPage from "@/pages/APIKeys";
+import PricingPage from "@/pages/Pricing";
 import NotFound from "@/pages/not-found";
 import AuthProvider from "@/components/AuthProvider";
 import { useAuth } from "@clerk/clerk-react";
@@ -130,6 +131,7 @@ function AppContent() {
         <Route path="/connections" component={BotConnections} />
         <Route path="/sdk" component={SDKPage} />
         <Route path="/api-keys" component={APIKeysPage} />
+        <Route path="/pricing" component={PricingPage} />
         <Route component={NotFound} />
       </Switch>
     </Layout>

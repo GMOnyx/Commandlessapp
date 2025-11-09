@@ -3,6 +3,7 @@ const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const crypto = require('crypto');
+const Stripe = require('stripe');
 require('dotenv').config();
 
 const app = express();
@@ -10,10 +11,129 @@ const PORT = process.env.PORT || 5001;
 
 // Middleware
 app.use(cors());
+
+// ---------------- Stripe setup (must be before webhook route) ----------------
+const stripeSecret = process.env.STRIPE_SECRET_KEY || '';
+const stripe = stripeSecret ? new Stripe(stripeSecret, { apiVersion: '2024-06-20' }) : null;
+
+const APP_URL = process.env.APP_URL || process.env.CLIENT_URL || 'http://localhost:5173';
+const METER_EVENT_NAME = process.env.STRIPE_METER_EVENT || 'api_requests';
+
+async function getStripeCustomerIdForUser(userId) {
+  if (!userId) return null;
+  try {
+    const { data, error } = await supabase
+      .from('billing_customers')
+      .select('stripe_customer_id')
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (error) {
+      console.warn('[billing] lookup failed (table may not exist):', error.message);
+      return null;
+    }
+    return data?.stripe_customer_id || null;
+  } catch (e) {
+    console.warn('[billing] lookup exception:', e.message);
+    return null;
+  }
+}
+
+async function upsertStripeCustomerMapping(userId, customerId) {
+  if (!userId || !customerId) return;
+  try {
+    const { error } = await supabase
+      .from('billing_customers')
+      .upsert({ user_id: userId, stripe_customer_id: customerId }, { onConflict: 'user_id' });
+    if (error) console.warn('[billing] upsert failed (table may not exist):', error.message);
+  } catch (e) {
+    console.warn('[billing] upsert exception:', e.message);
+  }
+}
+
+async function reportUsageForUser(userId, value, idempotencyKey, metadata = {}) {
+  try {
+    if (!stripe) return;
+    const customerId = await getStripeCustomerIdForUser(userId);
+    if (!customerId) {
+      // No mapping yet; skip silently
+      return;
+    }
+    await stripe.billing.meters.events.create(
+      {
+        event_name: METER_EVENT_NAME,
+        payload: {
+          stripe_customer_id: customerId,
+          value: Number(value) || 1,
+          metadata,
+        },
+      },
+      idempotencyKey ? { idempotencyKey } : undefined
+    );
+  } catch (e) {
+    console.warn('[billing] usage report failed:', e.message);
+  }
+}
+
+// Stripe webhook MUST be defined before express.json() to receive raw body
+// This route uses express.raw() to preserve the raw body for signature verification
+app.post('/webhooks/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
+  try {
+    if (!stripe) return res.status(500).end();
+    const sig = req.headers['stripe-signature'];
+    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET || '';
+    
+    let event;
+    if (sig && webhookSecret) {
+      try {
+        event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+      } catch (err) {
+        console.error('[billing] webhook signature verification failed:', err.message);
+        return res.status(400).send(`Webhook Error: ${err.message}`);
+      }
+    } else {
+      console.warn('[billing] Webhook secret missing - skipping verification (dev mode)');
+      event = JSON.parse(req.body.toString());
+    }
+
+    switch (event.type) {
+      case 'checkout.session.completed': {
+        const session = event.data.object;
+        const customerId = session.customer;
+        const userId = session.client_reference_id || session.metadata?.user_id;
+        if (customerId && userId) await upsertStripeCustomerMapping(String(userId), String(customerId));
+        break;
+      }
+      case 'customer.subscription.updated':
+      case 'customer.subscription.deleted':
+      case 'invoice.paid':
+      case 'invoice.payment_failed':
+        // No-op for now; place-holder for future DB sync
+        break;
+      default:
+        break;
+    }
+
+    return res.json({ received: true });
+  } catch (e) {
+    console.error('[billing] webhook error:', e);
+    return res.status(500).end();
+  }
+});
+
 app.use(express.json());
 
-// Ephemeral channel memory: last 8 turns per channel
-const channelMemory = new Map(); // channelId -> Array<{ role: 'user' | 'bot'; text: string }>
+// Ephemeral channel memory: last 8 turns per bot (and optionally per user)
+// Keys: `${channelId}:${botId}` for bot-scoped, `${channelId}:${botId}:${userId}` for user-scoped
+const channelMemory = new Map(); // key -> Array<{ role: 'user' | 'bot'; text: string }>
+
+// Helper functions for memory key generation
+function getBotMemoryKey(channelId, botId) {
+  return `${channelId}:${botId}`;
+}
+
+function getUserMemoryKey(channelId, botId, userId) {
+  return `${channelId}:${botId}:${userId}`;
+}
 
 // ---------------- SDK Relay helpers (API keys, HMAC, idempotency) ----------------
 const IDEMP_TTL_MS = 2 * 60 * 1000; // 2 minutes
@@ -134,6 +254,7 @@ async function findApiKeyRecord(apiKey) {
   console.warn('[findApiKeyRecord] Returning null - key not found');
   return null; // env-only for now
 }
+
 
 // ---- Tutorial helpers: catalog + rendering ----
 function inferCategory(name = '', output = '') {
@@ -258,6 +379,77 @@ function sanitizeLLMOutput(text) {
     return out;
   } catch { return text; }
 }
+
+// ---------------- Billing routes (Checkout, Portal, Webhooks) ----------------
+// Create Checkout Session for subscription with optional metered add-on
+app.post('/api/billing/checkout', async (req, res) => {
+  try {
+    if (!stripe) return res.status(500).json({ error: 'Stripe not configured' });
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const token = authHeader.split(' ')[1];
+    const decoded = decodeJWT(token);
+    if (!decoded) return res.status(401).json({ error: 'Invalid token' });
+    const userId = decoded.userId;
+
+    const { priceId } = req.body || {};
+    if (!priceId) return res.status(400).json({ error: 'priceId required' });
+
+    const lineItems = [{ price: String(priceId), quantity: 1 }];
+
+    // Try to attach existing customer; otherwise let Checkout create it
+    const existingCustomerId = await getStripeCustomerIdForUser(userId);
+
+    const session = await stripe.checkout.sessions.create({
+      mode: 'subscription',
+      customer: existingCustomerId || undefined,
+      client_reference_id: userId,
+      line_items: lineItems,
+      success_url: `${APP_URL}/dashboard?checkout=success`,
+      cancel_url: `${APP_URL}/pricing?checkout=cancel`,
+      subscription_data: {
+        metadata: { user_id: userId },
+      },
+      customer_creation: existingCustomerId ? undefined : { enabled: true },
+    });
+
+    return res.json({ url: session.url });
+  } catch (e) {
+    console.error('[billing] checkout error:', e);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Billing Portal session
+app.post('/api/billing/portal', async (req, res) => {
+  try {
+    if (!stripe) return res.status(500).json({ error: 'Stripe not configured' });
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const token = authHeader.split(' ')[1];
+    const decoded = decodeJWT(token);
+    if (!decoded) return res.status(401).json({ error: 'Invalid token' });
+    const userId = decoded.userId;
+
+    const customerId = await getStripeCustomerIdForUser(userId);
+    if (!customerId) return res.status(400).json({ error: 'No Stripe customer on file' });
+
+    const portal = await stripe.billingPortal.sessions.create({
+      customer: customerId,
+      return_url: `${APP_URL}/dashboard`,
+    });
+
+    return res.json({ url: portal.url });
+  } catch (e) {
+    console.error('[billing] portal error:', e);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 
 async function openAIChat(prompt) {
   const OPENROUTER_REFERER = process.env.OPENROUTER_REFERER || process.env.OPENROUTER_REFERRER || '';
@@ -1490,17 +1682,38 @@ app.post('/v1/relay/events', async (req, res) => {
         ]
       };
     } else {
-      // Capture user turn for context memory
+      // Use user-scoped memory for better context isolation
+      const userMemoryKey = personaBotId ? getUserMemoryKey(channelId, personaBotId, authorId) : null;
+      const botMemoryKey = personaBotId ? getBotMemoryKey(channelId, personaBotId) : null;
+      
+      // Capture user turn for context memory (save to both user-scoped and bot-scoped)
       try {
-        const turns = channelMemory.get(channelId) || [];
-        if (content) { turns.push({ role: 'user', text: content }); }
-        channelMemory.set(channelId, turns.slice(-8));
+        if (content) {
+          // Save to user-scoped memory (preferred for user-specific context)
+          if (userMemoryKey) {
+            const userTurns = channelMemory.get(userMemoryKey) || [];
+            userTurns.push({ role: 'user', text: content });
+            channelMemory.set(userMemoryKey, userTurns.slice(-8));
+          }
+          // Also save to bot-scoped memory (for general bot context)
+          if (botMemoryKey) {
+            const botTurns = channelMemory.get(botMemoryKey) || [];
+            botTurns.push({ role: 'user', text: content });
+            channelMemory.set(botMemoryKey, botTurns.slice(-8));
+          }
+        }
       } catch {}
 
-      // Build conversational context from last 8 turns in this channel
+      // Build conversational context - prefer user-scoped, fallback to bot-scoped
       let convoContext = '';
       try {
-        const mem = channelMemory.get(channelId);
+        let mem = null;
+        if (userMemoryKey) {
+          mem = channelMemory.get(userMemoryKey);
+        }
+        if (!mem && botMemoryKey) {
+          mem = channelMemory.get(botMemoryKey);
+        }
         if (Array.isArray(mem) && mem.length) {
           convoContext = mem.map(t => `${t.role === 'bot' ? 'Assistant' : 'User'}: ${t.text}`).join('\n');
         }
@@ -1545,11 +1758,22 @@ app.post('/v1/relay/events', async (req, res) => {
           params: {},
           actions: [ { kind: 'reply', content: processed.conversationalResponse } ]
         };
-        // remember last bot reply per channel
+        // Remember last bot reply - save to both user-scoped and bot-scoped memory
         try {
-          const arr = channelMemory.get(channelId) || [];
-          arr.push({ role: 'bot', text: processed.conversationalResponse });
-          channelMemory.set(channelId, arr.slice(-8));
+          if (personaBotId) {
+            // Save to user-scoped memory
+            if (userMemoryKey) {
+              const userArr = channelMemory.get(userMemoryKey) || [];
+              userArr.push({ role: 'bot', text: processed.conversationalResponse });
+              channelMemory.set(userMemoryKey, userArr.slice(-8));
+            }
+            // Save to bot-scoped memory
+            if (botMemoryKey) {
+              const botArr = channelMemory.get(botMemoryKey) || [];
+              botArr.push({ role: 'bot', text: processed.conversationalResponse });
+              channelMemory.set(botMemoryKey, botArr.slice(-8));
+            }
+          }
         } catch {}
       } else {
         // No response generated: do not hardcode any text; return processed:false
@@ -1559,6 +1783,8 @@ app.post('/v1/relay/events', async (req, res) => {
 
     if (idemKey) setCachedDecision(idemKey, decision);
     res.setHeader('x-request-id', decision.id);
+    // Best-effort usage record (non-blocking)
+    try { reportUsageForUser(userIdForContext, 1, idemKey || decision.id, { source: 'relay.events' }); } catch {}
     return res.json({ decision });
   } catch (e) {
     console.log('[relay] error:', e.message);
@@ -1611,7 +1837,21 @@ app.post('/api/discord', async (req, res) => {
       } else {
         console.log(`💬 No conversation context - treating as new interaction`);
       }
-      const memTurns = channelMemory.get(messageData.channel_id);
+      // Use bot-scoped memory (and user-scoped if botId available)
+      const apiBotId = botId ? String(botId) : null;
+      const apiUserId = messageData.author?.id ? String(messageData.author.id) : null;
+      const apiUserMemoryKey = (apiBotId && apiUserId) ? getUserMemoryKey(messageData.channel_id, apiBotId, apiUserId) : null;
+      const apiBotMemoryKey = apiBotId ? getBotMemoryKey(messageData.channel_id, apiBotId) : null;
+      
+      // Prefer user-scoped memory, fallback to bot-scoped
+      let memTurns = null;
+      if (apiUserMemoryKey) {
+        memTurns = channelMemory.get(apiUserMemoryKey);
+      }
+      if (!memTurns && apiBotMemoryKey) {
+        memTurns = channelMemory.get(apiBotMemoryKey);
+      }
+      
       if (Array.isArray(memTurns) && memTurns.length) {
         const transcript = memTurns.map(t => `${t.role === 'bot' ? 'Assistant' : 'User'}: ${t.text}`).join('\n');
         conversationContext = conversationContext
@@ -1641,9 +1881,34 @@ app.post('/api/discord', async (req, res) => {
       if (result.processed && result.conversationalResponse) {
         console.log(`🤖 API Response: ${result.conversationalResponse}`);
         try {
-          const arr = channelMemory.get(messageData.channel_id) || [];
-          arr.push({ role: 'bot', text: result.conversationalResponse });
-          channelMemory.set(messageData.channel_id, arr.slice(-8));
+          // Save bot response to both user-scoped and bot-scoped memory
+          if (apiBotId) {
+            if (apiUserMemoryKey) {
+              const userArr = channelMemory.get(apiUserMemoryKey) || [];
+              userArr.push({ role: 'bot', text: result.conversationalResponse });
+              channelMemory.set(apiUserMemoryKey, userArr.slice(-8));
+            }
+            if (apiBotMemoryKey) {
+              const botArr = channelMemory.get(apiBotMemoryKey) || [];
+              botArr.push({ role: 'bot', text: result.conversationalResponse });
+              channelMemory.set(apiBotMemoryKey, botArr.slice(-8));
+            }
+          }
+          // Also save user message to memory (for context)
+          if (messageData.content && apiBotId && apiUserId) {
+            const userMsgKey = getUserMemoryKey(messageData.channel_id, apiBotId, apiUserId);
+            const botMsgKey = getBotMemoryKey(messageData.channel_id, apiBotId);
+            if (userMsgKey) {
+              const userTurns = channelMemory.get(userMsgKey) || [];
+              userTurns.push({ role: 'user', text: messageData.content });
+              channelMemory.set(userMsgKey, userTurns.slice(-8));
+            }
+            if (botMsgKey) {
+              const botTurns = channelMemory.get(botMsgKey) || [];
+              botTurns.push({ role: 'user', text: messageData.content });
+              channelMemory.set(botMsgKey, botTurns.slice(-8));
+            }
+          }
         } catch {}
         return res.json({
           processed: true,
