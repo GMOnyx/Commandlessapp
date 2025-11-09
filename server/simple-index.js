@@ -104,19 +104,25 @@ async function hasActiveSubscription(userId) {
 
 async function reportUsageForUser(userId, value, idempotencyKey, metadata = {}) {
   try {
-    if (!stripe) return;
+    if (!stripe) {
+      console.log('[billing] Usage report skipped - Stripe not configured');
+      return;
+    }
     
     // Skip usage reporting for admin users (they get free access)
     if (isAdminUser(userId)) {
+      console.log(`[billing] Usage report skipped - admin user ${userId}`);
       return;
     }
     
     const customerId = await getStripeCustomerIdForUser(userId);
     if (!customerId) {
-      // No mapping yet; skip silently
+      console.log(`[billing] Usage report skipped - no Stripe customer for user ${userId}`);
       return;
     }
-    await stripe.billing.meters.events.create(
+    
+    console.log(`[billing] Reporting usage: user=${userId}, customer=${customerId}, value=${value}, meter=${METER_EVENT_NAME}`);
+    const result = await stripe.billing.meters.events.create(
       {
         event_name: METER_EVENT_NAME,
         payload: {
@@ -127,8 +133,16 @@ async function reportUsageForUser(userId, value, idempotencyKey, metadata = {}) 
       },
       idempotencyKey ? { idempotencyKey } : undefined
     );
+    console.log(`[billing] ✅ Usage reported successfully: event_id=${result.id}, value=${value}`);
   } catch (e) {
-    console.warn('[billing] usage report failed:', e.message);
+    console.error('[billing] ❌ Usage report failed:', e.message);
+    console.error('[billing] Error details:', {
+      type: e.type,
+      code: e.code,
+      message: e.message,
+      userId,
+      meter: METER_EVENT_NAME
+    });
   }
 }
 
@@ -429,11 +443,46 @@ function searchCommands(catalog, term) {
   return out.slice(0, 5);
 }
 
-// Initialize Supabase
+// Initialize Supabase with validation
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
+
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  console.error('❌ CRITICAL: Supabase credentials missing!');
+  console.error(`   SUPABASE_URL: ${SUPABASE_URL ? 'SET' : 'MISSING'}`);
+  console.error(`   SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY ? 'SET' : 'MISSING'}`);
+  console.error('   Server will fail to connect to database. Check Railway environment variables.');
+}
+
 const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_ANON_KEY
+  SUPABASE_URL || 'https://placeholder.supabase.co',
+  SUPABASE_ANON_KEY || 'placeholder-key'
 );
+
+// Test Supabase connection on startup
+(async () => {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    console.error('⚠️  Skipping Supabase connection test - credentials missing');
+    return;
+  }
+  
+  try {
+    console.log('🔌 Testing Supabase connection...');
+    const { data, error } = await supabase.from('api_keys').select('count').limit(1);
+    if (error) {
+      console.error('❌ Supabase connection test failed:', error.message);
+      console.error('   Check that SUPABASE_URL and SUPABASE_ANON_KEY are correct in Railway');
+    } else {
+      console.log('✅ Supabase connection successful');
+    }
+  } catch (err) {
+    console.error('❌ Supabase connection test exception:', err.message);
+    console.error('   This usually means:');
+    console.error('   1. SUPABASE_URL is incorrect');
+    console.error('   2. Network connectivity issue from Railway to Supabase');
+    console.error('   3. Supabase service is down');
+  }
+})();
 
 // Provider selection
 const AI_PROVIDER = (process.env.AI_PROVIDER || 'gemini').toLowerCase();
@@ -3034,6 +3083,132 @@ app.delete('/api/bots/:id', async (req, res) => {
       error: 'Internal server error',
       details: 'An unexpected error occurred while deleting your bot.'
     });
+  }
+});
+
+// Admin endpoint to grant subscription (for testing/admin use)
+app.post('/api/billing/grant-subscription', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const token = authHeader.split(' ')[1];
+    const decoded = decodeJWT(token);
+    if (!decoded) return res.status(401).json({ error: 'Invalid token' });
+    const adminUserId = decoded.userId;
+
+    // Only allow admin users to grant subscriptions
+    if (!isAdminUser(adminUserId)) {
+      return res.status(403).json({ error: 'Forbidden - admin access required' });
+    }
+
+    if (!stripe) {
+      return res.status(500).json({ error: 'Stripe not configured' });
+    }
+
+    const { userId, priceId, months = 1 } = req.body || {};
+    if (!userId || !priceId) {
+      return res.status(400).json({ error: 'userId and priceId required' });
+    }
+
+    console.log(`[billing] Admin ${adminUserId} granting subscription to user ${userId}, priceId=${priceId}, months=${months}`);
+
+    // Get or create Stripe customer for the user
+    let customerId = await getStripeCustomerIdForUser(userId);
+    
+    if (!customerId || customerId === 'admin') {
+      // Create a new Stripe customer
+      const customer = await stripe.customers.create({
+        metadata: { user_id: userId },
+      });
+      customerId = customer.id;
+      
+      // Map user to customer in database
+      await upsertStripeCustomerMapping(userId, customerId);
+      console.log(`[billing] Created new Stripe customer ${customerId} for user ${userId}`);
+    }
+
+    // Create subscription with the specified price
+    const subscription = await stripe.subscriptions.create({
+      customer: customerId,
+      items: [{ price: priceId }],
+      metadata: { 
+        user_id: userId,
+        granted_by: adminUserId,
+        granted_at: new Date().toISOString()
+      },
+    });
+
+    console.log(`[billing] ✅ Created subscription ${subscription.id} for user ${userId}`);
+
+    return res.json({
+      success: true,
+      message: `Subscription granted successfully`,
+      subscription: {
+        id: subscription.id,
+        status: subscription.status,
+        customerId: customerId,
+        currentPeriodEnd: new Date(subscription.current_period_end * 1000).toISOString(),
+      }
+    });
+  } catch (e) {
+    console.error('[billing] Grant subscription error:', e);
+    return res.status(500).json({ 
+      error: 'Internal server error', 
+      message: e.message,
+      type: e.type,
+      code: e.code
+    });
+  }
+});
+
+// Test endpoint for Stripe usage tracking (for testing only)
+app.post('/api/billing/test-usage', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const token = authHeader.split(' ')[1];
+    const decoded = decodeJWT(token);
+    if (!decoded) return res.status(401).json({ error: 'Invalid token' });
+    const userId = decoded.userId;
+
+    const { value = 1 } = req.body || {};
+    const testIdempotencyKey = `test_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+    console.log(`[billing] Test usage report requested by user ${userId}, value=${value}`);
+    
+    // Check subscription status
+    const hasSubscription = await hasActiveSubscription(userId);
+    const customerId = await getStripeCustomerIdForUser(userId);
+    
+    const testResult = {
+      userId,
+      customerId: customerId || 'none',
+      hasSubscription,
+      meterEventName: METER_EVENT_NAME,
+      testValue: value,
+      idempotencyKey: testIdempotencyKey,
+      stripeConfigured: !!stripe,
+      isAdmin: isAdminUser(userId)
+    };
+
+    // Attempt to report usage
+    await reportUsageForUser(userId, value, testIdempotencyKey, { 
+      source: 'test-endpoint',
+      test: true 
+    });
+
+    return res.json({
+      success: true,
+      message: 'Usage report attempted - check logs for details',
+      ...testResult
+    });
+  } catch (e) {
+    console.error('[billing] Test usage endpoint error:', e);
+    return res.status(500).json({ error: 'Internal server error', message: e.message });
   }
 });
 
