@@ -466,22 +466,24 @@ app.post('/api/billing/checkout', async (req, res) => {
     console.log('[billing] Cancel URL:', cancelUrl);
 
     try {
+      // For subscription mode, Stripe automatically creates customers if none provided
+      // customer_creation parameter is only for payment mode, not subscription mode
       const sessionConfig = {
         mode: 'subscription',
-        customer: customerId,
         client_reference_id: userId,
         line_items: lineItems,
         success_url: successUrl,
         cancel_url: cancelUrl,
+        payment_method_types: ['card'], // Required: specify which payment methods to accept
         subscription_data: {
           metadata: { user_id: userId },
         },
       };
       
-      // Only set customer_creation if we don't have an existing customer
-      // Stripe expects a string: 'always' or 'if_required', not an object
-      if (!customerId) {
-        sessionConfig.customer_creation = 'always';
+      // Only include customer if we have an existing one
+      // If omitted, Stripe will create a new customer automatically in subscription mode
+      if (customerId) {
+        sessionConfig.customer = customerId;
       }
       
       const session = await stripe.checkout.sessions.create(sessionConfig);
