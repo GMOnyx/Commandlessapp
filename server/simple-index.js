@@ -63,6 +63,45 @@ async function upsertStripeCustomerMapping(userId, customerId) {
   }
 }
 
+// Check if user has an active subscription (or is admin)
+async function hasActiveSubscription(userId) {
+  // Admin users always have access
+  if (isAdminUser(userId)) {
+    return true;
+  }
+  
+  if (!stripe) {
+    // If Stripe not configured, allow access (dev mode)
+    console.warn('[billing] Stripe not configured - allowing access');
+    return true;
+  }
+  
+  try {
+    const customerId = await getStripeCustomerIdForUser(userId);
+    if (!customerId) {
+      return false; // No customer = no subscription
+    }
+    
+    // Check for active subscriptions
+    const subscriptions = await stripe.subscriptions.list({
+      customer: customerId,
+      status: 'all', // We'll filter active ones
+      limit: 10,
+    });
+    
+    // Check if any subscription is active, trialing, or past_due (still usable)
+    const activeStatuses = ['active', 'trialing', 'past_due'];
+    const hasActive = subscriptions.data.some(sub => activeStatuses.includes(sub.status));
+    
+    console.log(`[billing] Subscription check for user ${userId}: customer=${customerId}, hasActive=${hasActive}`);
+    return hasActive;
+  } catch (e) {
+    console.error('[billing] Error checking subscription:', e.message);
+    // On error, allow access to avoid blocking legitimate users
+    return true;
+  }
+}
+
 async function reportUsageForUser(userId, value, idempotencyKey, metadata = {}) {
   try {
     if (!stripe) return;
@@ -119,14 +158,50 @@ app.post('/webhooks/stripe', express.raw({ type: 'application/json' }), async (r
         const session = event.data.object;
         const customerId = session.customer;
         const userId = session.client_reference_id || session.metadata?.user_id;
-        if (customerId && userId) await upsertStripeCustomerMapping(String(userId), String(customerId));
+        if (customerId && userId) {
+          await upsertStripeCustomerMapping(String(userId), String(customerId));
+          console.log(`[billing] Mapped user ${userId} to Stripe customer ${customerId}`);
+        }
         break;
       }
-      case 'customer.subscription.updated':
-      case 'customer.subscription.deleted':
+      case 'customer.subscription.updated': {
+        const subscription = event.data.object;
+        const customerId = subscription.customer;
+        // Look up user by customer ID and log subscription status change
+        try {
+          const { data: customer } = await supabase
+            .from('billing_customers')
+            .select('user_id')
+            .eq('stripe_customer_id', customerId)
+            .maybeSingle();
+          if (customer) {
+            console.log(`[billing] Subscription updated for user ${customer.user_id}: status=${subscription.status}`);
+          }
+        } catch (e) {
+          console.warn('[billing] Error looking up user for subscription update:', e.message);
+        }
+        break;
+      }
+      case 'customer.subscription.deleted': {
+        const subscription = event.data.object;
+        const customerId = subscription.customer;
+        try {
+          const { data: customer } = await supabase
+            .from('billing_customers')
+            .select('user_id')
+            .eq('stripe_customer_id', customerId)
+            .maybeSingle();
+          if (customer) {
+            console.log(`[billing] Subscription deleted for user ${customer.user_id}`);
+          }
+        } catch (e) {
+          console.warn('[billing] Error looking up user for subscription deletion:', e.message);
+        }
+        break;
+      }
       case 'invoice.paid':
       case 'invoice.payment_failed':
-        // No-op for now; place-holder for future DB sync
+        // Log for monitoring, but subscription status is already tracked
         break;
       default:
         break;
@@ -1700,6 +1775,7 @@ app.post('/api/keys/:keyId/rotate', async (req, res) => {
 // - Auth via x-api-key (env map COMMANDLESS_API_KEYS="key:secret,...")
 // - Optional HMAC via x-signature (sha256 of raw body)
 // - Idempotency via x-idempotency-key
+// - Requires active subscription (or admin status)
 app.post('/v1/relay/events', async (req, res) => {
   try {
     // Body is already parsed by express.json()
@@ -1710,6 +1786,19 @@ app.post('/v1/relay/events', async (req, res) => {
     const apiKeyRecord = await findApiKeyRecord(apiKey);
     if (!apiKeyRecord) {
       return res.status(401).json({ error: 'Unauthorized' });
+    }
+    
+    // Check subscription status (admin users bypass this check)
+    const userId = apiKeyRecord.user_id;
+    const hasSubscription = await hasActiveSubscription(userId);
+    if (!hasSubscription) {
+      console.log(`[relay] Blocked request from user ${userId} - no active subscription`);
+      return res.status(402).json({ 
+        error: 'Payment Required',
+        message: 'An active subscription is required to use Commandless. Please subscribe at https://commandless.app/pricing',
+        code: 'SUBSCRIPTION_REQUIRED',
+        subscribeUrl: `${APP_URL}/pricing`
+      });
     }
 
     // Optional HMAC check
@@ -1913,6 +2002,33 @@ app.post('/api/discord', async (req, res) => {
           processed: false,
           reason: 'Missing message data or bot token'
         });
+      }
+      
+      // Check subscription if botId is provided (for universal relay service)
+      if (botId) {
+        try {
+          const { data: bot } = await supabase
+            .from('bots')
+            .select('user_id')
+            .eq('id', botId)
+            .maybeSingle();
+          
+          if (bot && bot.user_id) {
+            const hasSubscription = await hasActiveSubscription(bot.user_id);
+            if (!hasSubscription) {
+              console.log(`[discord] Blocked request for bot ${botId} - owner ${bot.user_id} has no active subscription`);
+              return res.status(402).json({
+                processed: false,
+                error: 'Payment Required',
+                message: 'An active subscription is required to use Commandless. Please subscribe at https://commandless.app/pricing',
+                code: 'SUBSCRIPTION_REQUIRED'
+              });
+            }
+          }
+        } catch (subCheckErr) {
+          console.error('[discord] Error checking subscription:', subCheckErr);
+          // Continue processing on error to avoid blocking
+        }
       }
 
       console.log(`🔍 Processing message via API: "${messageData.content}" from ${messageData.author.username}`);
