@@ -436,7 +436,13 @@ app.post('/api/billing/portal', async (req, res) => {
     const userId = decoded.userId;
 
     const customerId = await getStripeCustomerIdForUser(userId);
-    if (!customerId) return res.status(400).json({ error: 'No Stripe customer on file' });
+    if (!customerId) {
+      return res.status(404).json({ 
+        error: 'No Stripe customer on file',
+        code: 'NO_CUSTOMER',
+        message: 'You need to subscribe to a plan first. Redirecting to pricing...'
+      });
+    }
 
     const portal = await stripe.billingPortal.sessions.create({
       customer: customerId,

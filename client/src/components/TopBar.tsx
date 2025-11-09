@@ -37,11 +37,43 @@ export default function TopBar({ onMobileMenuClick }: TopBarProps) {
       }
     } catch (error: any) {
       console.error("Billing portal error:", error);
-      toast({
-        title: "Error",
-        description: error.message || "Failed to open billing portal. You may not have an active subscription.",
-        variant: "destructive",
-      });
+      
+      // Parse error message - apiRequest throws "HTTP 404: {json}"
+      let errorMsg = error.message || String(error) || '';
+      let errorData: any = null;
+      
+      // Try to extract JSON from error message (format: "HTTP 404: {...}")
+      try {
+        const jsonMatch = errorMsg.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          errorData = JSON.parse(jsonMatch[0]);
+          errorMsg = errorData.message || errorData.error || errorMsg;
+        }
+      } catch {
+        // If parsing fails, use the raw message
+      }
+      
+      const errorLower = errorMsg.toLowerCase();
+      
+      // If user doesn't have a Stripe customer yet, redirect to pricing
+      if (errorLower.includes('no stripe customer') || 
+          errorData?.code === 'NO_CUSTOMER' ||
+          errorMsg.includes('404')) {
+        toast({
+          title: "No subscription found",
+          description: "You need to subscribe to a plan first. Redirecting to pricing...",
+          variant: "default",
+        });
+        setTimeout(() => {
+          navigate("/pricing");
+        }, 1500);
+      } else {
+        toast({
+          title: "Error",
+          description: errorMsg || "Failed to open billing portal. Please try again.",
+          variant: "destructive",
+        });
+      }
       setLoading(false);
     }
   };
