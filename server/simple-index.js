@@ -18,9 +18,22 @@ const stripe = stripeSecret ? new Stripe(stripeSecret, { apiVersion: '2024-06-20
 
 const APP_URL = process.env.APP_URL || process.env.CLIENT_URL || 'http://localhost:5173';
 const METER_EVENT_NAME = process.env.STRIPE_METER_EVENT || 'api_requests';
+// Admin user ID (Clerk user ID) - this account gets free access without Stripe subscription
+const ADMIN_USER_ID = process.env.ADMIN_USER_ID || '';
+
+// Check if user is admin (gets free access)
+function isAdminUser(userId) {
+  return ADMIN_USER_ID && userId === ADMIN_USER_ID;
+}
 
 async function getStripeCustomerIdForUser(userId) {
   if (!userId) return null;
+  
+  // Admin users don't need Stripe customer
+  if (isAdminUser(userId)) {
+    return 'admin'; // Return a special value to indicate admin access
+  }
+  
   try {
     const { data, error } = await supabase
       .from('billing_customers')
@@ -53,6 +66,12 @@ async function upsertStripeCustomerMapping(userId, customerId) {
 async function reportUsageForUser(userId, value, idempotencyKey, metadata = {}) {
   try {
     if (!stripe) return;
+    
+    // Skip usage reporting for admin users (they get free access)
+    if (isAdminUser(userId)) {
+      return;
+    }
+    
     const customerId = await getStripeCustomerIdForUser(userId);
     if (!customerId) {
       // No mapping yet; skip silently
@@ -384,7 +403,11 @@ function sanitizeLLMOutput(text) {
 // Create Checkout Session for subscription with optional metered add-on
 app.post('/api/billing/checkout', async (req, res) => {
   try {
-    if (!stripe) return res.status(500).json({ error: 'Stripe not configured' });
+    if (!stripe) {
+      console.error('[billing] Stripe not configured - STRIPE_SECRET_KEY missing');
+      return res.status(500).json({ error: 'Stripe not configured' });
+    }
+    
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({ error: 'Unauthorized' });
@@ -394,31 +417,99 @@ app.post('/api/billing/checkout', async (req, res) => {
     if (!decoded) return res.status(401).json({ error: 'Invalid token' });
     const userId = decoded.userId;
 
-    const { priceId } = req.body || {};
-    if (!priceId) return res.status(400).json({ error: 'priceId required' });
+    console.log('[billing] Checkout request from user:', userId);
 
-    const lineItems = [{ price: String(priceId), quantity: 1 }];
+    // Temporarily disabled admin skip for testing checkout flow
+    // Admin users don't need to subscribe
+    // if (isAdminUser(userId)) {
+    //   return res.status(200).json({ 
+    //     url: `${APP_URL}/dashboard?admin=true&message=You have unlimited free access`,
+    //     message: 'Admin access - no subscription needed'
+    //   });
+    // }
+
+    const { priceId } = req.body || {};
+    if (!priceId) {
+      console.error('[billing] Missing priceId in request body');
+      return res.status(400).json({ error: 'priceId required' });
+    }
+
+    console.log('[billing] Creating checkout session for price:', priceId);
+
+    // For metered prices, don't include quantity - usage is tracked via meter events
+    const lineItems = [{ price: String(priceId) }];
 
     // Try to attach existing customer; otherwise let Checkout create it
-    const existingCustomerId = await getStripeCustomerIdForUser(userId);
+    let existingCustomerId;
+    try {
+      existingCustomerId = await getStripeCustomerIdForUser(userId);
+      console.log('[billing] Customer lookup result:', existingCustomerId || 'none');
+    } catch (customerErr) {
+      console.error('[billing] Error looking up customer:', customerErr);
+      // Continue anyway - will create new customer
+      existingCustomerId = null;
+    }
+    
+    // Only use existingCustomerId if it's a real Stripe customer ID (not 'admin')
+    const customerId = existingCustomerId && existingCustomerId !== 'admin' ? existingCustomerId : undefined;
 
-    const session = await stripe.checkout.sessions.create({
-      mode: 'subscription',
-      customer: existingCustomerId || undefined,
-      client_reference_id: userId,
-      line_items: lineItems,
-      success_url: `${APP_URL}/dashboard?checkout=success`,
-      cancel_url: `${APP_URL}/pricing?checkout=cancel`,
-      subscription_data: {
-        metadata: { user_id: userId },
-      },
-      customer_creation: existingCustomerId ? undefined : { enabled: true },
-    });
+    console.log('[billing] Customer ID for checkout:', customerId ? `existing: ${customerId}` : 'will create new');
+    console.log('[billing] APP_URL:', APP_URL);
+    
+    if (!APP_URL || APP_URL === 'http://localhost:5173') {
+      console.warn('[billing] APP_URL not properly configured, using fallback');
+    }
+    
+    const successUrl = `${APP_URL}/dashboard?checkout=success`;
+    const cancelUrl = `${APP_URL}/pricing?checkout=cancel`;
+    console.log('[billing] Success URL:', successUrl);
+    console.log('[billing] Cancel URL:', cancelUrl);
 
-    return res.json({ url: session.url });
+    try {
+      const sessionConfig = {
+        mode: 'subscription',
+        customer: customerId,
+        client_reference_id: userId,
+        line_items: lineItems,
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+        subscription_data: {
+          metadata: { user_id: userId },
+        },
+      };
+      
+      // Only set customer_creation if we don't have an existing customer
+      // Stripe expects a string: 'always' or 'if_required', not an object
+      if (!customerId) {
+        sessionConfig.customer_creation = 'always';
+      }
+      
+      const session = await stripe.checkout.sessions.create(sessionConfig);
+
+      console.log('[billing] Checkout session created successfully:', session.id);
+      return res.json({ url: session.url });
+    } catch (stripeErr) {
+      console.error('[billing] Stripe API error:', stripeErr);
+      console.error('[billing] Stripe error type:', stripeErr.type);
+      console.error('[billing] Stripe error code:', stripeErr.code);
+      console.error('[billing] Stripe error message:', stripeErr.message);
+      throw stripeErr; // Re-throw to be caught by outer catch
+    }
   } catch (e) {
     console.error('[billing] checkout error:', e);
-    return res.status(500).json({ error: 'Internal server error' });
+    console.error('[billing] checkout error name:', e.name);
+    console.error('[billing] checkout error message:', e.message);
+    console.error('[billing] checkout error stack:', e.stack);
+    
+    // Return more detailed error in development
+    const errorDetails = {
+      error: 'Internal server error',
+      message: e.message,
+      type: e.type || e.name,
+      code: e.code,
+    };
+    
+    return res.status(500).json(process.env.NODE_ENV === 'development' ? errorDetails : { error: 'Internal server error' });
   }
 });
 
@@ -436,6 +527,15 @@ app.post('/api/billing/portal', async (req, res) => {
     const userId = decoded.userId;
 
     const customerId = await getStripeCustomerIdForUser(userId);
+    
+    // Admin users get free access - return a mock portal URL or skip
+    if (isAdminUser(userId)) {
+      return res.status(200).json({ 
+        url: `${APP_URL}/dashboard?admin=true`,
+        message: 'Admin access - no billing portal needed'
+      });
+    }
+    
     if (!customerId) {
       return res.status(404).json({ 
         error: 'No Stripe customer on file',

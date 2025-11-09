@@ -157,7 +157,7 @@ export default function Pricing() {
       <div className="mt-12 text-center text-gray-600">
         <p>
           Need help choosing?{" "}
-          <a href="mailto:support@commandless.app" className="text-primary hover:underline">
+          <a href="mailto:abdarrahman2345@gmail.com" className="text-primary hover:underline">
             Contact us
           </a>
         </p>

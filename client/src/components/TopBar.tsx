@@ -31,7 +31,16 @@ export default function TopBar({ onMobileMenuClick }: TopBarProps) {
       });
 
       if (response.url) {
-        window.location.href = response.url;
+        // If admin user, just show a message instead of redirecting
+        if (response.message?.includes('Admin access')) {
+          toast({
+            title: "Admin Access",
+            description: "You have unlimited free access. No billing management needed.",
+            variant: "default",
+          });
+        } else {
+          window.location.href = response.url;
+        }
       } else {
         throw new Error("No portal URL returned");
       }
