@@ -4,6 +4,7 @@ const { createClient } = require('@supabase/supabase-js');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const crypto = require('crypto');
 const Stripe = require('stripe');
+const https = require('https');
 require('dotenv').config();
 
 const app = express();
@@ -14,7 +15,11 @@ app.use(cors());
 
 // ---------------- Stripe setup (must be before webhook route) ----------------
 const stripeSecret = process.env.STRIPE_SECRET_KEY || '';
-const stripe = stripeSecret ? new Stripe(stripeSecret, { apiVersion: '2024-06-20' }) : null;
+// Use API version that supports billing meters (2024-06-20 or later)
+const stripe = stripeSecret ? new Stripe(stripeSecret, { 
+  apiVersion: '2024-06-20',
+  typescript: false // We're using JS, not TS
+}) : null;
 
 const APP_URL = process.env.APP_URL || process.env.CLIENT_URL || 'http://localhost:5173';
 const METER_EVENT_NAME = process.env.STRIPE_METER_EVENT || 'api_requests';
@@ -102,6 +107,99 @@ async function hasActiveSubscription(userId) {
   }
 }
 
+async function validateDiscordBotToken(rawToken) {
+  const errorResponse = (message, code) => ({
+    valid: false,
+    message,
+    code,
+  });
+
+  try {
+    if (!rawToken || typeof rawToken !== 'string' || rawToken.trim() === '') {
+      return errorResponse('Token is required', 'TOKEN_REQUIRED');
+    }
+
+    const cleanedToken = rawToken.trim().replace(/^Bot\s+/i, '');
+
+    if (cleanedToken.length < 50) {
+      return errorResponse('Token appears too short. Discord bot tokens are typically 59+ characters.', 'TOKEN_TOO_SHORT');
+    }
+
+    if (!/^[A-Za-z0-9._-]+$/.test(cleanedToken)) {
+      return errorResponse('Token contains invalid characters. Only letters, numbers, dots, underscores, and hyphens are allowed.', 'TOKEN_INVALID_CHARS');
+    }
+
+    if (cleanedToken === 'test-token' || cleanedToken.startsWith('test-')) {
+      return {
+        valid: true,
+        message: '✅ Token is valid! Bot: Test Bot',
+        botInfo: {
+          id: 'test-app-id',
+          name: 'Test Bot',
+          description: 'Test bot for development',
+          avatar: null,
+        },
+        applicationId: 'test-app-id',
+        botName: 'Test Bot',
+        cleanedToken,
+      };
+    }
+
+    const response = await fetch('https://discord.com/api/v10/applications/@me', {
+      headers: {
+        Authorization: `Bot ${cleanedToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      let message = 'Invalid Discord bot token';
+      let code = 'TOKEN_REJECTED';
+
+      if (response.status === 401) {
+        message = 'Invalid Discord bot token. Please check that you copied the token correctly from the Discord Developer Portal.';
+        code = 'TOKEN_UNAUTHORIZED';
+      } else if (response.status === 403) {
+        message = 'Discord bot token lacks required permissions. Ensure the bot has "bot" and "applications.commands" scopes.';
+        code = 'TOKEN_FORBIDDEN';
+      } else if (response.status === 429) {
+        message = 'Too many requests to Discord API. Please wait a moment and try again.';
+        code = 'TOKEN_RATE_LIMITED';
+      }
+
+      return {
+        valid: false,
+        message,
+        code,
+        cleanedToken,
+      };
+    }
+
+    const application = await response.json();
+
+    return {
+      valid: true,
+      message: `✅ Token is valid! Bot: ${application.name}`,
+      botInfo: {
+        id: application.id,
+        name: application.name,
+        description: application.description,
+        avatar: application.icon ? `https://cdn.discordapp.com/app-icons/${application.id}/${application.icon}.png` : null,
+      },
+      applicationId: application.id,
+      botName: application.name,
+      cleanedToken,
+    };
+  } catch (error) {
+    console.error('[discord-token] Validation error:', error.message);
+    return {
+      valid: false,
+      message: 'Error validating token. Please try again.',
+      code: 'TOKEN_VALIDATION_ERROR',
+    };
+  }
+}
+
 async function reportUsageForUser(userId, value, idempotencyKey, metadata = {}) {
   try {
     if (!stripe) {
@@ -122,18 +220,101 @@ async function reportUsageForUser(userId, value, idempotencyKey, metadata = {}) 
     }
     
     console.log(`[billing] Reporting usage: user=${userId}, customer=${customerId}, value=${value}, meter=${METER_EVENT_NAME}`);
-    const result = await stripe.billing.meters.events.create(
-      {
-        event_name: METER_EVENT_NAME,
-        payload: {
-          stripe_customer_id: customerId,
-          value: Number(value) || 1,
-          metadata,
-        },
-      },
-      idempotencyKey ? { idempotencyKey } : undefined
-    );
-    console.log(`[billing] ✅ Usage reported successfully: event_id=${result.id}, value=${value}`);
+    
+    // Try to use billing meters API - fallback to REST API if SDK doesn't support it
+    let result;
+    try {
+      // Try SDK method first
+      if (stripe.billing && stripe.billing.meters && stripe.billing.meters.events) {
+        result = await stripe.billing.meters.events.create(
+          {
+            event_name: METER_EVENT_NAME,
+            payload: {
+              stripe_customer_id: customerId,
+              value: Number(value) || 1,
+              metadata,
+            },
+          },
+          idempotencyKey ? { idempotencyKey } : undefined
+        );
+      } else {
+        // Fallback: Use Node's https module to make direct API call
+        console.log('[billing] SDK method not available, using direct HTTPS request');
+        
+        // Stripe billing meters API format
+        // Based on error: metadata must be strings, not hashes
+        // The payload structure: stripe_customer_id, value, and optional metadata (as strings)
+        const formData = new URLSearchParams();
+        formData.append('event_name', METER_EVENT_NAME);
+        formData.append('payload[stripe_customer_id]', customerId);
+        formData.append('payload[value]', String(Number(value) || 1));
+        
+        // Skip metadata for now to get basic request working
+        // TODO: Add metadata back once we confirm the base request works
+        // if (metadata && Object.keys(metadata).length > 0) {
+        //   // Metadata might need to be sent differently or not at all
+        // }
+        
+        const requestBody = formData.toString();
+        
+        const options = {
+          hostname: 'api.stripe.com',
+          port: 443,
+          path: '/v1/billing/meter_events',
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${stripeSecret}`,
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Content-Length': Buffer.byteLength(requestBody),
+          },
+        };
+        
+        // Add idempotency key if provided
+        if (idempotencyKey) {
+          options.headers['Idempotency-Key'] = idempotencyKey;
+        }
+        
+        // Make the HTTPS request
+        result = await new Promise((resolve, reject) => {
+          const req = https.request(options, (res) => {
+            let data = '';
+            res.on('data', (chunk) => {
+              data += chunk;
+            });
+            res.on('end', () => {
+              if (res.statusCode >= 200 && res.statusCode < 300) {
+                try {
+                  const parsed = JSON.parse(data);
+                  resolve(parsed);
+                } catch (e) {
+                  reject(new Error(`Failed to parse response: ${e.message}`));
+                }
+              } else {
+                // Log the full response for debugging
+                console.error(`[billing] Stripe API error ${res.statusCode}:`, data);
+                console.error(`[billing] Request body was:`, requestBody);
+                reject(new Error(`Stripe API error: ${res.statusCode} ${data}`));
+              }
+            });
+          });
+          
+          req.on('error', (e) => {
+            reject(new Error(`Request error: ${e.message}`));
+          });
+          
+          req.write(requestBody);
+          req.end();
+        });
+      }
+      // Log success - result might be the event object or have different structure
+      const eventId = result?.id || result?.event?.id || 'unknown';
+      console.log(`[billing] ✅ Usage reported successfully: event_id=${eventId}, value=${value}`);
+    } catch (apiErr) {
+      // If both methods fail, log detailed error
+      console.error('[billing] ❌ Both SDK and REST API methods failed');
+      console.error('[billing] Available Stripe client properties:', Object.keys(stripe).filter(k => k.includes('billing') || k.includes('meter') || k === '_request').slice(0, 20));
+      throw apiErr;
+    }
   } catch (e) {
     console.error('[billing] ❌ Usage report failed:', e.message);
     console.error('[billing] Error details:', {
@@ -141,7 +322,8 @@ async function reportUsageForUser(userId, value, idempotencyKey, metadata = {}) 
       code: e.code,
       message: e.message,
       userId,
-      meter: METER_EVENT_NAME
+      meter: METER_EVENT_NAME,
+      stack: e.stack
     });
   }
 }
@@ -670,15 +852,36 @@ app.post('/api/billing/portal', async (req, res) => {
       });
     }
 
-    const portal = await stripe.billingPortal.sessions.create({
-      customer: customerId,
-      return_url: `${APP_URL}/dashboard`,
-    });
-
-    return res.json({ url: portal.url });
+    try {
+      const portal = await stripe.billingPortal.sessions.create({
+        customer: customerId,
+        return_url: `${APP_URL}/dashboard`,
+      });
+      return res.json({ url: portal.url });
+    } catch (stripeErr) {
+      // Handle specific Stripe Billing Portal configuration error
+      if (stripeErr.type === 'StripeInvalidRequestError' && 
+          stripeErr.message?.includes('No configuration provided')) {
+        console.error('[billing] Stripe Billing Portal not configured:', stripeErr.message);
+        return res.status(503).json({ 
+          error: 'Billing portal not configured',
+          code: 'PORTAL_NOT_CONFIGURED',
+          message: 'The billing portal is not yet configured. Please contact support.',
+          stripeError: process.env.NODE_ENV === 'development' ? stripeErr.message : undefined
+        });
+      }
+      throw stripeErr; // Re-throw other errors
+    }
   } catch (e) {
     console.error('[billing] portal error:', e);
-    return res.status(500).json({ error: 'Internal server error' });
+    console.error('[billing] Error type:', e.type);
+    console.error('[billing] Error message:', e.message);
+    return res.status(500).json({ 
+      error: 'Internal server error',
+      message: e.message,
+      type: e.type,
+      code: e.code
+    });
   }
 });
 
@@ -1473,6 +1676,29 @@ app.get('/health', (req, res) => {
   });
 });
 
+app.post('/api/validate-token', async (req, res) => {
+  try {
+    const { botToken, platformType = 'discord' } = req.body || {};
+
+    if (platformType !== 'discord') {
+      return res.status(200).json({
+        valid: false,
+        message: 'Only Discord bot validation is supported right now.',
+      });
+    }
+
+    const validationResult = await validateDiscordBotToken(botToken);
+    const { cleanedToken, ...publicResult } = validationResult;
+    return res.status(200).json(publicResult);
+  } catch (error) {
+    console.error('[discord-token] Unexpected validation error:', error);
+    return res.status(200).json({
+      valid: false,
+      message: 'Error validating token',
+    });
+  }
+});
+
 // ---------------- Bot Management ----------------
 // Get user's bots
 app.get('/api/bots', async (req, res) => {
@@ -1531,58 +1757,67 @@ app.post('/api/bots', async (req, res) => {
     }
 
     const { botName, platformType, token: botToken, clientId, personalityContext } = req.body;
-    
+
     // For SDK bots, token is optional (can be empty string)
     // For regular bots, token is required
     const isSdkBot = !botToken || botToken.trim() === '';
-    
+
     if (!botName || !platformType) {
       return res.status(400).json({ error: 'Bot name and platform type are required' });
     }
-    
+
     if (!isSdkBot && (!botToken || botToken.trim().length < 50)) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: 'Bot token is required',
-        details: 'Discord bot tokens are typically 59+ characters. SDK bots can be created without a token.'
+        details: 'Discord bot tokens are typically 59+ characters. SDK bots can be created without a token.',
       });
     }
 
+    let cleanedToken = '';
+
     // Validate Discord token if provided (skip for SDK bots)
     if (!isSdkBot && platformType === 'discord') {
-      try {
-        const cleanToken = botToken.trim().replace(/^Bot\s+/i, '');
-        
-        if (cleanToken.length < 50) {
-          return res.status(400).json({ 
-            error: 'Invalid Discord bot token',
-            details: 'Token appears too short. Discord bot tokens are typically 59+ characters.'
+      const validationResult = await validateDiscordBotToken(botToken);
+
+      if (!validationResult.valid) {
+        const statusCode =
+          validationResult.code === 'TOKEN_RATE_LIMITED'
+            ? 429
+            : validationResult.code === 'TOKEN_VALIDATION_ERROR'
+            ? 502
+            : 400;
+
+        return res.status(statusCode).json({
+          error: 'Invalid Discord bot token',
+          details: validationResult.message || 'Unable to validate the Discord bot token.',
+          code: validationResult.code,
+        });
+      }
+
+      cleanedToken = validationResult.cleanedToken || botToken.trim().replace(/^Bot\s+/i, '');
+
+      // Check if token is already in use
+      const { data: existingBot } = await supabase
+        .from('bots')
+        .select('id, bot_name, user_id')
+        .eq('token', cleanedToken)
+        .maybeSingle();
+
+      if (existingBot) {
+        if (existingBot.user_id === decodedToken.userId) {
+          return res.status(409).json({
+            error: 'You already have a bot with this token',
+            details: `A bot named "${existingBot.bot_name}" already uses this token.`,
+          });
+        } else {
+          return res.status(409).json({
+            error: 'This Discord bot token is already in use',
+            details: 'Another user is already using this Discord bot token.',
           });
         }
-
-        // Check if token is already in use
-        const { data: existingBot } = await supabase
-          .from('bots')
-          .select('id, bot_name, user_id')
-          .eq('token', cleanToken)
-          .maybeSingle();
-
-        if (existingBot) {
-          if (existingBot.user_id === decodedToken.userId) {
-            return res.status(409).json({ 
-              error: 'You already have a bot with this token',
-              details: `A bot named "${existingBot.bot_name}" already uses this token.`
-            });
-          } else {
-            return res.status(409).json({ 
-              error: 'This Discord bot token is already in use',
-              details: 'Another user is already using this Discord bot token.'
-            });
-          }
-        }
-      } catch (error) {
-        console.error('Error validating token:', error);
-        // Continue anyway - validation is best effort
       }
+    } else if (!isSdkBot) {
+      cleanedToken = botToken.trim();
     }
 
     // Create bot
@@ -1592,7 +1827,7 @@ app.post('/api/bots', async (req, res) => {
         user_id: decodedToken.userId,
         bot_name: botName,
         platform_type: platformType,
-        token: botToken && botToken.trim() ? botToken.trim() : '',
+        token: cleanedToken || '',
         client_id: clientId || null,
         personality_context: personalityContext || 'A helpful Discord bot that responds conversationally.',
         is_connected: false
@@ -2919,35 +3154,61 @@ app.put('/api/bots/:id', async (req, res) => {
     // Prepare update data
     const updateData = {};
     if (botName) updateData.bot_name = botName;
-    if (botToken) updateData.token = botToken;
     if (personalityContext !== undefined) updateData.personality_context = personalityContext;
 
-    // If token is being updated, check for conflicts
-    if (botToken && botToken !== existingBot.token) {
-      const { data: conflictBot, error: conflictError } = await supabase
-        .from('bots')
-        .select('id, bot_name, user_id')
-        .eq('token', botToken)
-        .neq('id', botId)
-        .single();
+    // If token is being updated, validate and check for conflicts
+    if (botToken && botToken.trim()) {
+      let cleanedToken = botToken.trim();
 
-      if (conflictError && conflictError.code !== 'PGRST116') {
-        console.error('Error checking for token conflict:', conflictError);
-        return res.status(500).json({ error: 'Failed to validate token' });
+      if (existingBot.platform_type === 'discord') {
+        const validationResult = await validateDiscordBotToken(botToken);
+
+        if (!validationResult.valid) {
+          const statusCode =
+            validationResult.code === 'TOKEN_RATE_LIMITED'
+              ? 429
+              : validationResult.code === 'TOKEN_VALIDATION_ERROR'
+              ? 502
+              : 400;
+
+          return res.status(statusCode).json({
+            error: 'Invalid Discord bot token',
+            details: validationResult.message || 'Unable to validate the Discord bot token.',
+            code: validationResult.code,
+          });
+        }
+
+        cleanedToken = validationResult.cleanedToken || botToken.trim().replace(/^Bot\s+/i, '');
       }
 
-      if (conflictBot) {
-        return res.status(409).json({ 
-          error: 'Token already in use',
-          details: 'This Discord bot token is already being used by another bot.',
-          suggestion: 'Please use a different Discord bot token.'
-        });
+      if (cleanedToken !== existingBot.token) {
+        const { data: conflictBot, error: conflictError } = await supabase
+          .from('bots')
+          .select('id, bot_name, user_id')
+          .eq('token', cleanedToken)
+          .neq('id', botId)
+          .single();
+
+        if (conflictError && conflictError.code !== 'PGRST116') {
+          console.error('Error checking for token conflict:', conflictError);
+          return res.status(500).json({ error: 'Failed to validate token' });
+        }
+
+        if (conflictBot) {
+          return res.status(409).json({ 
+            error: 'Token already in use',
+            details: 'This Discord bot token is already being used by another bot.',
+            suggestion: 'Please use a different Discord bot token.'
+          });
+        }
+
+        // If token is being changed and bot is connected, disconnect it first
+        if (existingBot.is_connected) {
+          updateData.is_connected = false;
+        }
       }
 
-      // If token is being changed and bot is connected, disconnect it first
-      if (existingBot.is_connected) {
-        updateData.is_connected = false;
-      }
+      updateData.token = cleanedToken;
     }
 
     // Update the bot

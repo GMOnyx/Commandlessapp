@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -46,6 +46,7 @@ export default function BotCreationDialog({ open, onOpenChange, editBot }: BotCr
     message?: string;
     isValidating: boolean;
   }>({ isValidating: false });
+  const tokenValidationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
   
@@ -75,6 +76,14 @@ export default function BotCreationDialog({ open, onOpenChange, editBot }: BotCr
       personalityContext: "",
     },
   });
+  const watchedPlatformType = form.watch("platformType");
+  const watchedTokenValue = form.watch("token");
+  const effectivePlatform = watchedPlatformType || editBot?.platformType;
+  const shouldDisableForValidation = Boolean(
+    effectivePlatform === "discord" &&
+    watchedTokenValue &&
+    tokenValidation.isValidating
+  );
   
   // Populate form when editing
   useEffect(() => {
@@ -86,7 +95,7 @@ export default function BotCreationDialog({ open, onOpenChange, editBot }: BotCr
         clientId: "",
         personalityContext: editBot.personalityContext || "",
       });
-      setTokenValidation({ isValidating: false });
+      setTokenValidation({ valid: undefined, message: undefined, isValidating: false });
     } else if (!editBot && open) {
       form.reset({
         botName: "",
@@ -95,9 +104,17 @@ export default function BotCreationDialog({ open, onOpenChange, editBot }: BotCr
         clientId: "",
         personalityContext: "",
       });
-      setTokenValidation({ isValidating: false });
+      setTokenValidation({ valid: undefined, message: undefined, isValidating: false });
     }
   }, [editBot, open, form]);
+
+  useEffect(() => {
+    return () => {
+      if (tokenValidationTimerRef.current) {
+        clearTimeout(tokenValidationTimerRef.current);
+      }
+    };
+  }, []);
   
   // Create/Update bot mutation
   const createBotMutation = useMutation({
@@ -131,7 +148,7 @@ export default function BotCreationDialog({ open, onOpenChange, editBot }: BotCr
         duration: 8000,
       });
       form.reset();
-      setTokenValidation({ isValidating: false });
+      setTokenValidation({ valid: undefined, message: undefined, isValidating: false });
       onOpenChange(false);
       
       // Show bot ID prominently if this is a new bot
@@ -156,17 +173,24 @@ export default function BotCreationDialog({ open, onOpenChange, editBot }: BotCr
   
   // Token validation function
   const validateDiscordToken = async (token: string) => {
-    if (!token || token.length < 50) {
-      setTokenValidation({ valid: false, message: "Token appears too short", isValidating: false });
-      return;
+    const trimmedToken = token?.trim();
+
+    if (!trimmedToken || trimmedToken.length < 50) {
+      const shortResult = { valid: false, message: "Token appears too short" };
+      setTokenValidation({ ...shortResult, isValidating: false });
+      return shortResult;
     }
 
-    setTokenValidation({ isValidating: true });
+    setTokenValidation((prev) => ({
+      valid: prev.valid,
+      message: prev.message,
+      isValidating: true,
+    }));
     
     try {
       const result = await apiRequest("/api/validate-token", {
         method: "POST",
-        body: JSON.stringify({ botToken: token }),
+        body: JSON.stringify({ botToken: trimmedToken, platformType: "discord" }),
       });
       
       setTokenValidation({
@@ -174,30 +198,69 @@ export default function BotCreationDialog({ open, onOpenChange, editBot }: BotCr
         message: result.message,
         isValidating: false
       });
+
+      return result;
     } catch (error) {
+      const fallback = { valid: false, message: "Error validating token" };
       setTokenValidation({
-        valid: false,
-        message: "Error validating token",
+        ...fallback,
         isValidating: false
       });
+      return fallback;
     }
   };
 
   // Reset validation when token changes
   const handleTokenChange = (value: string) => {
     form.setValue("token", value);
-    setTokenValidation({ isValidating: false });
-    
+    setTokenValidation({ valid: undefined, message: undefined, isValidating: false });
+
+    if (tokenValidationTimerRef.current) {
+      clearTimeout(tokenValidationTimerRef.current);
+    }
+
     // Auto-validate Discord tokens after user stops typing
     const platformType = form.getValues("platformType") || editBot?.platformType;
-    if (platformType === "discord" && value.length > 50) {
-      const timeoutId = setTimeout(() => validateDiscordToken(value), 1000);
-      return () => clearTimeout(timeoutId);
+    const trimmedValue = value?.trim() || "";
+    if (platformType === "discord" && trimmedValue.length >= 50) {
+      tokenValidationTimerRef.current = setTimeout(() => validateDiscordToken(trimmedValue), 800);
     }
   };
   
   // Handle form submission
-  const onSubmit = (data: z.infer<typeof formSchema>) => {
+  const onSubmit = async (data: z.infer<typeof formSchema>) => {
+    if (tokenValidationTimerRef.current) {
+      clearTimeout(tokenValidationTimerRef.current);
+      tokenValidationTimerRef.current = null;
+    }
+
+    const platform = data.platformType || editBot?.platformType;
+    const tokenValue = data.token?.trim() || "";
+    const shouldValidateToken = platform === "discord" && tokenValue.length > 0;
+
+    if (shouldValidateToken) {
+      if (tokenValidation.valid === false) {
+        toast({
+          title: "Invalid token",
+          description: tokenValidation.message || "Please provide a valid Discord bot token before continuing.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (tokenValidation.valid !== true) {
+        const validation = await validateDiscordToken(tokenValue);
+        if (!validation?.valid) {
+          toast({
+            title: "Invalid token",
+            description: validation?.message || "Please provide a valid Discord bot token before continuing.",
+            variant: "destructive",
+          });
+          return;
+        }
+      }
+    }
+
     createBotMutation.mutate(data);
   };
 
@@ -395,7 +458,7 @@ export default function BotCreationDialog({ open, onOpenChange, editBot }: BotCr
               </Button>
               <Button 
                 type="submit"
-                disabled={createBotMutation.isPending}
+                disabled={createBotMutation.isPending || shouldDisableForValidation}
               >
                 {createBotMutation.isPending 
                   ? (isEditMode ? "Updating..." : "Connecting...") 
