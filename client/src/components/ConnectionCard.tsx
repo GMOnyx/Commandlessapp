@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { MoreVertical, Edit, Trash2, Settings } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import BotCreationDialog from "@/components/BotCreationDialog";
+import SDKLinkDialog from "@/components/SDKLinkDialog";
 
 // Response type interfaces
 interface ConnectionResponse {
@@ -48,14 +49,15 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const connectionMode = useMemo(() => {
-    // SDK bots have empty token or no token property
-    // Token flow bots have actual Discord tokens (59+ chars)
-    const hasToken = bot.token && bot.token.trim().length > 0;
-    return (bot as any).connectionMode || (hasToken ? "token" : "sdk");
+    // SDK bots have empty token or short placeholder tokens
+    // Token flow bots have actual Discord tokens (59+ chars typically)
+    const hasRealToken = bot.token && bot.token.trim().length >= 50;
+    return (bot as any).connectionMode || (hasRealToken ? "token" : "sdk");
   }, [bot]);
   const isSdkBot = connectionMode === "sdk";
   const [showErrorDialog, setShowErrorDialog] = useState(false);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [showSDKDialog, setShowSDKDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [errorDetails, setErrorDetails] = useState<{
@@ -212,13 +214,14 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
             </div>
             <div className="flex items-center gap-3">
               <Button variant="secondary" onClick={() => setShowCreateDialog(true)}>Connect new bot</Button>
-              <Button variant="outline" disabled title="SDK linking/command execution is paused">
+              <Button variant="outline" onClick={() => setShowSDKDialog(true)}>
                 Link SDK bot
               </Button>
             </div>
           </CardContent>
         </Card>
         <BotCreationDialog open={showCreateDialog} onOpenChange={setShowCreateDialog} />
+        <SDKLinkDialog open={showSDKDialog} onOpenChange={setShowSDKDialog} />
       </>
     );
   }
