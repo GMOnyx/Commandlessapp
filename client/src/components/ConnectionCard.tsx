@@ -295,9 +295,6 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
                     >
                       Copy
                     </button>
-                    <span className="text-xs font-semibold uppercase tracking-wide px-2 py-0.5 rounded bg-gray-100 text-gray-700">
-                      {connectionMode === "token" ? "Token flow" : "SDK flow"}
-                    </span>
                   </div>
                 </div>
               </dd>
