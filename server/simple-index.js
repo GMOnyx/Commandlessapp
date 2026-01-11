@@ -107,6 +107,21 @@ async function hasActiveSubscription(userId) {
   }
 }
 
+function formatBotResponse(bot) {
+  if (!bot) return null;
+  const connectionMode = bot.token && bot.token.trim() ? 'token' : 'sdk';
+  return {
+    id: bot.id,
+    botName: bot.bot_name,
+    platformType: bot.platform_type,
+    personalityContext: bot.personality_context,
+    isConnected: bot.is_connected,
+    createdAt: bot.created_at,
+    clientId: bot.client_id,
+    connectionMode,
+  };
+}
+
 async function validateDiscordBotToken(rawToken) {
   const errorResponse = (message, code) => ({
     valid: false,
@@ -625,25 +640,28 @@ function searchCommands(catalog, term) {
   return out.slice(0, 5);
 }
 
-// Initialize Supabase with validation
+// Initialize Supabase with validation (prefer service role to bypass RLS in production)
 const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
+const SUPABASE_KEY = SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY;
 
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+if (!SUPABASE_URL || !SUPABASE_KEY) {
   console.error('❌ CRITICAL: Supabase credentials missing!');
   console.error(`   SUPABASE_URL: ${SUPABASE_URL ? 'SET' : 'MISSING'}`);
+  console.error(`   SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY ? 'SET' : 'MISSING'}`);
   console.error(`   SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY ? 'SET' : 'MISSING'}`);
   console.error('   Server will fail to connect to database. Check Railway environment variables.');
 }
 
 const supabase = createClient(
   SUPABASE_URL || 'https://placeholder.supabase.co',
-  SUPABASE_ANON_KEY || 'placeholder-key'
+  SUPABASE_KEY || 'placeholder-key'
 );
 
 // Test Supabase connection on startup
 (async () => {
-  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  if (!SUPABASE_URL || !SUPABASE_KEY) {
     console.error('⚠️  Skipping Supabase connection test - credentials missing');
     return;
   }
@@ -1725,14 +1743,7 @@ app.get('/api/bots', async (req, res) => {
       return res.status(500).json({ error: 'Failed to fetch bots' });
     }
 
-    const formattedBots = bots.map(bot => ({
-      id: bot.id,
-      botName: bot.bot_name,
-      platformType: bot.platform_type,
-      personalityContext: bot.personality_context,
-      isConnected: bot.is_connected,
-      createdAt: bot.created_at
-    }));
+    const formattedBots = bots.map(formatBotResponse);
 
     res.json(formattedBots);
   } catch (error) {
@@ -1843,6 +1854,15 @@ app.post('/api/bots', async (req, res) => {
       });
     }
 
+    // Create default configuration for the bot
+    await supabase
+      .from('bot_configurations')
+      .insert({
+        bot_id: newBot.id,
+        user_id: decodedToken.userId,
+        // All other fields use defaults from table schema
+      });
+
     // Create activity log
     await supabase
       .from('activities')
@@ -1857,20 +1877,445 @@ app.post('/api/bots', async (req, res) => {
         }
       });
 
-    res.status(201).json({
-      id: newBot.id,
-      botName: newBot.bot_name,
-      platformType: newBot.platform_type,
-      personalityContext: newBot.personality_context,
-      isConnected: newBot.is_connected,
-      createdAt: newBot.created_at
-    });
+    res.status(201).json(formatBotResponse(newBot));
   } catch (error) {
     console.error('Error creating bot:', error);
     res.status(500).json({ 
       error: 'Internal server error',
       details: 'An unexpected error occurred while creating your bot.'
     });
+  }
+});
+
+// Bot lifecycle actions (connect / disconnect / sync commands)
+app.put('/api/bots', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    const decodedToken = decodeJWT(token);
+
+    if (!decodedToken) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    const { botId, id, action, forceRefresh } = req.body || {};
+    const targetBotId = botId || id;
+
+    if (!targetBotId || !action) {
+      return res.status(400).json({ error: 'Bot ID and action are required' });
+    }
+
+    const { data: bot, error: botError } = await supabase
+      .from('bots')
+      .select('*')
+      .eq('id', targetBotId)
+      .eq('user_id', decodedToken.userId)
+      .maybeSingle();
+
+    if (botError || !bot) {
+      return res.status(404).json({ error: 'Bot not found' });
+    }
+
+    if (action === 'connect') {
+      if (!bot.token || bot.token.trim().length < 50) {
+        return res.status(400).json({
+          error: 'Missing Discord bot token',
+          details: 'Add a valid Discord token before connecting this bot.',
+        });
+      }
+
+      const { data: updatedBot, error: updateError } = await supabase
+        .from('bots')
+        .update({ is_connected: true })
+        .eq('id', targetBotId)
+        .eq('user_id', decodedToken.userId)
+        .select()
+        .single();
+
+      if (updateError) {
+        console.error('Error updating bot connection status:', updateError);
+        return res.status(500).json({ error: 'Failed to connect bot' });
+      }
+
+      return res.json({
+        ...formatBotResponse(updatedBot),
+        autoStarted: false,
+        message: `${updatedBot.bot_name} is marked as connected. Make sure your runner is online.`,
+      });
+    }
+
+    if (action === 'disconnect') {
+      const { data: updatedBot, error: updateError } = await supabase
+        .from('bots')
+        .update({ is_connected: false })
+        .eq('id', targetBotId)
+        .eq('user_id', decodedToken.userId)
+        .select()
+        .single();
+
+      if (updateError) {
+        console.error('Error disconnecting bot:', updateError);
+        return res.status(500).json({ error: 'Failed to disconnect bot' });
+      }
+
+      return res.json({
+        ...formatBotResponse(updatedBot),
+        message: `${updatedBot.bot_name} has been marked as disconnected.`,
+      });
+    }
+
+    if (action === 'sync-commands') {
+      console.log(`[bots] Command sync requested for bot ${targetBotId} (forceRefresh=${!!forceRefresh}) but feature is disabled`);
+      return res.status(410).json({
+        error: 'Command syncing disabled',
+        details: 'SDK-based command execution is paused. Please manage mappings manually.',
+      });
+    }
+
+    return res.status(400).json({ error: `Unknown action "${action}"` });
+  } catch (error) {
+    console.error('Error handling bot action:', error);
+    res.status(500).json({
+      error: 'Failed to process bot action',
+      details: error.message,
+    });
+  }
+});
+
+// ---------------- Bot Configuration Management ----------------
+// GET /v1/relay/config - SDK fetches bot configuration (API key auth)
+app.get('/v1/relay/config', async (req, res) => {
+  try {
+    const apiKey = req.header('x-api-key') || req.header('x-commandless-key') || '';
+    const apiKeyRecord = await findApiKeyRecord(apiKey);
+    if (!apiKeyRecord) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const botId = parseInt(req.query.botId); // Parse to integer
+    const sdkVersion = parseInt(req.query.version) || 0;
+
+    if (!botId || isNaN(botId)) {
+      return res.status(400).json({ error: 'Valid botId query parameter required' });
+    }
+
+    // Verify bot belongs to user
+    const { data: bot, error: botError } = await supabase
+      .from('bots')
+      .select('id')
+      .eq('id', botId)
+      .eq('user_id', apiKeyRecord.user_id)
+      .single();
+
+    if (botError || !bot) {
+      return res.status(404).json({ error: 'Bot not found' });
+    }
+
+    // Check if SDK has latest version
+    const { data: versionInfo } = await supabase
+      .from('config_versions')
+      .select('version')
+      .eq('bot_id', botId)
+      .single();
+
+    const latestVersion = versionInfo?.version || 1;
+
+    // If SDK is up to date, return short response
+    if (sdkVersion >= latestVersion) {
+      return res.json({ version: latestVersion, upToDate: true });
+    }
+
+    // Fetch full config
+    let { data: config, error: configError } = await supabase
+      .from('bot_configurations')
+      .select('*')
+      .eq('bot_id', botId)
+      .single();
+
+    // Create default config if missing
+    if (configError || !config) {
+      console.log('[config] Creating default config for bot:', botId);
+      const { data: newConfig, error: insertError } = await supabase
+        .from('bot_configurations')
+        .insert({
+          bot_id: botId,
+          user_id: apiKeyRecord.user_id,
+        })
+        .select()
+        .single();
+
+      if (insertError) {
+        console.error('[config] Failed to create default config:', insertError);
+        return res.status(500).json({ 
+          error: 'Failed to create default config',
+          details: insertError.message,
+          code: insertError.code 
+        });
+      }
+
+      config = newConfig;
+      console.log('[config] Created default config successfully');
+    }
+
+    // Return in SDK-friendly format (camelCase)
+    res.json({
+      version: latestVersion,
+      enabled: config.enabled ?? true,
+      channelMode: config.channel_mode || 'all',
+      enabledChannels: config.enabled_channels || [],
+      disabledChannels: config.disabled_channels || [],
+      permissionMode: config.permission_mode || 'all',
+      enabledRoles: config.enabled_roles || [],
+      disabledRoles: config.disabled_roles || [],
+      enabledUsers: config.enabled_users || [],
+      disabledUsers: config.disabled_users || [],
+      premiumRoleIds: config.premium_role_ids || [],
+      enabledCommandCategories: config.enabled_command_categories || ['moderation', 'utility', 'fun', 'economy'],
+      disabledCommands: config.disabled_commands || [],
+      commandMode: config.command_mode || 'all',
+      mentionRequired: config.mention_required !== false,
+      customPrefix: config.custom_prefix || null,
+      triggerMode: config.trigger_mode || 'mention',
+      freeRateLimit: config.free_rate_limit ?? 10,
+      premiumRateLimit: config.premium_rate_limit ?? 50,
+      serverRateLimit: config.server_rate_limit ?? 100,
+      confidenceThreshold: parseFloat(config.confidence_threshold) || 0.7,
+      requireConfirmation: config.require_confirmation || false,
+      dangerousCommands: config.dangerous_commands || ['ban', 'kick', 'purge', 'nuke'],
+      responseStyle: config.response_style || 'friendly',
+    });
+  } catch (error) {
+    console.error('Error fetching config:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/bots/:id/config - Dashboard reads bot configuration (JWT auth)
+app.get('/api/bots/:id/config', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    const decodedToken = decodeJWT(token);
+    if (!decodedToken) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    const botId = parseInt(req.params.id); // Parse to integer
+    const userId = decodedToken.userId;
+
+    if (isNaN(botId)) {
+      return res.status(400).json({ error: 'Invalid bot ID' });
+    }
+
+    // Verify bot ownership
+    const { data: bot, error: botError } = await supabase
+      .from('bots')
+      .select('id, bot_name')
+      .eq('id', botId)
+      .eq('user_id', userId)
+      .single();
+
+    if (botError || !bot) {
+      return res.status(404).json({ error: 'Bot not found' });
+    }
+
+    // Get config
+    let { data: config, error: configError } = await supabase
+      .from('bot_configurations')
+      .select('*')
+      .eq('bot_id', botId)
+      .single();
+
+    // Create default if missing
+    if (configError || !config) {
+      console.log('[dashboard-config] Creating default config for bot:', botId);
+      const { data: newConfig, error: insertError } = await supabase
+        .from('bot_configurations')
+        .insert({
+          bot_id: botId,
+          user_id: userId,
+        })
+        .select()
+        .single();
+
+      if (insertError) {
+        console.error('[dashboard-config] Failed to create config:', insertError);
+        return res.status(500).json({ 
+          error: 'Failed to create default config',
+          details: insertError.message 
+        });
+      }
+
+      config = newConfig;
+    }
+
+    // Get version
+    const { data: versionInfo } = await supabase
+      .from('config_versions')
+      .select('version')
+      .eq('bot_id', botId)
+      .single();
+
+    // Return in frontend-friendly format
+    res.json({
+      id: config.id,
+      botId: config.bot_id,
+      version: versionInfo?.version || 1,
+      enabled: config.enabled ?? true,
+      channelMode: config.channel_mode || 'all',
+      enabledChannels: config.enabled_channels || [],
+      disabledChannels: config.disabled_channels || [],
+      permissionMode: config.permission_mode || 'all',
+      enabledRoles: config.enabled_roles || [],
+      disabledRoles: config.disabled_roles || [],
+      enabledUsers: config.enabled_users || [],
+      disabledUsers: config.disabled_users || [],
+      premiumRoleIds: config.premium_role_ids || [],
+      enabledCommandCategories: config.enabled_command_categories || ['moderation', 'utility', 'fun', 'economy'],
+      disabledCommands: config.disabled_commands || [],
+      commandMode: config.command_mode || 'all',
+      mentionRequired: config.mention_required !== false,
+      customPrefix: config.custom_prefix || null,
+      triggerMode: config.trigger_mode || 'mention',
+      freeRateLimit: config.free_rate_limit ?? 10,
+      premiumRateLimit: config.premium_rate_limit ?? 50,
+      serverRateLimit: config.server_rate_limit ?? 100,
+      confidenceThreshold: parseFloat(config.confidence_threshold) || 0.7,
+      requireConfirmation: config.require_confirmation || false,
+      dangerousCommands: config.dangerous_commands || ['ban', 'kick', 'purge', 'nuke'],
+      responseStyle: config.response_style || 'friendly',
+      createdAt: config.created_at,
+      updatedAt: config.updated_at,
+    });
+  } catch (error) {
+    console.error('Error fetching bot config:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /api/bots/:id/config - Dashboard updates bot configuration (JWT auth)
+app.put('/api/bots/:id/config', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    const decodedToken = decodeJWT(token);
+    if (!decodedToken) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    const botId = parseInt(req.params.id); // Parse to integer
+    const userId = decodedToken.userId;
+
+    if (isNaN(botId)) {
+      return res.status(400).json({ error: 'Invalid bot ID' });
+    }
+
+    // Verify bot ownership
+    const { data: bot, error: botError } = await supabase
+      .from('bots')
+      .select('id')
+      .eq('id', botId)
+      .eq('user_id', userId)
+      .single();
+
+    if (botError || !bot) {
+      return res.status(404).json({ error: 'Bot not found' });
+    }
+
+    // Build update object (convert camelCase to snake_case)
+    const updates = {};
+    
+    if (req.body.enabled !== undefined) updates.enabled = req.body.enabled;
+    if (req.body.channelMode !== undefined) updates.channel_mode = req.body.channelMode;
+    if (req.body.enabledChannels !== undefined) updates.enabled_channels = req.body.enabledChannels;
+    if (req.body.disabledChannels !== undefined) updates.disabled_channels = req.body.disabledChannels;
+    if (req.body.permissionMode !== undefined) updates.permission_mode = req.body.permissionMode;
+    if (req.body.enabledRoles !== undefined) updates.enabled_roles = req.body.enabledRoles;
+    if (req.body.disabledRoles !== undefined) updates.disabled_roles = req.body.disabledRoles;
+    if (req.body.enabledUsers !== undefined) updates.enabled_users = req.body.enabledUsers;
+    if (req.body.disabledUsers !== undefined) updates.disabled_users = req.body.disabledUsers;
+    if (req.body.premiumRoleIds !== undefined) updates.premium_role_ids = req.body.premiumRoleIds;
+    if (req.body.enabledCommandCategories !== undefined) updates.enabled_command_categories = req.body.enabledCommandCategories;
+    if (req.body.disabledCommands !== undefined) updates.disabled_commands = req.body.disabledCommands;
+    if (req.body.commandMode !== undefined) updates.command_mode = req.body.commandMode;
+    if (req.body.mentionRequired !== undefined) updates.mention_required = req.body.mentionRequired;
+    if (req.body.customPrefix !== undefined) updates.custom_prefix = req.body.customPrefix;
+    if (req.body.triggerMode !== undefined) updates.trigger_mode = req.body.triggerMode;
+    if (req.body.freeRateLimit !== undefined) updates.free_rate_limit = req.body.freeRateLimit;
+    if (req.body.premiumRateLimit !== undefined) updates.premium_rate_limit = req.body.premiumRateLimit;
+    if (req.body.serverRateLimit !== undefined) updates.server_rate_limit = req.body.serverRateLimit;
+    if (req.body.confidenceThreshold !== undefined) updates.confidence_threshold = req.body.confidenceThreshold;
+    if (req.body.requireConfirmation !== undefined) updates.require_confirmation = req.body.requireConfirmation;
+    if (req.body.dangerousCommands !== undefined) updates.dangerous_commands = req.body.dangerousCommands;
+    if (req.body.responseStyle !== undefined) updates.response_style = req.body.responseStyle;
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    updates.updated_at = new Date().toISOString();
+
+    // Upsert config (trigger will auto-increment version)
+    const { data: updated, error: updateError } = await supabase
+      .from('bot_configurations')
+      .upsert({
+        bot_id: botId,
+        user_id: userId,
+        ...updates,
+      }, {
+        onConflict: 'bot_id',
+      })
+      .select()
+      .single();
+
+    if (updateError) {
+      console.error('Error updating config:', updateError);
+      return res.status(500).json({ 
+        error: 'Failed to update configuration',
+        details: updateError.message 
+      });
+    }
+
+    // Get new version
+    const { data: versionInfo } = await supabase
+      .from('config_versions')
+      .select('version')
+      .eq('bot_id', botId)
+      .single();
+
+    // Log activity
+    await supabase
+      .from('activities')
+      .insert({
+        user_id: userId,
+        activity_type: 'bot_config_updated',
+        description: `Updated configuration for bot`,
+        metadata: { 
+          botId,
+          changes: Object.keys(updates)
+        }
+      });
+
+    res.json({
+      success: true,
+      version: versionInfo?.version || 1,
+      config: updated,
+    });
+  } catch (error) {
+    console.error('Error updating bot config:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -3242,12 +3687,7 @@ app.put('/api/bots/:id', async (req, res) => {
       });
 
     res.json({
-      id: updatedBot.id,
-      botName: updatedBot.bot_name,
-      platformType: updatedBot.platform_type,
-      personalityContext: updatedBot.personality_context,
-      isConnected: updatedBot.is_connected,
-      createdAt: updatedBot.created_at,
+      ...formatBotResponse(updatedBot),
       message: `${updatedBot.bot_name} has been updated successfully.`
     });
 

@@ -1,14 +1,57 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.useDiscordAdapter = useDiscordAdapter;
+const configCache_js_1 = require("../configCache.js");
 function useDiscordAdapter(opts) {
     const { client, relay } = opts;
+    const configCache = opts.disableConfigCache ? null : new configCache_js_1.ConfigCache(relay.baseUrl || '', relay.apiKey);
+    // Fetch config on client ready and start polling
+    if (configCache) {
+        client.once("ready", async () => {
+            try {
+                // Wait for bot ID to be set (either from registration or env)
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                if (relay.botId) {
+                    console.log(`[commandless] Fetching config for bot ${relay.botId}...`);
+                    await configCache.fetch(relay.botId);
+                    // Start polling for updates every 30 seconds
+                    configCache.startPolling(relay.botId, 30000);
+                    console.log('[commandless] Config polling started (30s interval)');
+                    // Cleanup rate limits every 5 minutes
+                    setInterval(() => configCache.cleanupRateLimits(), 5 * 60 * 1000);
+                }
+                else {
+                    console.warn('[commandless] No botId available, config filtering disabled');
+                }
+            }
+            catch (error) {
+                console.error('[commandless] Failed to initialize config cache:', error);
+            }
+        });
+    }
     client.on("messageCreate", async (message) => {
         if (message.author.bot)
             return;
-        const mentionRequired = opts.mentionRequired !== false;
+        // Get member roles if in guild
+        const memberRoles = message.member?.roles.cache.map(r => r.id) || [];
+        // Config-based filtering (if enabled)
+        if (configCache && relay.botId) {
+            const filterResult = configCache.shouldProcessMessage({
+                channelId: message.channelId,
+                authorId: message.author.id,
+                guildId: message.guildId || undefined,
+                memberRoles,
+            });
+            if (!filterResult.allowed) {
+                // Silently ignore (filtered by config)
+                console.log(`[commandless] Message filtered: ${filterResult.reason}`);
+                return;
+            }
+        }
+        // Check mention requirement (from config or options)
+        const config = configCache?.getConfig();
+        const mentionRequired = config?.mentionRequired !== false && opts.mentionRequired !== false;
         const mentioned = !!client.user?.id && (message.mentions?.users?.has?.(client.user.id) ?? false);
-        // Typing indicator will be driven by a short loop only when addressed
         // Detect reply-to-bot accurately
         let isReplyToBot = false;
         try {

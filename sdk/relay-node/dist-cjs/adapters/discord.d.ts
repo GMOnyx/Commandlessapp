@@ -17,5 +17,6 @@ export interface DiscordAdapterOptions {
         interaction?: Interaction;
     }) => Promise<void>;
     mentionRequired?: boolean;
+    disableConfigCache?: boolean;
 }
 export declare function useDiscordAdapter(opts: DiscordAdapterOptions): void;

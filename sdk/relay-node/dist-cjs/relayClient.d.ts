@@ -1,13 +1,13 @@
 import { Decision, RelayClientOptions, RelayEvent } from "./types.js";
 export declare class RelayClient {
-    private readonly apiKey;
-    private readonly baseUrl;
+    readonly apiKey: string;
+    readonly baseUrl: string;
     private readonly hmacSecret?;
     private readonly timeoutMs;
     private readonly maxRetries;
     private readonly queue;
     private sending;
-    private botId?;
+    botId?: string;
     constructor(opts: RelayClientOptions);
     registerBot(info: {
         platform: 'discord';

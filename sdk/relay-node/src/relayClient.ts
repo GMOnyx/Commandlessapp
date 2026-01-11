@@ -4,14 +4,14 @@ import { postJson } from "./http.js";
 const DEFAULT_BASE = "https://commandless-app-production.up.railway.app";
 
 export class RelayClient {
-  private readonly apiKey: string;
-  private readonly baseUrl: string;
+  readonly apiKey: string;
+  readonly baseUrl: string;
   private readonly hmacSecret?: string;
   private readonly timeoutMs: number;
   private readonly maxRetries = 3;
   private readonly queue: Array<RelayEvent> = [];
   private sending = false;
-  private botId?: string;
+  botId?: string; // Public for config cache access
 
   constructor(opts: RelayClientOptions) {
     this.apiKey = opts.apiKey;

@@ -7,6 +7,7 @@ import Landing from "@/pages/Landing";
 import CommandMappings from "@/pages/CommandMappings";
 import CommandMappingDetail from "@/pages/CommandMappingDetail";
 import BotConnections from "@/pages/BotConnections";
+import BotConfiguration from "@/pages/BotConfiguration";
 import SDKPage from "@/pages/SDK";
 import APIKeysPage from "@/pages/APIKeys";
 import PricingPage from "@/pages/Pricing";
@@ -129,6 +130,7 @@ function AppContent() {
         <Route path="/mappings" component={CommandMappings} />
         <Route path="/mappings/:id" component={CommandMappingDetail} />
         <Route path="/connections" component={BotConnections} />
+        <Route path="/bots/:id/config" component={BotConfiguration} />
         <Route path="/sdk" component={SDKPage} />
         <Route path="/api-keys" component={APIKeysPage} />
         <Route path="/pricing" component={PricingPage} />

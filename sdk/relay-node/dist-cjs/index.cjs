@@ -19,3 +19,4 @@ __exportStar(require("./signing.js"), exports);
 __exportStar(require("./http.js"), exports);
 __exportStar(require("./relayClient.js"), exports);
 __exportStar(require("./adapters/discord.js"), exports);
+__exportStar(require("./configCache.js"), exports);

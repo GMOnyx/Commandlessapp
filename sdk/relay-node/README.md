@@ -62,6 +62,27 @@ discord.login(process.env.BOT_TOKEN);
   - Optional `execute(decision, ctx)` to override default reply behavior
   - `mentionRequired` (default true) to only process when mentioned or replying to the bot
 
+## Configuration System (NEW)
+
+The SDK automatically fetches and caches bot configuration from your dashboard:
+
+- **Channel filtering** - Only process messages from specific channels
+- **Role permissions** - Restrict AI to certain roles (e.g., @Moderator, @Premium)
+- **Rate limiting** - Local rate limits (per-user and per-server)
+- **Command control** - Enable/disable specific command categories
+- **Auto-updates** - Polls for config changes every 30 seconds (no bot restart needed)
+
+Configuration is managed in the Commandless dashboard. The SDK enforces it locally (fast, no API calls for filtered messages).
+
+To disable config filtering:
+```ts
+useDiscordAdapter({ 
+  client, 
+  relay,
+  disableConfigCache: true // Bypass all config checks
+});
+```
+
 ## Security
 
 - Every request includes `x-commandless-key`.

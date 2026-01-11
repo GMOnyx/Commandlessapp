@@ -6,7 +6,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { 
   AlertDialog, 
   AlertDialogContent, 
@@ -24,7 +24,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
-import { MoreVertical, Edit, Trash2 } from "lucide-react";
+import { MoreVertical, Edit, Trash2, Settings } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import BotCreationDialog from "@/components/BotCreationDialog";
 
@@ -39,14 +39,6 @@ interface ConnectionResponse {
   startupMethod?: string;
 }
 
-interface SyncCommandsResponse {
-  success: boolean;
-  commandCount?: number;
-  createdMappings?: number;
-  discoveredCommands?: any[];
-  message?: string;
-}
-
 interface ConnectionCardProps {
   bot: Bot;
   isNewCard?: boolean;
@@ -55,21 +47,10 @@ interface ConnectionCardProps {
 export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCardProps) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const isSdkBot = !(bot as any).token; // SDK-linked bots don't store tokens
-  const requestSdkSync = useMutation({
-    mutationFn: async () => {
-      return await apiRequest('/api/relay/commands/request-sync', {
-        method: 'POST',
-        body: JSON.stringify({ botId: bot.id })
-      });
-    },
-    onSuccess: () => {
-      toast({ title: 'Sync requested', description: 'Your SDK bot will auto-sync on next heartbeat (≤25s).' });
-    },
-    onError: (e: any) => {
-      toast({ title: 'Sync request failed', description: e?.message || 'Unknown error', variant: 'destructive' });
-    }
-  });
+  const connectionMode = useMemo(() => {
+    return (bot as any).connectionMode || ((bot as any).token ? "token" : "sdk");
+  }, [bot]);
+  const isSdkBot = connectionMode === "sdk";
   const [showErrorDialog, setShowErrorDialog] = useState(false);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -218,33 +199,6 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
     },
   });
 
-  const syncCommandsMutation = useMutation<SyncCommandsResponse>({
-    mutationFn: async (): Promise<SyncCommandsResponse> => {
-      return await apiRequest(`/api/bots`, {
-        method: "PUT",
-        body: JSON.stringify({ 
-          action: "sync-commands", 
-          botId: bot.id,
-          forceRefresh: true 
-        }),
-      });
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/bots"] });
-      toast({
-        title: "Commands Synced",
-        description: `Successfully synced ${data.createdMappings || 0} commands for ${bot.botName}`,
-      });
-    },
-    onError: (error) => {
-      toast({
-        title: "Sync Failed",
-        description: `Failed to sync commands for ${bot.botName}. ${error instanceof Error ? error.message : ''}`,
-        variant: "destructive",
-      });
-    },
-  });
-
   if (isNewCard) {
     return (
       <>
@@ -255,37 +209,9 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
             </div>
             <div className="flex items-center gap-3">
               <Button variant="secondary" onClick={() => setShowCreateDialog(true)}>Connect new bot</Button>
-              <Button variant="outline" onClick={async () => {
-                const clientId = window.prompt('Enter Discord Client ID for your SDK bot:');
-                if (!clientId) return;
-                
-                const botName = window.prompt('Enter a name for this bot (optional):') || 'SDK Bot';
-                
-                try {
-                  // Create bot without token (SDK bot)
-                  const botData = await apiRequest('/api/bots', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                      botName,
-                      platformType: 'discord',
-                      clientId,
-                      token: '' // Empty token indicates SDK bot
-                    })
-                  });
-                  
-                  if (botData.id) {
-                    toast({
-                      title: "SDK Bot Created!",
-                      description: `Bot ID: ${botData.id}. Save this - you'll need it for BOT_ID env var!`,
-                      duration: 10000,
-                    });
-                    queryClient.invalidateQueries({ queryKey: ["/api/bots"] });
-                    window.location.reload();
-                  }
-                } catch (e: any) {
-                  alert(`Failed to create SDK bot: ${e?.message || 'Unknown error'}`);
-                }
-              }}>Link SDK bot</Button>
+              <Button variant="outline" disabled title="SDK linking/command execution is paused">
+                Link SDK bot (coming soon)
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -346,7 +272,7 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
                       </span>
                     </span>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-xs font-mono text-gray-600 bg-gray-100 px-2 py-0.5 rounded">
                       Bot ID: {bot.id}
                     </span>
@@ -363,6 +289,9 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
                     >
                       Copy
                     </button>
+                    <span className="text-xs font-semibold uppercase tracking-wide px-2 py-0.5 rounded bg-gray-100 text-gray-700">
+                      {connectionMode === "token" ? "Token flow" : "SDK flow"}
+                    </span>
                   </div>
                 </div>
               </dd>
@@ -376,6 +305,12 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                <DropdownMenuItem asChild>
+                  <Link href={`/bots/${bot.id}/config`} className="cursor-pointer">
+                    <Settings className="mr-2 h-4 w-4" />
+                    Configure
+                  </Link>
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setShowEditDialog(true)}>
                   <Edit className="mr-2 h-4 w-4" />
                   Edit
@@ -394,44 +329,30 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
       </CardContent>
       <CardFooter className="bg-gray-50 px-5 py-3 border-t border-gray-200">
         <div className="flex items-center justify-between w-full">
-          <div className="text-sm">
-            {bot.isConnected ? (
-              <button
-                onClick={() => disconnectMutation.mutate()}
-                disabled={disconnectMutation.isPending}
-                className="font-medium text-primary hover:text-primary-600 focus:outline-none"
-              >
-                {disconnectMutation.isPending ? "Disconnecting..." : "Disconnect bot"}
-              </button>
-            ) : (
-              <button
-                onClick={() => connectMutation.mutate()}
-                disabled={connectMutation.isPending}
-                className="font-medium text-primary hover:text-primary-600 focus:outline-none"
-              >
-                {connectMutation.isPending ? "Connecting..." : "Connect bot"}
-              </button>
-            )}
-          </div>
-          
-          {/* Sync Commands Button - only show for Discord bots */}
-          {bot.platformType === "discord" && !isSdkBot && (
-            <button
-              onClick={() => syncCommandsMutation.mutate()}
-              disabled={syncCommandsMutation.isPending}
-              className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {syncCommandsMutation.isPending ? "Syncing..." : "Sync Commands"}
-            </button>
-          )}
-          {bot.platformType === "discord" && isSdkBot && (
-            <button
-              onClick={() => requestSdkSync.mutate()}
-              disabled={requestSdkSync.isPending}
-              className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {requestSdkSync.isPending ? 'Requesting…' : 'Request Sync'}
-            </button>
+          {isSdkBot ? (
+            <p className="text-sm text-gray-500">
+              SDK command execution is paused. Manual mappings still work; full automation coming soon.
+            </p>
+          ) : (
+            <div className="text-sm">
+              {bot.isConnected ? (
+                <button
+                  onClick={() => disconnectMutation.mutate()}
+                  disabled={disconnectMutation.isPending}
+                  className="font-medium text-primary hover:text-primary-600 focus:outline-none"
+                >
+                  {disconnectMutation.isPending ? "Disconnecting..." : "Disconnect bot"}
+                </button>
+              ) : (
+                <button
+                  onClick={() => connectMutation.mutate()}
+                  disabled={connectMutation.isPending}
+                  className="font-medium text-primary hover:text-primary-600 focus:outline-none"
+                >
+                  {connectMutation.isPending ? "Connecting..." : "Connect bot"}
+                </button>
+              )}
+            </div>
           )}
         </div>
       </CardFooter>
