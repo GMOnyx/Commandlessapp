@@ -48,7 +48,10 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const connectionMode = useMemo(() => {
-    return (bot as any).connectionMode || ((bot as any).token ? "token" : "sdk");
+    // SDK bots have empty token or no token property
+    // Token flow bots have actual Discord tokens (59+ chars)
+    const hasToken = bot.token && bot.token.trim().length > 0;
+    return (bot as any).connectionMode || (hasToken ? "token" : "sdk");
   }, [bot]);
   const isSdkBot = connectionMode === "sdk";
   const [showErrorDialog, setShowErrorDialog] = useState(false);
@@ -210,7 +213,7 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
             <div className="flex items-center gap-3">
               <Button variant="secondary" onClick={() => setShowCreateDialog(true)}>Connect new bot</Button>
               <Button variant="outline" disabled title="SDK linking/command execution is paused">
-                Link SDK bot (coming soon)
+                Link SDK bot
               </Button>
             </div>
           </CardContent>
@@ -331,7 +334,7 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
         <div className="flex items-center justify-between w-full">
           {isSdkBot ? (
             <p className="text-sm text-gray-500">
-              SDK command execution is paused. Manual mappings still work; full automation coming soon.
+              SDK bot connected. Configure permissions and rate limits in settings.
             </p>
           ) : (
             <div className="text-sm">
