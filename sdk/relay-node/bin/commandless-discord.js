@@ -35,6 +35,12 @@ const client = new Client({
 
 const relay = new RelayClient({ apiKey, baseUrl, hmacSecret });
 
+// Set botId from env immediately (for config enforcement)
+if (botId) {
+  relay.botId = parseInt(botId, 10);
+  console.log(`[commandless] Bot ID set from env: ${relay.botId}`);
+}
+
 useDiscordAdapter({ client, relay, mentionRequired: true });
 
 client.once('ready', async () => {
@@ -46,11 +52,17 @@ client.once('ready', async () => {
       clientId: client.user.id,
       botId: parseInt(botId, 10)
     });
-    if (registeredBotId) relay.botId = registeredBotId;
-    console.log(`[commandless] Bot registered with ID: ${registeredBotId}`);
+    // Update botId if registration succeeded and returned a different ID
+    if (registeredBotId) {
+      relay.botId = registeredBotId;
+      console.log(`[commandless] Bot registered with ID: ${registeredBotId}`);
+    } else {
+      console.log(`[commandless] Registration returned null, using env BOT_ID: ${relay.botId}`);
+    }
   } catch (e) {
     console.error('[commandless] registerBot failed:', e?.message || e);
-    process.exit(1);
+    // Don't exit - botId is already set from env, so config enforcement will still work
+    console.log(`[commandless] Continuing with botId from env: ${relay.botId}`);
   }
   setInterval(async () => { try { await relay.heartbeat(); } catch {} }, 30_000);
 });

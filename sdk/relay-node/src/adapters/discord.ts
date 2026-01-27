@@ -89,6 +89,7 @@ export function useDiscordAdapter(opts: DiscordAdapterOptions) {
       content: message.content,
       timestamp: message.createdTimestamp,
       botClientId: client.user?.id as string | undefined,
+      botId: relay.botId || undefined, // Include botId for backend config enforcement
       isReplyToBot,
       referencedMessageId: message.reference?.messageId,
       referencedMessageAuthorId: message.reference ? (client.user?.id as string | undefined) : undefined,
@@ -130,6 +131,7 @@ export function useDiscordAdapter(opts: DiscordAdapterOptions) {
         return out;
       })(),
       timestamp: Date.now(),
+      botId: relay.botId || undefined, // Include botId for backend config enforcement
     };
     try {
       const dec = await relay.sendEvent(evt);

@@ -164,73 +164,6 @@ export default function BotConfiguration() {
         </div>
       </Card>
 
-      {/* Channel Control */}
-      <Card className="p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <MessageSquare className="h-5 w-5 text-primary" />
-          <h2 className="text-xl font-semibold">Channel Control</h2>
-        </div>
-        <p className="text-sm text-gray-500 mb-4">
-          Specify which Discord channels the AI should respond in
-        </p>
-
-        <div className="space-y-4">
-          <div>
-            <Label>Channel Mode</Label>
-            <Select
-              value={formData.channelMode || 'all'}
-              onValueChange={(value: any) => setFormData({ ...formData, channelMode: value })}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Channels (default)</SelectItem>
-                <SelectItem value="whitelist">Only Selected Channels</SelectItem>
-                <SelectItem value="blacklist">All Except Selected</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {formData.channelMode === 'whitelist' && (
-            <div>
-              <Label>Enabled Channels</Label>
-              <Input
-                placeholder="Channel IDs (comma-separated): 123456789, 987654321"
-                value={(formData.enabledChannels || []).join(', ')}
-                onChange={(e) => {
-                  const channels = e.target.value
-                    .split(',')
-                    .map(s => s.trim())
-                    .filter(Boolean);
-                  setFormData({ ...formData, enabledChannels: channels });
-                }}
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Right-click a channel → Copy Channel ID
-              </p>
-            </div>
-          )}
-
-          {formData.channelMode === 'blacklist' && (
-            <div>
-              <Label>Disabled Channels</Label>
-              <Input
-                placeholder="Channel IDs (comma-separated): 123456789, 987654321"
-                value={(formData.disabledChannels || []).join(', ')}
-                onChange={(e) => {
-                  const channels = e.target.value
-                    .split(',')
-                    .map(s => s.trim())
-                    .filter(Boolean);
-                  setFormData({ ...formData, disabledChannels: channels });
-                }}
-              />
-            </div>
-          )}
-        </div>
-      </Card>
-
       {/* Permission Control */}
       <Card className="p-6">
         <div className="flex items-center gap-2 mb-4">
@@ -323,7 +256,7 @@ export default function BotConfiguration() {
           <h2 className="text-xl font-semibold">Rate Limits</h2>
         </div>
         <p className="text-sm text-gray-500 mb-4">
-          Prevent spam and control API usage costs
+          Prevent spam and control how much traffic your bot generates overall
         </p>
 
         <div className="space-y-6">
@@ -359,7 +292,7 @@ export default function BotConfiguration() {
 
           <div>
             <div className="flex items-center justify-between mb-2">
-              <Label>Server Total</Label>
+              <Label>Bot Total</Label>
               <span className="text-sm font-medium">{formData.serverRateLimit ?? 100} requests/hour</span>
             </div>
             <Slider
@@ -371,6 +304,73 @@ export default function BotConfiguration() {
               className="w-full"
             />
           </div>
+        </div>
+      </Card>
+
+      {/* Channel Control */}
+      <Card className="p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <MessageSquare className="h-5 w-5 text-primary" />
+          <h2 className="text-xl font-semibold">Channel Control</h2>
+        </div>
+        <p className="text-sm text-gray-500 mb-4">
+          Limit where in Discord this bot is allowed to respond
+        </p>
+
+        <div className="space-y-4">
+          <div>
+            <Label>Channel Mode</Label>
+            <Select
+              value={formData.channelMode || 'all'}
+              onValueChange={(value: any) => setFormData({ ...formData, channelMode: value })}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Channels (default)</SelectItem>
+                <SelectItem value="whitelist">Only Selected Channels</SelectItem>
+                <SelectItem value="blacklist">All Except Selected</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {formData.channelMode === 'whitelist' && (
+            <div>
+              <Label>Enabled Channels</Label>
+              <Input
+                placeholder="Channel IDs (comma-separated): 123456789, 987654321"
+                value={(formData.enabledChannels || []).join(', ')}
+                onChange={(e) => {
+                  const channels = e.target.value
+                    .split(',')
+                    .map(s => s.trim())
+                    .filter(Boolean);
+                  setFormData({ ...formData, enabledChannels: channels });
+                }}
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Right-click a channel → Copy Channel ID
+              </p>
+            </div>
+          )}
+
+          {formData.channelMode === 'blacklist' && (
+            <div>
+              <Label>Disabled Channels</Label>
+              <Input
+                placeholder="Channel IDs (comma-separated): 123456789, 987654321"
+                value={(formData.disabledChannels || []).join(', ')}
+                onChange={(e) => {
+                  const channels = e.target.value
+                    .split(',')
+                    .map(s => s.trim())
+                    .filter(Boolean);
+                  setFormData({ ...formData, disabledChannels: channels });
+                }}
+              />
+            </div>
+          )}
         </div>
       </Card>
 

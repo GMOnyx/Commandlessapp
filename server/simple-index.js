@@ -2507,6 +2507,7 @@ app.post('/api/keys/:keyId/rotate', async (req, res) => {
 // - Requires active subscription (or admin status)
 app.post('/v1/relay/events', async (req, res) => {
   try {
+    console.log('[relay/events] Request received');
     // Body is already parsed by express.json()
     const event = (req.body && typeof req.body === 'object') ? req.body : {};
 
@@ -2583,7 +2584,78 @@ app.post('/v1/relay/events', async (req, res) => {
       } catch {}
     }
 
-    try { console.log(`[relay] personaBotId resolved: ${personaBotId || 'none'}`); } catch {}
+    try { console.log(`[relay] personaBotId resolved: ${personaBotId || 'none'} (from explicitBotId=${explicitBotId || 'none'}, botClientId=${botClientId || 'none'})`); } catch {}
+
+    // ---------------- CONFIG ENFORCEMENT ----------------
+    if (personaBotId) {
+      // Fetch bot config
+      const { data: config, error: configErr } = await supabase
+        .from('bot_configurations')
+        .select('*')
+        .eq('bot_id', personaBotId)
+        .maybeSingle();
+
+      if (configErr) {
+        console.log(`[relay] Config fetch error for bot ${personaBotId}:`, configErr.message);
+      }
+
+      // If config exists, enforce master switch and channel filtering
+      if (config) {
+        console.log(`[relay] Config loaded for bot ${personaBotId}: enabled=${config.enabled}, channelMode=${config.channel_mode}`);
+        
+        // Master switch: treat null/undefined as enabled (default), only block explicit false
+        // But be defensive: if enabled is explicitly false, block
+        if (config.enabled === false) {
+          console.log(`[relay] Bot ${personaBotId} is disabled by config - blocking request`);
+          return res.json({
+            decision: {
+              id: 'config-disabled',
+              intent: 'disabled',
+              confidence: 1,
+              actions: [
+                { kind: 'reply', content: 'This bot is currently disabled by the admin.' }
+              ]
+            }
+          });
+        }
+
+        // Channel control
+        const enabledChannels = config.enabled_channels || [];
+        const disabledChannels = config.disabled_channels || [];
+        const channelMode = config.channel_mode || 'all';
+
+        if (channelMode === 'whitelist' && enabledChannels.length > 0) {
+          if (!enabledChannels.includes(channelId)) {
+            return res.json({
+              decision: {
+                id: 'channel-blocked',
+                intent: 'filtered',
+                confidence: 1,
+                actions: []
+              }
+            });
+          }
+        }
+
+        if (channelMode === 'blacklist' && disabledChannels.length > 0) {
+          if (disabledChannels.includes(channelId)) {
+            return res.json({
+              decision: {
+                id: 'channel-blocked',
+                intent: 'filtered',
+                confidence: 1,
+                actions: []
+              }
+            });
+          }
+        }
+      } else {
+        console.log(`[relay] No config found for bot ${personaBotId} - allowing request (will use defaults)`);
+      }
+    } else {
+      console.log(`[relay] No personaBotId resolved - skipping config enforcement (explicitBotId=${explicitBotId || 'none'}, botClientId=${botClientId || 'none'})`);
+    }
+    // ----------------------------------------------------
 
     // Decide path: if starts with a slash, emit command action directly
     const slashMatch = /^\s*\/([\w-]+)(?:\s+(.+))?/i.exec(content);

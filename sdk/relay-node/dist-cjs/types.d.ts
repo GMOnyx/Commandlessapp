@@ -8,6 +8,7 @@ export type RelayEvent = {
     content: string;
     timestamp: number;
     botClientId?: Snowflake;
+    botId?: number | string;
     isReplyToBot?: boolean;
     referencedMessageId?: string;
     referencedMessageAuthorId?: Snowflake;
@@ -22,6 +23,7 @@ export type RelayEvent = {
     options?: Record<string, unknown>;
     timestamp: number;
     botClientId?: Snowflake;
+    botId?: number | string;
 };
 export interface Decision {
     id: string;
