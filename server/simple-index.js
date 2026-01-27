@@ -2074,6 +2074,7 @@ app.get('/v1/relay/config', async (req, res) => {
       enabledUsers: config.enabled_users || [],
       disabledUsers: config.disabled_users || [],
       premiumRoleIds: config.premium_role_ids || [],
+      premiumUserIds: config.premium_user_ids || [],
       enabledCommandCategories: config.enabled_command_categories || ['moderation', 'utility', 'fun', 'economy'],
       disabledCommands: config.disabled_commands || [],
       commandMode: config.command_mode || 'all',
@@ -2179,6 +2180,7 @@ app.get('/api/bots/:id/config', async (req, res) => {
       enabledUsers: config.enabled_users || [],
       disabledUsers: config.disabled_users || [],
       premiumRoleIds: config.premium_role_ids || [],
+      premiumUserIds: config.premium_user_ids || [],
       enabledCommandCategories: config.enabled_command_categories || ['moderation', 'utility', 'fun', 'economy'],
       disabledCommands: config.disabled_commands || [],
       commandMode: config.command_mode || 'all',
@@ -2247,6 +2249,7 @@ app.put('/api/bots/:id/config', async (req, res) => {
     if (req.body.enabledUsers !== undefined) updates.enabled_users = req.body.enabledUsers;
     if (req.body.disabledUsers !== undefined) updates.disabled_users = req.body.disabledUsers;
     if (req.body.premiumRoleIds !== undefined) updates.premium_role_ids = req.body.premiumRoleIds;
+    if (req.body.premiumUserIds !== undefined) updates.premium_user_ids = req.body.premiumUserIds;
     if (req.body.enabledCommandCategories !== undefined) updates.enabled_command_categories = req.body.enabledCommandCategories;
     if (req.body.disabledCommands !== undefined) updates.disabled_commands = req.body.disabledCommands;
     if (req.body.commandMode !== undefined) updates.command_mode = req.body.commandMode;

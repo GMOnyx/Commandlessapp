@@ -10,6 +10,7 @@ export interface BotConfig {
     enabledUsers: string[];
     disabledUsers: string[];
     premiumRoleIds: string[];
+    premiumUserIds: string[];
     enabledCommandCategories: string[];
     disabledCommands: string[];
     commandMode: 'all' | 'category_based' | 'whitelist' | 'blacklist';

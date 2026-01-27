@@ -12,6 +12,7 @@ export interface BotConfig {
   enabledUsers: string[];
   disabledUsers: string[];
   premiumRoleIds: string[];
+  premiumUserIds: string[];
   enabledCommandCategories: string[];
   disabledCommands: string[];
   commandMode: 'all' | 'category_based' | 'whitelist' | 'blacklist';
@@ -201,7 +202,9 @@ export class ConfigCache {
     // Check permission mode
     switch (this.config.permissionMode) {
       case 'premium_only': {
-        const isPremium = roles.some(roleId => this.config!.premiumRoleIds.includes(roleId));
+        const isPremiumRole = roles.some(roleId => this.config!.premiumRoleIds.includes(roleId));
+        const isPremiumUser = (this.config.premiumUserIds || []).includes(userId);
+        const isPremium = isPremiumRole || isPremiumUser;
         if (!isPremium) {
           return { allowed: false, reason: 'Premium only' };
         }
@@ -238,7 +241,9 @@ export class ConfigCache {
 
     const now = Date.now();
     const roles = memberRoles || [];
-    const isPremium = roles.some(roleId => this.config!.premiumRoleIds.includes(roleId));
+    const isPremiumRole = roles.some(roleId => this.config!.premiumRoleIds.includes(roleId));
+    const isPremiumUser = (this.config.premiumUserIds || []).includes(userId);
+    const isPremium = isPremiumRole || isPremiumUser;
     
     // User rate limit
     const userLimit = isPremium ? this.config.premiumRateLimit : this.config.freeRateLimit;

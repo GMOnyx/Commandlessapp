@@ -58,8 +58,19 @@ export function useDiscordAdapter(opts: DiscordAdapterOptions) {
       });
 
       if (!filterResult.allowed) {
-        // Silently ignore (filtered by config)
-        console.log(`[commandless] Message filtered: ${filterResult.reason}`);
+        // If this is a premium-only feature and the user is not premium,
+        // send a friendly explanation instead of silently ignoring.
+        if (filterResult.reason === 'Premium only') {
+          try {
+            await message.reply(
+              "This command is part of this bot's premium features, and your account is not marked as premium for this bot."
+            );
+          } catch {
+            // ignore reply failures
+          }
+        } else {
+          console.log(`[commandless] Message filtered: ${filterResult.reason}`);
+        }
         return;
       }
     }

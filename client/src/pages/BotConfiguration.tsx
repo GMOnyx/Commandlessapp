@@ -42,6 +42,7 @@ interface BotConfig {
   enabledUsers: string[];
   disabledUsers: string[];
   premiumRoleIds: string[];
+  premiumUserIds: string[];
   enabledCommandCategories: string[];
   disabledCommands: string[];
   commandMode: 'all' | 'category_based' | 'whitelist' | 'blacklist';
@@ -194,22 +195,41 @@ export default function BotConfiguration() {
           </div>
 
           {formData.permissionMode === 'premium_only' && (
-            <div>
-              <Label>Premium Role IDs</Label>
-              <Input
-                placeholder="Role IDs (comma-separated): 555666777, 888999000"
-                value={(formData.premiumRoleIds || []).join(', ')}
-                onChange={(e) => {
-                  const roles = e.target.value
-                    .split(',')
-                    .map(s => s.trim())
-                    .filter(Boolean);
-                  setFormData({ ...formData, premiumRoleIds: roles });
-                }}
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Right-click a role → Copy Role ID
-              </p>
+            <div className="space-y-4">
+              <div>
+                <Label>Premium Role IDs (in any server)</Label>
+                <Input
+                  placeholder="Role IDs (comma-separated): 555666777, 888999000"
+                  value={(formData.premiumRoleIds || []).join(', ')}
+                  onChange={(e) => {
+                    const roles = e.target.value
+                      .split(',')
+                      .map(s => s.trim())
+                      .filter(Boolean);
+                    setFormData({ ...formData, premiumRoleIds: roles });
+                  }}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Discord roles that should always be treated as premium (for users inside your servers).
+                </p>
+              </div>
+              <div>
+                <Label>Premium Discord User IDs (CSV)</Label>
+                <Input
+                  placeholder="123456789012345678, 987654321098765432"
+                  value={(formData.premiumUserIds || []).join(', ')}
+                  onChange={(e) => {
+                    const users = e.target.value
+                      .split(',')
+                      .map(s => s.trim())
+                      .filter(Boolean);
+                    setFormData({ ...formData, premiumUserIds: users });
+                  }}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Global Discord user IDs for your premium customers (even if they are not in a specific server).
+                </p>
+              </div>
             </div>
           )}
 
