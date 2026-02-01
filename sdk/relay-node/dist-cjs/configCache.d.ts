@@ -39,6 +39,7 @@ export declare class ConfigCache {
     private apiKey;
     private botId;
     private pollInterval;
+    private forcedRefetchDone;
     constructor(baseUrl: string, apiKey: string);
     /**
      * Fetch configuration from backend

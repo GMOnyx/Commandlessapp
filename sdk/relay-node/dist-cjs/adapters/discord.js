@@ -34,27 +34,30 @@ function useDiscordAdapter(opts) {
             return;
         // Get member roles if in guild
         const memberRoles = message.member?.roles.cache.map(r => r.id) || [];
-        // Config-based filtering (if enabled)
+        // Config-based filtering (if enabled). Coerce author ID to string (Discord.js can give string or Snowflake).
         if (configCache && relay.botId) {
+            const authorId = message.author.id != null ? String(message.author.id) : '';
             const filterResult = configCache.shouldProcessMessage({
                 channelId: message.channelId,
-                authorId: message.author.id,
+                authorId,
                 guildId: message.guildId || undefined,
                 memberRoles,
             });
             if (!filterResult.allowed) {
-                // If this is a premium-only feature and the user is not premium,
-                // send a friendly explanation instead of silently ignoring.
-                if (filterResult.reason === 'Premium only') {
-                    try {
+                const reason = filterResult.reason ?? '';
+                try {
+                    if (reason === 'Premium only') {
                         await message.reply("This command is part of this bot's premium features, and your account is not marked as premium for this bot.");
                     }
-                    catch {
-                        // ignore reply failures
+                    else if (reason.startsWith('Rate limit') || reason.startsWith('Server rate limit')) {
+                        await message.reply("You've hit the rate limit for this bot. Please try again later.");
+                    }
+                    else {
+                        console.log(`[commandless] Message filtered: ${reason}`);
                     }
                 }
-                else {
-                    console.log(`[commandless] Message filtered: ${filterResult.reason}`);
+                catch {
+                    // ignore reply failures
                 }
                 return;
             }

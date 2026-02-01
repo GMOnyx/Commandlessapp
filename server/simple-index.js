@@ -2061,9 +2061,13 @@ app.get('/v1/relay/config', async (req, res) => {
       console.log('[config] Created default config successfully');
     }
 
-    // Diagnostic: log what we're sending for premium (no raw IDs)
+    // Diagnostic: log raw DB value so we can see if premium_user_ids is being read (RLS/service role)
+    const rawPremium = config.premium_user_ids;
     const premiumUserIds = (config.premium_user_ids || []).map(String);
-    console.log(`[config] Serving relay config botId=${botId} permission_mode=${config.permission_mode} premiumUserIds.length=${premiumUserIds.length}`);
+    console.log(`[config] Relay config botId=${botId} permission_mode=${config.permission_mode} raw_premium_user_ids=${rawPremium == null ? 'null' : Array.isArray(rawPremium) ? `array[${rawPremium.length}]` : typeof rawPremium} serving_length=${premiumUserIds.length}`);
+    if (config.permission_mode === 'premium_only' && premiumUserIds.length === 0 && !SUPABASE_SERVICE_ROLE_KEY) {
+      console.warn('[config] premium_only but premiumUserIds empty - RLS may be blocking. Set SUPABASE_SERVICE_ROLE_KEY on the server.');
+    }
 
     // Return in SDK-friendly format (camelCase). Coerce IDs to strings so SDK compares correctly (Discord IDs are strings).
     res.json({

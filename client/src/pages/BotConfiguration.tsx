@@ -22,7 +22,6 @@ import {
   Shield,
   MessageSquare,
   Clock,
-  Zap,
   CheckCircle2,
   XCircle,
   Loader2,
@@ -389,65 +388,6 @@ export default function BotConfiguration() {
                   setFormData({ ...formData, disabledChannels: channels });
                 }}
               />
-            </div>
-          )}
-        </div>
-      </Card>
-
-      {/* Trigger Settings */}
-      <Card className="p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <Zap className="h-5 w-5 text-primary" />
-          <h2 className="text-xl font-semibold">Trigger Settings</h2>
-        </div>
-        <p className="text-sm text-gray-500 mb-4">
-          How users activate the AI
-        </p>
-
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="space-y-1">
-              <Label>Require Mention or Reply</Label>
-              <p className="text-xs text-gray-500">
-                Only process messages when @mentioned or replying to bot
-              </p>
-            </div>
-            <Switch
-              checked={formData.mentionRequired !== false}
-              onCheckedChange={(checked) => setFormData({ ...formData, mentionRequired: checked })}
-            />
-          </div>
-
-          <Separator />
-
-          <div>
-            <Label>Trigger Mode</Label>
-            <Select
-              value={formData.triggerMode || 'mention'}
-              onValueChange={(value: any) => setFormData({ ...formData, triggerMode: value })}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="mention">Only When Mentioned (safest)</SelectItem>
-                <SelectItem value="prefix">Custom Prefix</SelectItem>
-                <SelectItem value="always">Always (all messages)</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {formData.triggerMode === 'prefix' && (
-            <div>
-              <Label>Custom Prefix</Label>
-              <Input
-                placeholder="e.g., ai, bot, !"
-                value={formData.customPrefix || ''}
-                onChange={(e) => setFormData({ ...formData, customPrefix: e.target.value })}
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Users will type: <code className="bg-gray-100 px-1 rounded">{formData.customPrefix || 'ai'} ban user</code>
-              </p>
             </div>
           )}
         </div>
