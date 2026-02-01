@@ -65,10 +65,11 @@ export default function BotConfiguration() {
   const botId = params?.id;
   const queryClient = useQueryClient();
 
-  // Fetch bot config
+  // Fetch bot config (refetch on mount so connectionMode is fresh for token vs SDK)
   const { data: config, isLoading } = useQuery<BotConfig>({
     queryKey: [`/api/bots/${botId}/config`],
     enabled: !!botId,
+    refetchOnMount: 'always',
   });
 
   // Local state for form
@@ -227,7 +228,7 @@ export default function BotConfiguration() {
                   }}
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Use each person&apos;s <strong>Discord user ID</strong> (long number only, e.g. 1420785156632871003). Not your dashboard/account ID (user_xxx). In Discord: enable Developer Mode, then right‑click the user → Copy User ID.
+                  Universal Discord user IDs across all servers (comma-separated).
                 </p>
               </div>
             </div>
@@ -396,6 +397,7 @@ export default function BotConfiguration() {
 
       {/* AI Behavior – editable only for token flow (hosted); read-only for SDK bots */}
       {(() => {
+        // Only enable when server explicitly says token; treat missing/undefined/sdk as SDK (disabled)
         const isTokenFlow = config.connectionMode === 'token';
         return (
           <Card className={`p-6 ${isTokenFlow ? '' : 'opacity-75'}`}>

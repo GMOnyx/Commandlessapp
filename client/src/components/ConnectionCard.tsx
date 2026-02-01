@@ -332,11 +332,7 @@ export default function ConnectionCard({ bot, isNewCard = false }: ConnectionCar
       </CardContent>
       <CardFooter className="bg-gray-50 px-5 py-3 border-t border-gray-200">
         <div className="flex items-center justify-between w-full">
-          {isSdkBot ? (
-            <p className="text-sm text-gray-500">
-              SDK bot connected. Configure permissions and rate limits in settings.
-            </p>
-          ) : (
+          {!isSdkBot && (
             <div className="text-sm">
               {bot.isConnected ? (
                 <button

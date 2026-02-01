@@ -2174,14 +2174,16 @@ app.get('/api/bots/:id/config', async (req, res) => {
       .single();
 
     // Determine connection mode for UI (token flow = hosted, sdk = self-hosted). Do not send token.
+    // Real Discord bot tokens are long and contain two dots (XXX.YYY.ZZZ). Empty/placeholder/masked = SDK.
     const { data: botRow } = await supabase
       .from('bots')
       .select('token')
       .eq('id', botId)
       .eq('user_id', userId)
       .single();
-    const hasRealToken = botRow?.token && String(botRow.token).trim().length >= 50;
-    const connectionMode = hasRealToken ? 'token' : 'sdk';
+    const raw = botRow?.token != null ? String(botRow.token).trim() : '';
+    const isPlaceholder = !raw || raw.length < 50 || /REDACTED|\*\*\*|^sdk$/i.test(raw) || (raw.match(/\./g) || []).length < 2;
+    const connectionMode = isPlaceholder ? 'sdk' : 'token';
 
     // Return in frontend-friendly format (IDs as strings for consistency)
     res.json({

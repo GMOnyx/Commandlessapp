@@ -387,9 +387,16 @@ export default function BotCreationDialog({ open, onOpenChange, editBot }: BotCr
                     </p>
                   )}
                   {isEditMode && (
-                    <p className="text-xs text-gray-500">
-                      Leave empty to keep current token. Only update if you need to change it.
-                    </p>
+                    <>
+                      <p className="text-xs text-gray-500">
+                        Leave empty to keep current token. Only update if you need to change it.
+                      </p>
+                      {(editBot as any)?.connectionMode === 'sdk' && (
+                        <p className="text-xs text-amber-600 mt-1">
+                          This is an SDK bot. Leave token empty to keep using the SDK. Adding a token here will switch it to hosted (token) flow.
+                        </p>
+                      )}
+                    </>
                   )}
                   <FormMessage />
                 </FormItem>
