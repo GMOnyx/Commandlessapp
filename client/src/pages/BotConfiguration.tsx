@@ -189,7 +189,7 @@ export default function BotConfiguration() {
                 <SelectItem value="all">Everyone (default)</SelectItem>
                 <SelectItem value="whitelist">Only Selected Roles/Users</SelectItem>
                 <SelectItem value="blacklist">Everyone Except Selected</SelectItem>
-                <SelectItem value="premium_only">Premium Roles Only</SelectItem>
+                <SelectItem value="premium_only">Premium only (roles or user IDs)</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -227,7 +227,7 @@ export default function BotConfiguration() {
                   }}
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Global Discord user IDs for your premium customers (even if they are not in a specific server).
+                  Use each person&apos;s <strong>Discord user ID</strong> (long number only, e.g. 1420785156632871003). Not your dashboard/account ID (user_xxx). In Discord: enable Developer Mode, then right‑click the user → Copy User ID.
                 </p>
               </div>
             </div>

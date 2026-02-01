@@ -2061,7 +2061,11 @@ app.get('/v1/relay/config', async (req, res) => {
       console.log('[config] Created default config successfully');
     }
 
-    // Return in SDK-friendly format (camelCase)
+    // Diagnostic: log what we're sending for premium (no raw IDs)
+    const premiumUserIds = (config.premium_user_ids || []).map(String);
+    console.log(`[config] Serving relay config botId=${botId} permission_mode=${config.permission_mode} premiumUserIds.length=${premiumUserIds.length}`);
+
+    // Return in SDK-friendly format (camelCase). Coerce IDs to strings so SDK compares correctly (Discord IDs are strings).
     res.json({
       version: latestVersion,
       enabled: config.enabled ?? true,
@@ -2073,8 +2077,8 @@ app.get('/v1/relay/config', async (req, res) => {
       disabledRoles: config.disabled_roles || [],
       enabledUsers: config.enabled_users || [],
       disabledUsers: config.disabled_users || [],
-      premiumRoleIds: config.premium_role_ids || [],
-      premiumUserIds: config.premium_user_ids || [],
+      premiumRoleIds: (config.premium_role_ids || []).map(String),
+      premiumUserIds,
       enabledCommandCategories: config.enabled_command_categories || ['moderation', 'utility', 'fun', 'economy'],
       disabledCommands: config.disabled_commands || [],
       commandMode: config.command_mode || 'all',
@@ -2165,7 +2169,7 @@ app.get('/api/bots/:id/config', async (req, res) => {
       .eq('bot_id', botId)
       .single();
 
-    // Return in frontend-friendly format
+    // Return in frontend-friendly format (IDs as strings for consistency)
     res.json({
       id: config.id,
       botId: config.bot_id,
@@ -2179,8 +2183,8 @@ app.get('/api/bots/:id/config', async (req, res) => {
       disabledRoles: config.disabled_roles || [],
       enabledUsers: config.enabled_users || [],
       disabledUsers: config.disabled_users || [],
-      premiumRoleIds: config.premium_role_ids || [],
-      premiumUserIds: config.premium_user_ids || [],
+      premiumRoleIds: (config.premium_role_ids || []).map(String),
+      premiumUserIds: (config.premium_user_ids || []).map(String),
       enabledCommandCategories: config.enabled_command_categories || ['moderation', 'utility', 'fun', 'economy'],
       disabledCommands: config.disabled_commands || [],
       commandMode: config.command_mode || 'all',

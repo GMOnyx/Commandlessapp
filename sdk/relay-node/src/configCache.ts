@@ -203,8 +203,13 @@ export class ConfigCache {
     switch (this.config.permissionMode) {
       case 'premium_only': {
         const isPremiumRole = roles.some(roleId => this.config!.premiumRoleIds.includes(roleId));
-        const isPremiumUser = (this.config.premiumUserIds || []).includes(userId);
+        const premiumIds = (this.config.premiumUserIds || []).map(String);
+        const isPremiumUser = premiumIds.includes(String(userId));
         const isPremium = isPremiumRole || isPremiumUser;
+        // Diagnostic: masked format hint to spot ID type mismatch (e.g. Discord snowflake vs Supabase user_xxx)
+        const uidSuffix = String(userId).slice(-4);
+        const firstPremiumSuffix = premiumIds[0] ? String(premiumIds[0]).slice(-4) : 'none';
+        console.log(`[commandless] premium_only check: premiumUserIds.length=${premiumIds.length}, isPremiumUser=${isPremiumUser}, allowed=${isPremium} (authorId ends ...${uidSuffix}, first premiumId ends ...${firstPremiumSuffix})`);
         if (!isPremium) {
           return { allowed: false, reason: 'Premium only' };
         }
@@ -242,7 +247,8 @@ export class ConfigCache {
     const now = Date.now();
     const roles = memberRoles || [];
     const isPremiumRole = roles.some(roleId => this.config!.premiumRoleIds.includes(roleId));
-    const isPremiumUser = (this.config.premiumUserIds || []).includes(userId);
+    const premiumIds = (this.config.premiumUserIds || []).map(String);
+    const isPremiumUser = premiumIds.includes(String(userId));
     const isPremium = isPremiumRole || isPremiumUser;
     
     // User rate limit
