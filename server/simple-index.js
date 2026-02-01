@@ -2173,11 +2173,22 @@ app.get('/api/bots/:id/config', async (req, res) => {
       .eq('bot_id', botId)
       .single();
 
+    // Determine connection mode for UI (token flow = hosted, sdk = self-hosted). Do not send token.
+    const { data: botRow } = await supabase
+      .from('bots')
+      .select('token')
+      .eq('id', botId)
+      .eq('user_id', userId)
+      .single();
+    const hasRealToken = botRow?.token && String(botRow.token).trim().length >= 50;
+    const connectionMode = hasRealToken ? 'token' : 'sdk';
+
     // Return in frontend-friendly format (IDs as strings for consistency)
     res.json({
       id: config.id,
       botId: config.bot_id,
       version: versionInfo?.version || 1,
+      connectionMode,
       enabled: config.enabled ?? true,
       channelMode: config.channel_mode || 'all',
       enabledChannels: config.enabled_channels || [],

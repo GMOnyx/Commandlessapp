@@ -57,6 +57,7 @@ interface BotConfig {
   responseStyle: 'friendly' | 'professional' | 'minimal';
   createdAt: string;
   updatedAt: string;
+  connectionMode?: 'token' | 'sdk';
 }
 
 export default function BotConfiguration() {
@@ -393,108 +394,80 @@ export default function BotConfiguration() {
         </div>
       </Card>
 
-      {/* AI Behavior */}
-      <Card className="p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <Settings className="h-5 w-5 text-primary" />
-          <h2 className="text-xl font-semibold">AI Behavior</h2>
-        </div>
-        <p className="text-sm text-gray-500 mb-4">
-          Fine-tune AI response quality and safety
-        </p>
-
-        <div className="space-y-6">
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <Label>Confidence Threshold</Label>
-              <span className="text-sm font-medium">{Math.round((formData.confidenceThreshold ?? 0.7) * 100)}%</span>
+      {/* AI Behavior – editable only for token flow (hosted); read-only for SDK bots */}
+      {(() => {
+        const isTokenFlow = config.connectionMode === 'token';
+        return (
+          <Card className={`p-6 ${isTokenFlow ? '' : 'opacity-75'}`}>
+            <div className="flex items-center gap-2 mb-4">
+              <Settings className="h-5 w-5 text-primary" />
+              <h2 className="text-xl font-semibold">AI Behavior</h2>
             </div>
-            <Slider
-              value={[(formData.confidenceThreshold ?? 0.7) * 100]}
-              onValueChange={([value]) => setFormData({ ...formData, confidenceThreshold: value / 100 })}
-              min={50}
-              max={95}
-              step={5}
-              className="w-full"
-            />
-            <p className="text-xs text-gray-500 mt-1">
-              Only execute commands if AI is this confident
+            <p className="text-sm text-gray-500 mb-1">
+              Fine-tune AI response quality and safety
             </p>
-          </div>
-
-          <Separator />
-
-          <div className="flex items-center justify-between">
-            <div className="space-y-1">
-              <Label>Require Confirmation</Label>
-              <p className="text-xs text-gray-500">
-                Ask "Are you sure?" before executing dangerous commands
+            {!isTokenFlow && (
+              <p className="text-xs text-gray-400 mb-4">
+                Available for token flow (hosted) bots only
               </p>
-            </div>
-            <Switch
-              checked={formData.requireConfirmation || false}
-              onCheckedChange={(checked) => setFormData({ ...formData, requireConfirmation: checked })}
-            />
-          </div>
+            )}
 
-          <div>
-            <Label>Response Style</Label>
-            <Select
-              value={formData.responseStyle || 'friendly'}
-              onValueChange={(value: any) => setFormData({ ...formData, responseStyle: value })}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="friendly">Friendly & Conversational</SelectItem>
-                <SelectItem value="professional">Professional & Formal</SelectItem>
-                <SelectItem value="minimal">Minimal & Direct</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-      </Card>
+            <div className={`space-y-6 ${isTokenFlow ? '' : 'pointer-events-none'}`}>
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <Label>Confidence Threshold</Label>
+                  <span className="text-sm font-medium">{Math.round((formData.confidenceThreshold ?? 0.7) * 100)}%</span>
+                </div>
+                <Slider
+                  value={[(formData.confidenceThreshold ?? 0.7) * 100]}
+                  onValueChange={([value]) => setFormData({ ...formData, confidenceThreshold: value / 100 })}
+                  min={50}
+                  max={95}
+                  step={5}
+                  className="w-full"
+                  disabled={!isTokenFlow}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Only execute commands if AI is this confident
+                </p>
+              </div>
 
-      {/* Command Categories */}
-      <Card className="p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <Settings className="h-5 w-5 text-primary" />
-          <h2 className="text-xl font-semibold">Command Categories</h2>
-        </div>
-        <p className="text-sm text-gray-500 mb-4">
-          Enable or disable entire categories of commands
-        </p>
+              <Separator />
 
-        <div className="space-y-3">
-          {['moderation', 'utility', 'fun', 'economy'].map((category) => {
-            const enabled = (formData.enabledCommandCategories || []).includes(category);
-            return (
-              <div key={category} className="flex items-center justify-between border rounded-lg p-3">
-                <div>
-                  <p className="font-medium capitalize">{category}</p>
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <Label>Require Confirmation</Label>
                   <p className="text-xs text-gray-500">
-                    {category === 'moderation' && 'ban, kick, warn, mute, timeout'}
-                    {category === 'utility' && 'ping, help, info, server-info'}
-                    {category === 'fun' && 'joke, meme, 8ball, roll'}
-                    {category === 'economy' && 'balance, shop, daily, inventory'}
+                    Ask "Are you sure?" before executing dangerous commands
                   </p>
                 </div>
                 <Switch
-                  checked={enabled}
-                  onCheckedChange={(checked) => {
-                    const categories = formData.enabledCommandCategories || [];
-                    const updated = checked
-                      ? [...categories, category]
-                      : categories.filter(c => c !== category);
-                    setFormData({ ...formData, enabledCommandCategories: updated });
-                  }}
+                  checked={formData.requireConfirmation || false}
+                  onCheckedChange={(checked) => setFormData({ ...formData, requireConfirmation: checked })}
+                  disabled={!isTokenFlow}
                 />
               </div>
-            );
-          })}
-        </div>
-      </Card>
+
+              <div>
+                <Label>Response Style</Label>
+                <Select
+                  value={formData.responseStyle || 'friendly'}
+                  onValueChange={(value: any) => setFormData({ ...formData, responseStyle: value })}
+                >
+                  <SelectTrigger disabled={!isTokenFlow}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="friendly">Friendly & Conversational</SelectItem>
+                    <SelectItem value="professional">Professional & Formal</SelectItem>
+                    <SelectItem value="minimal">Minimal & Direct</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </Card>
+        );
+      })()}
 
       {/* Save/Reset Actions */}
       <div className="flex items-center justify-between sticky bottom-6 bg-white border rounded-lg shadow-lg p-4">
