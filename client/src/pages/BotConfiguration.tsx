@@ -213,6 +213,15 @@ export default function BotConfiguration() {
                 <p className="text-xs text-gray-500 mt-1">
                   Discord roles that should always be treated as premium (for users inside your servers).
                 </p>
+                {(formData.premiumRoleIds || []).length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {(formData.premiumRoleIds || []).map((id) => (
+                      <Badge key={id} variant="outline" className="font-mono text-[11px]">
+                        {id}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
               </div>
               <div>
                 <Label>Premium Discord User IDs (CSV)</Label>
@@ -230,6 +239,15 @@ export default function BotConfiguration() {
                 <p className="text-xs text-gray-500 mt-1">
                   Universal Discord user IDs across all servers (comma-separated).
                 </p>
+                {(formData.premiumUserIds || []).length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {(formData.premiumUserIds || []).map((id) => (
+                      <Badge key={id} variant="outline" className="font-mono text-[11px]">
+                        {id}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -248,6 +266,15 @@ export default function BotConfiguration() {
                   setFormData({ ...formData, enabledRoles: roles });
                 }}
               />
+              {(formData.enabledRoles || []).length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {(formData.enabledRoles || []).map((id) => (
+                    <Badge key={id} variant="outline" className="font-mono text-[11px]">
+                      {id}
+                    </Badge>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -265,6 +292,15 @@ export default function BotConfiguration() {
                   setFormData({ ...formData, disabledRoles: roles });
                 }}
               />
+              {(formData.disabledRoles || []).length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {(formData.disabledRoles || []).map((id) => (
+                    <Badge key={id} variant="outline" className="font-mono text-[11px]">
+                      {id}
+                    </Badge>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

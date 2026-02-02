@@ -49,6 +49,10 @@ export class ConfigCache {
   private botId: string | null = null;
   private pollInterval: NodeJS.Timeout | null = null;
   private forcedRefetchDone = false;
+  // Global, bot-wide flags derived from roles: once a user has a role match in any guild,
+  // they are treated as allowed/forbidden everywhere for this bot.
+  private globallyAllowedFromRoles = new Set<string>();
+  private globallyForbiddenFromRoles = new Set<string>();
 
   constructor(baseUrl: string, apiKey: string) {
     this.baseUrl = baseUrl;
@@ -86,10 +90,14 @@ export class ConfigCache {
       this.config = data as BotConfig;
       console.log(`[commandless] Config loaded (v${this.config.version}) premiumUserIds.length=${(this.config.premiumUserIds || []).length}`);
 
-      // If premium_only but no premium IDs, force one refetch (in case of stale/cached response)
-      if (!this.forcedRefetchDone && this.config.permissionMode === 'premium_only' && (this.config.premiumUserIds || []).length === 0) {
+      // If premium_only but there are *no* premium roles or user IDs at all,
+      // force one refetch once in case we're holding on to a stale empty config.
+      const hasAnyPremiumConfig =
+        (this.config.premiumUserIds && this.config.premiumUserIds.length > 0) ||
+        (this.config.premiumRoleIds && this.config.premiumRoleIds.length > 0);
+      if (!this.forcedRefetchDone && this.config.permissionMode === 'premium_only' && !hasAnyPremiumConfig) {
         this.forcedRefetchDone = true;
-        console.log(`[commandless] premium_only with empty premiumUserIds - forcing one refetch`);
+        console.log(`[commandless] premium_only with no premium roles or user IDs – forcing one refetch`);
         this.config = null;
         return this.fetch(botId);
       }
@@ -203,8 +211,18 @@ export class ConfigCache {
 
     const roles = memberRoles || [];
 
+    // Promote role matches to global, bot-wide flags.
+    const hasGloballyForbiddenRoleHere = roles.some(roleId => this.config!.disabledRoles.includes(roleId));
+    const hasGloballyAllowedRoleHere = roles.some(roleId => this.config!.enabledRoles.includes(roleId));
+    if (hasGloballyForbiddenRoleHere) {
+      this.globallyForbiddenFromRoles.add(userId);
+    }
+    if (hasGloballyAllowedRoleHere) {
+      this.globallyAllowedFromRoles.add(userId);
+    }
+
     // Check if user is explicitly disabled
-    if (this.config.disabledUsers.includes(userId)) {
+    if (this.config.disabledUsers.includes(userId) || this.globallyForbiddenFromRoles.has(userId)) {
       return { allowed: false, reason: 'User blacklisted' };
     }
 
@@ -215,7 +233,8 @@ export class ConfigCache {
         const premiumIds = (this.config.premiumUserIds || []).map(id => String(id).trim()).filter(Boolean);
         const authorIdStr = String(userId).trim();
         const isPremiumUser = premiumIds.includes(authorIdStr);
-        const isPremium = isPremiumRole || isPremiumUser;
+        const isGloballyPremiumFromRole = this.globallyAllowedFromRoles.has(userId);
+        const isPremium = isPremiumRole || isPremiumUser || isGloballyPremiumFromRole;
         // Diagnostic: masked format hint to spot ID type mismatch
         const uidSuffix = authorIdStr.slice(-4);
         const firstPremiumSuffix = premiumIds[0] ? premiumIds[0].slice(-4) : 'none';
@@ -228,7 +247,8 @@ export class ConfigCache {
       case 'whitelist': {
         const hasEnabledRole = roles.some(roleId => this.config!.enabledRoles.includes(roleId));
         const isEnabledUser = this.config.enabledUsers.includes(userId);
-        if (!hasEnabledRole && !isEnabledUser) {
+        const isGloballyEnabledFromRole = this.globallyAllowedFromRoles.has(userId);
+        if (!hasEnabledRole && !isEnabledUser && !isGloballyEnabledFromRole) {
           return { allowed: false, reason: 'No required role' };
         }
         break;
@@ -260,7 +280,8 @@ export class ConfigCache {
     const premiumIds = (this.config.premiumUserIds || []).map(id => String(id).trim()).filter(Boolean);
     const authorIdStr = String(userId).trim();
     const isPremiumUser = premiumIds.includes(authorIdStr);
-    const isPremium = isPremiumRole || isPremiumUser;
+    const isGloballyPremiumFromRole = this.globallyAllowedFromRoles.has(userId);
+    const isPremium = isPremiumRole || isPremiumUser || isGloballyPremiumFromRole;
     
     // User rate limit
     const userLimit = isPremium ? this.config.premiumRateLimit : this.config.freeRateLimit;

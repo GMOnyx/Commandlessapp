@@ -9,6 +9,10 @@ class ConfigCache {
         this.botId = null;
         this.pollInterval = null;
         this.forcedRefetchDone = false;
+        // Global, bot-wide flags derived from roles: once a user has a role match in any guild,
+        // they are treated as allowed/forbidden everywhere for this bot.
+        this.globallyAllowedFromRoles = new Set();
+        this.globallyForbiddenFromRoles = new Set();
         this.baseUrl = baseUrl;
         this.apiKey = apiKey;
     }
@@ -141,8 +145,17 @@ class ConfigCache {
         if (!this.config)
             return { allowed: true };
         const roles = memberRoles || [];
+        // Promote role matches to global, bot-wide flags.
+        const hasGloballyForbiddenRoleHere = roles.some(roleId => this.config.disabledRoles.includes(roleId));
+        const hasGloballyAllowedRoleHere = roles.some(roleId => this.config.enabledRoles.includes(roleId));
+        if (hasGloballyForbiddenRoleHere) {
+            this.globallyForbiddenFromRoles.add(userId);
+        }
+        if (hasGloballyAllowedRoleHere) {
+            this.globallyAllowedFromRoles.add(userId);
+        }
         // Check if user is explicitly disabled
-        if (this.config.disabledUsers.includes(userId)) {
+        if (this.config.disabledUsers.includes(userId) || this.globallyForbiddenFromRoles.has(userId)) {
             return { allowed: false, reason: 'User blacklisted' };
         }
         // Check permission mode
@@ -152,7 +165,8 @@ class ConfigCache {
                 const premiumIds = (this.config.premiumUserIds || []).map(id => String(id).trim()).filter(Boolean);
                 const authorIdStr = String(userId).trim();
                 const isPremiumUser = premiumIds.includes(authorIdStr);
-                const isPremium = isPremiumRole || isPremiumUser;
+                const isGloballyPremiumFromRole = this.globallyAllowedFromRoles.has(userId);
+                const isPremium = isPremiumRole || isPremiumUser || isGloballyPremiumFromRole;
                 // Diagnostic: masked format hint to spot ID type mismatch
                 const uidSuffix = authorIdStr.slice(-4);
                 const firstPremiumSuffix = premiumIds[0] ? premiumIds[0].slice(-4) : 'none';
@@ -165,7 +179,8 @@ class ConfigCache {
             case 'whitelist': {
                 const hasEnabledRole = roles.some(roleId => this.config.enabledRoles.includes(roleId));
                 const isEnabledUser = this.config.enabledUsers.includes(userId);
-                if (!hasEnabledRole && !isEnabledUser) {
+                const isGloballyEnabledFromRole = this.globallyAllowedFromRoles.has(userId);
+                if (!hasEnabledRole && !isEnabledUser && !isGloballyEnabledFromRole) {
                     return { allowed: false, reason: 'No required role' };
                 }
                 break;
@@ -195,7 +210,8 @@ class ConfigCache {
         const premiumIds = (this.config.premiumUserIds || []).map(id => String(id).trim()).filter(Boolean);
         const authorIdStr = String(userId).trim();
         const isPremiumUser = premiumIds.includes(authorIdStr);
-        const isPremium = isPremiumRole || isPremiumUser;
+        const isGloballyPremiumFromRole = this.globallyAllowedFromRoles.has(userId);
+        const isPremium = isPremiumRole || isPremiumUser || isGloballyPremiumFromRole;
         // User rate limit
         const userLimit = isPremium ? this.config.premiumRateLimit : this.config.freeRateLimit;
         const userKey = `user:${userId}`;

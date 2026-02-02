@@ -40,6 +40,8 @@ export declare class ConfigCache {
     private botId;
     private pollInterval;
     private forcedRefetchDone;
+    private globallyAllowedFromRoles;
+    private globallyForbiddenFromRoles;
     constructor(baseUrl: string, apiKey: string);
     /**
      * Fetch configuration from backend
