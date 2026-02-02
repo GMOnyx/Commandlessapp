@@ -188,8 +188,8 @@ export default function BotConfiguration() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Everyone (default)</SelectItem>
-                <SelectItem value="whitelist">Only Selected Roles/Users</SelectItem>
-                <SelectItem value="blacklist">Everyone Except Selected</SelectItem>
+                <SelectItem value="whitelist">Only Selected (roles or user IDs)</SelectItem>
+                <SelectItem value="blacklist">Everyone Except Selected (roles or user IDs)</SelectItem>
                 <SelectItem value="premium_only">Premium only (roles or user IDs)</SelectItem>
               </SelectContent>
             </Select>
@@ -235,36 +235,74 @@ export default function BotConfiguration() {
           )}
 
           {formData.permissionMode === 'whitelist' && (
-            <div>
-              <Label>Enabled Roles</Label>
-              <Input
-                placeholder="Role IDs (comma-separated)"
-                value={(formData.enabledRoles || []).join(', ')}
-                onChange={(e) => {
-                  const roles = e.target.value
-                    .split(',')
-                    .map(s => s.trim())
-                    .filter(Boolean);
-                  setFormData({ ...formData, enabledRoles: roles });
-                }}
-              />
+            <div className="space-y-4">
+              <div>
+                <Label>Enabled Roles</Label>
+                <Input
+                  placeholder="Role IDs (comma-separated)"
+                  value={(formData.enabledRoles || []).join(', ')}
+                  onChange={(e) => {
+                    const roles = e.target.value
+                      .split(',')
+                      .map(s => s.trim())
+                      .filter(Boolean);
+                    setFormData({ ...formData, enabledRoles: roles });
+                  }}
+                />
+              </div>
+              <div>
+                <Label>Enabled Users (CSV)</Label>
+                <Input
+                  placeholder="Discord user IDs (comma-separated)"
+                  value={(formData.enabledUsers || []).join(', ')}
+                  onChange={(e) => {
+                    const users = e.target.value
+                      .split(',')
+                      .map(s => s.trim())
+                      .filter(Boolean);
+                    setFormData({ ...formData, enabledUsers: users });
+                  }}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Discord user IDs that are allowed to use AI features, even without a specific role.
+                </p>
+              </div>
             </div>
           )}
 
           {formData.permissionMode === 'blacklist' && (
-            <div>
-              <Label>Disabled Roles</Label>
-              <Input
-                placeholder="Role IDs (comma-separated)"
-                value={(formData.disabledRoles || []).join(', ')}
-                onChange={(e) => {
-                  const roles = e.target.value
-                    .split(',')
-                    .map(s => s.trim())
-                    .filter(Boolean);
-                  setFormData({ ...formData, disabledRoles: roles });
-                }}
-              />
+            <div className="space-y-4">
+              <div>
+                <Label>Disabled Roles</Label>
+                <Input
+                  placeholder="Role IDs (comma-separated)"
+                  value={(formData.disabledRoles || []).join(', ')}
+                  onChange={(e) => {
+                    const roles = e.target.value
+                      .split(',')
+                      .map(s => s.trim())
+                      .filter(Boolean);
+                    setFormData({ ...formData, disabledRoles: roles });
+                  }}
+                />
+              </div>
+              <div>
+                <Label>Disabled Users (CSV)</Label>
+                <Input
+                  placeholder="Discord user IDs (comma-separated)"
+                  value={(formData.disabledUsers || []).join(', ')}
+                  onChange={(e) => {
+                    const users = e.target.value
+                      .split(',')
+                      .map(s => s.trim())
+                      .filter(Boolean);
+                    setFormData({ ...formData, disabledUsers: users });
+                  }}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Discord user IDs that should never be able to use AI features.
+                </p>
+              </div>
             </div>
           )}
         </div>
