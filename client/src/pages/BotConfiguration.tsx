@@ -75,38 +75,11 @@ export default function BotConfiguration() {
   // Local state for form
   const [formData, setFormData] = useState<Partial<BotConfig>>({});
   const [hasChanges, setHasChanges] = useState(false);
-  const [visiblePermissionRules, setVisiblePermissionRules] = useState<Array<'premium_only' | 'whitelist' | 'blacklist'>>([]);
-  const activePermissionMode = formData.permissionMode || 'all';
 
   // Initialize form data when config loads
   useEffect(() => {
     if (config) {
       setFormData(config);
-
-      // Derive which permission rule blocks should be visible based on existing data + current mode
-      const initialRules = new Set<'premium_only' | 'whitelist' | 'blacklist'>();
-
-      const mode = (config.permissionMode || 'all') as 'all' | 'whitelist' | 'blacklist' | 'premium_only';
-      if (mode !== 'all') {
-        initialRules.add(mode);
-      }
-
-      const hasPremium =
-        (config.premiumRoleIds && config.premiumRoleIds.length > 0) ||
-        (config.premiumUserIds && config.premiumUserIds.length > 0);
-      if (hasPremium) initialRules.add('premium_only');
-
-      const hasWhitelist =
-        (config.enabledRoles && config.enabledRoles.length > 0) ||
-        (config.enabledUsers && config.enabledUsers.length > 0);
-      if (hasWhitelist) initialRules.add('whitelist');
-
-      const hasBlacklist =
-        (config.disabledRoles && config.disabledRoles.length > 0) ||
-        (config.disabledUsers && config.disabledUsers.length > 0);
-      if (hasBlacklist) initialRules.add('blacklist');
-
-      setVisiblePermissionRules(Array.from(initialRules));
     }
   }, [config]);
 
@@ -207,20 +180,8 @@ export default function BotConfiguration() {
           <div>
             <Label>Permission Mode</Label>
             <Select
-              value={activePermissionMode}
-              onValueChange={(value: any) => {
-                const nextMode = value as 'all' | 'whitelist' | 'blacklist' | 'premium_only';
-                setFormData({ ...formData, permissionMode: nextMode });
-
-                if (nextMode === 'all') {
-                  // "Everyone" mode negates other rules visually – hide stacked cards.
-                  setVisiblePermissionRules([]);
-                } else {
-                  setVisiblePermissionRules((prev) =>
-                    prev.includes(nextMode as any) ? prev : [...prev, nextMode as any]
-                  );
-                }
-              }}
+              value={formData.permissionMode || 'all'}
+              onValueChange={(value: any) => setFormData({ ...formData, permissionMode: value })}
             >
               <SelectTrigger>
                 <SelectValue />
@@ -234,22 +195,8 @@ export default function BotConfiguration() {
             </Select>
           </div>
 
-          {/* Premium-only rule */}
-          {visiblePermissionRules.includes('premium_only') && (
-          <div className="space-y-3 border rounded-md p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-semibold">Premium only (roles or user IDs)</p>
-                <p className="text-xs text-gray-500">
-                  Users with these roles or IDs are treated as premium.
-                </p>
-              </div>
-              <Badge variant={activePermissionMode === 'premium_only' ? 'default' : 'outline'}>
-                {activePermissionMode === 'premium_only' ? 'Active' : 'Configured'}
-              </Badge>
-            </div>
-
-            <div className="space-y-3">
+          {formData.permissionMode === 'premium_only' && (
+            <div className="space-y-4">
               <div>
                 <Label>Premium Role IDs (in any server)</Label>
                 <Input
@@ -285,103 +232,40 @@ export default function BotConfiguration() {
                 </p>
               </div>
             </div>
-          </div>
           )}
 
-          {/* Whitelist rule */}
-          {visiblePermissionRules.includes('whitelist') && (
-          <div className="space-y-3 border rounded-md p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-semibold">Only selected roles/users</p>
-                <p className="text-xs text-gray-500">
-                  Only these roles or user IDs are allowed to use AI.
-                </p>
-              </div>
-              <Badge variant={activePermissionMode === 'whitelist' ? 'default' : 'outline'}>
-                {activePermissionMode === 'whitelist' ? 'Active' : 'Configured'}
-              </Badge>
+          {formData.permissionMode === 'whitelist' && (
+            <div>
+              <Label>Enabled Roles</Label>
+              <Input
+                placeholder="Role IDs (comma-separated)"
+                value={(formData.enabledRoles || []).join(', ')}
+                onChange={(e) => {
+                  const roles = e.target.value
+                    .split(',')
+                    .map(s => s.trim())
+                    .filter(Boolean);
+                  setFormData({ ...formData, enabledRoles: roles });
+                }}
+              />
             </div>
-
-            <div className="space-y-3">
-              <div>
-                <Label>Enabled Roles</Label>
-                <Input
-                  placeholder="Role IDs (comma-separated)"
-                  value={(formData.enabledRoles || []).join(', ')}
-                  onChange={(e) => {
-                    const roles = e.target.value
-                      .split(',')
-                      .map(s => s.trim())
-                      .filter(Boolean);
-                    setFormData({ ...formData, enabledRoles: roles });
-                  }}
-                />
-              </div>
-              <div>
-                <Label>Enabled User IDs (CSV)</Label>
-                <Input
-                  placeholder="123456789012345678, 987654321098765432"
-                  value={(formData.enabledUsers || []).join(', ')}
-                  onChange={(e) => {
-                    const users = e.target.value
-                      .split(',')
-                      .map(s => s.trim())
-                      .filter(Boolean);
-                    setFormData({ ...formData, enabledUsers: users });
-                  }}
-                />
-              </div>
-            </div>
-          </div>
           )}
 
-          {/* Blacklist rule */}
-          {visiblePermissionRules.includes('blacklist') && (
-          <div className="space-y-3 border rounded-md p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-semibold">Everyone except selected</p>
-                <p className="text-xs text-gray-500">
-                  Block these roles or user IDs from using AI.
-                </p>
-              </div>
-              <Badge variant={activePermissionMode === 'blacklist' ? 'default' : 'outline'}>
-                {activePermissionMode === 'blacklist' ? 'Active' : 'Configured'}
-              </Badge>
+          {formData.permissionMode === 'blacklist' && (
+            <div>
+              <Label>Disabled Roles</Label>
+              <Input
+                placeholder="Role IDs (comma-separated)"
+                value={(formData.disabledRoles || []).join(', ')}
+                onChange={(e) => {
+                  const roles = e.target.value
+                    .split(',')
+                    .map(s => s.trim())
+                    .filter(Boolean);
+                  setFormData({ ...formData, disabledRoles: roles });
+                }}
+              />
             </div>
-
-            <div className="space-y-3">
-              <div>
-                <Label>Disabled Roles</Label>
-                <Input
-                  placeholder="Role IDs (comma-separated)"
-                  value={(formData.disabledRoles || []).join(', ')}
-                  onChange={(e) => {
-                    const roles = e.target.value
-                      .split(',')
-                      .map(s => s.trim())
-                      .filter(Boolean);
-                    setFormData({ ...formData, disabledRoles: roles });
-                  }}
-                />
-              </div>
-              <div>
-                <Label>Disabled User IDs (CSV)</Label>
-                <Input
-                  placeholder="123456789012345678, 987654321098765432"
-                  value={(formData.disabledUsers || []).join(', ')}
-                  onChange={(e) => {
-                    const users = e.target.value
-                      .split(',')
-                      .map(s => s.trim())
-                      .filter(Boolean);
-                    setFormData({ ...formData, disabledUsers: users });
-                  }}
-                />
-              </div>
-            </div>
-          </div>
           )}
         </div>
       </Card>
