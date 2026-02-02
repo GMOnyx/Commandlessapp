@@ -235,36 +235,68 @@ export default function BotConfiguration() {
           )}
 
           {formData.permissionMode === 'whitelist' && (
-            <div>
-              <Label>Enabled Roles</Label>
-              <Input
-                placeholder="Role IDs (comma-separated)"
-                value={(formData.enabledRoles || []).join(', ')}
-                onChange={(e) => {
-                  const roles = e.target.value
-                    .split(',')
-                    .map(s => s.trim())
-                    .filter(Boolean);
-                  setFormData({ ...formData, enabledRoles: roles });
-                }}
-              />
+            <div className="space-y-4">
+              <div>
+                <Label>Enabled Roles</Label>
+                <Input
+                  placeholder="Role IDs (comma-separated)"
+                  value={(formData.enabledRoles || []).join(', ')}
+                  onChange={(e) => {
+                    const roles = e.target.value
+                      .split(',')
+                      .map(s => s.trim())
+                      .filter(Boolean);
+                    setFormData({ ...formData, enabledRoles: roles });
+                  }}
+                />
+              </div>
+              <div>
+                <Label>Enabled User IDs (CSV)</Label>
+                <Input
+                  placeholder="123456789012345678, 987654321098765432"
+                  value={(formData.enabledUsers || []).join(', ')}
+                  onChange={(e) => {
+                    const users = e.target.value
+                      .split(',')
+                      .map(s => s.trim())
+                      .filter(Boolean);
+                    setFormData({ ...formData, enabledUsers: users });
+                  }}
+                />
+              </div>
             </div>
           )}
 
           {formData.permissionMode === 'blacklist' && (
-            <div>
-              <Label>Disabled Roles</Label>
-              <Input
-                placeholder="Role IDs (comma-separated)"
-                value={(formData.disabledRoles || []).join(', ')}
-                onChange={(e) => {
-                  const roles = e.target.value
-                    .split(',')
-                    .map(s => s.trim())
-                    .filter(Boolean);
-                  setFormData({ ...formData, disabledRoles: roles });
-                }}
-              />
+            <div className="space-y-4">
+              <div>
+                <Label>Disabled Roles</Label>
+                <Input
+                  placeholder="Role IDs (comma-separated)"
+                  value={(formData.disabledRoles || []).join(', ')}
+                  onChange={(e) => {
+                    const roles = e.target.value
+                      .split(',')
+                      .map(s => s.trim())
+                      .filter(Boolean);
+                    setFormData({ ...formData, disabledRoles: roles });
+                  }}
+                />
+              </div>
+              <div>
+                <Label>Disabled User IDs (CSV)</Label>
+                <Input
+                  placeholder="123456789012345678, 987654321098765432"
+                  value={(formData.disabledUsers || []).join(', ')}
+                  onChange={(e) => {
+                    const users = e.target.value
+                      .split(',')
+                      .map(s => s.trim())
+                      .filter(Boolean);
+                    setFormData({ ...formData, disabledUsers: users });
+                  }}
+                />
+              </div>
             </div>
           )}
         </div>
