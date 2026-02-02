@@ -211,7 +211,11 @@ export default function BotConfiguration() {
               onValueChange={(value: any) => {
                 const nextMode = value as 'all' | 'whitelist' | 'blacklist' | 'premium_only';
                 setFormData({ ...formData, permissionMode: nextMode });
-                if (nextMode !== 'all') {
+
+                if (nextMode === 'all') {
+                  // "Everyone" mode negates other rules visually – hide stacked cards.
+                  setVisiblePermissionRules([]);
+                } else {
                   setVisiblePermissionRules((prev) =>
                     prev.includes(nextMode as any) ? prev : [...prev, nextMode as any]
                   );
