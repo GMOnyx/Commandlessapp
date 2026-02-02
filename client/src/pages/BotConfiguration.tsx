@@ -75,12 +75,38 @@ export default function BotConfiguration() {
   // Local state for form
   const [formData, setFormData] = useState<Partial<BotConfig>>({});
   const [hasChanges, setHasChanges] = useState(false);
+  const [visiblePermissionRules, setVisiblePermissionRules] = useState<Array<'premium_only' | 'whitelist' | 'blacklist'>>([]);
   const activePermissionMode = formData.permissionMode || 'all';
 
   // Initialize form data when config loads
   useEffect(() => {
     if (config) {
       setFormData(config);
+
+      // Derive which permission rule blocks should be visible based on existing data + current mode
+      const initialRules = new Set<'premium_only' | 'whitelist' | 'blacklist'>();
+
+      const mode = (config.permissionMode || 'all') as 'all' | 'whitelist' | 'blacklist' | 'premium_only';
+      if (mode !== 'all') {
+        initialRules.add(mode);
+      }
+
+      const hasPremium =
+        (config.premiumRoleIds && config.premiumRoleIds.length > 0) ||
+        (config.premiumUserIds && config.premiumUserIds.length > 0);
+      if (hasPremium) initialRules.add('premium_only');
+
+      const hasWhitelist =
+        (config.enabledRoles && config.enabledRoles.length > 0) ||
+        (config.enabledUsers && config.enabledUsers.length > 0);
+      if (hasWhitelist) initialRules.add('whitelist');
+
+      const hasBlacklist =
+        (config.disabledRoles && config.disabledRoles.length > 0) ||
+        (config.disabledUsers && config.disabledUsers.length > 0);
+      if (hasBlacklist) initialRules.add('blacklist');
+
+      setVisiblePermissionRules(Array.from(initialRules));
     }
   }, [config]);
 
@@ -182,7 +208,15 @@ export default function BotConfiguration() {
             <Label>Permission Mode</Label>
             <Select
               value={activePermissionMode}
-              onValueChange={(value: any) => setFormData({ ...formData, permissionMode: value })}
+              onValueChange={(value: any) => {
+                const nextMode = value as 'all' | 'whitelist' | 'blacklist' | 'premium_only';
+                setFormData({ ...formData, permissionMode: nextMode });
+                if (nextMode !== 'all') {
+                  setVisiblePermissionRules((prev) =>
+                    prev.includes(nextMode as any) ? prev : [...prev, nextMode as any]
+                  );
+                }
+              }}
             >
               <SelectTrigger>
                 <SelectValue />
@@ -197,6 +231,7 @@ export default function BotConfiguration() {
           </div>
 
           {/* Premium-only rule */}
+          {visiblePermissionRules.includes('premium_only') && (
           <div className="space-y-3 border rounded-md p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -247,8 +282,10 @@ export default function BotConfiguration() {
               </div>
             </div>
           </div>
+          )}
 
           {/* Whitelist rule */}
+          {visiblePermissionRules.includes('whitelist') && (
           <div className="space-y-3 border rounded-md p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -293,8 +330,10 @@ export default function BotConfiguration() {
               </div>
             </div>
           </div>
+          )}
 
           {/* Blacklist rule */}
+          {visiblePermissionRules.includes('blacklist') && (
           <div className="space-y-3 border rounded-md p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -304,7 +343,7 @@ export default function BotConfiguration() {
                 </p>
               </div>
               <Badge variant={activePermissionMode === 'blacklist' ? 'default' : 'outline'}>
-                {activePermissionMode === 'blacklist' ? 'default' : 'outline'}
+                {activePermissionMode === 'blacklist' ? 'Active' : 'Configured'}
               </Badge>
             </div>
 
@@ -339,6 +378,7 @@ export default function BotConfiguration() {
               </div>
             </div>
           </div>
+          )}
         </div>
       </Card>
 
