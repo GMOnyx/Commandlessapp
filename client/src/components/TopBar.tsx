@@ -38,6 +38,7 @@ export default function TopBar({ onMobileMenuClick }: TopBarProps) {
             description: "You have unlimited free access. No billing management needed.",
             variant: "default",
           });
+          setLoading(false);
         } else if (response.mode === 'credits') {
           // User is on a free trial with credits; no portal to open
           toast({
@@ -45,6 +46,7 @@ export default function TopBar({ onMobileMenuClick }: TopBarProps) {
             description: response.message || "You are currently on a free trial. No billing management needed yet.",
             variant: "default",
           });
+          setLoading(false);
         } else {
           window.location.href = response.url;
         }
@@ -128,18 +130,6 @@ export default function TopBar({ onMobileMenuClick }: TopBarProps) {
             <CreditCardIcon className="h-4 w-4 mr-1" />
             {loading ? "Loading..." : "Billing"}
           </Button>
-          
-          {/* Help Menu */}
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            className="rounded-full hover:bg-gray-100"
-            onClick={handleHelpClick}
-          >
-            <span className="sr-only">Help center</span>
-            <HelpCircleIcon className="h-5 w-5" />
-          </Button>
-          
           {/* Clerk User Button with logout functionality */}
           <UserButton 
             afterSignOutUrl="/login"

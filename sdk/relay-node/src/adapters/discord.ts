@@ -109,8 +109,8 @@ export function useDiscordAdapter(opts: DiscordAdapterOptions) {
       referencedMessageId: message.reference?.messageId,
       referencedMessageAuthorId: message.reference ? (client.user?.id as string | undefined) : undefined,
     };
+    let typingTimer: any = null;
     try {
-      let typingTimer: any = null;
       try { await (message.channel as any)?.sendTyping?.(); } catch {}
       typingTimer = setInterval(() => {
         try { (message.channel as any)?.sendTyping?.(); } catch {}
@@ -118,11 +118,23 @@ export function useDiscordAdapter(opts: DiscordAdapterOptions) {
 
       const dec = await relay.sendEvent(evt);
       if (dec) await (opts.execute ? opts.execute(dec, { message }) : defaultExecute(dec, { message }, opts));
+    } catch (err: any) {
+      const msg = String(err?.message || err || '');
+      // If the relay rejected the event due to billing (402 Payment Required),
+      // let the user know instead of leaving typing running forever.
+      if (msg.includes('402') || msg.includes('SUBSCRIPTION_REQUIRED') || msg.toLowerCase().includes('payment required')) {
+        try {
+          await message.reply(
+            "This bot's Commandless subscription is inactive or out of free credits. Please ask the bot owner to update billing."
+          );
+        } catch {
+          // ignore reply failures
+        }
+      }
+      // user code can add additional logging if desired
+    } finally {
+      // ensure typing indicator is always cleared
       if (typingTimer) clearInterval(typingTimer);
-    } catch (err) {
-      // swallow; user code can add logging
-      // ensure typing cleared
-      // no-op: interval cleared by GC if not set
     }
   });
 
