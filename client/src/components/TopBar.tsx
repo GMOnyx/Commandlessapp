@@ -38,6 +38,13 @@ export default function TopBar({ onMobileMenuClick }: TopBarProps) {
             description: "You have unlimited free access. No billing management needed.",
             variant: "default",
           });
+        } else if (response.mode === 'credits') {
+          // User is on a free trial with credits; no portal to open
+          toast({
+            title: "Free trial active",
+            description: response.message || "You are currently on a free trial. No billing management needed yet.",
+            variant: "default",
+          });
         } else {
           window.location.href = response.url;
         }
