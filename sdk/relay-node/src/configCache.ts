@@ -90,6 +90,12 @@ export class ConfigCache {
       this.config = data as BotConfig;
       console.log(`[commandless] Config loaded (v${this.config.version}) premiumUserIds.length=${(this.config.premiumUserIds || []).length}`);
 
+      // New config version should reset any role-derived global flags so that
+      // changes to disabled/enabled roles take effect cleanly. They will be
+      // re-populated as new messages come in under the updated config.
+      this.globallyAllowedFromRoles.clear();
+      this.globallyForbiddenFromRoles.clear();
+
       // If premium_only but there are *no* premium roles or user IDs at all,
       // force one refetch once in case we're holding on to a stale empty config.
       const hasAnyPremiumConfig =
@@ -214,10 +220,11 @@ export class ConfigCache {
     // Promote role matches to global, bot-wide flags.
     const hasGloballyForbiddenRoleHere = roles.some(roleId => this.config!.disabledRoles.includes(roleId));
     const hasGloballyAllowedRoleHere = roles.some(roleId => this.config!.enabledRoles.includes(roleId));
+    const hasPremiumRoleHere = roles.some(roleId => this.config!.premiumRoleIds.includes(roleId));
     if (hasGloballyForbiddenRoleHere) {
       this.globallyForbiddenFromRoles.add(userId);
     }
-    if (hasGloballyAllowedRoleHere) {
+    if (hasGloballyAllowedRoleHere || hasPremiumRoleHere) {
       this.globallyAllowedFromRoles.add(userId);
     }
 

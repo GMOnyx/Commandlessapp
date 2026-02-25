@@ -41,10 +41,18 @@ class ConfigCache {
             // Update config
             this.config = data;
             console.log(`[commandless] Config loaded (v${this.config.version}) premiumUserIds.length=${(this.config.premiumUserIds || []).length}`);
-            // If premium_only but no premium IDs, force one refetch (in case of stale/cached response)
-            if (!this.forcedRefetchDone && this.config.permissionMode === 'premium_only' && (this.config.premiumUserIds || []).length === 0) {
+            // New config version should reset any role-derived global flags so that
+            // changes to disabled/enabled roles take effect cleanly. They will be
+            // re-populated as new messages come in under the updated config.
+            this.globallyAllowedFromRoles.clear();
+            this.globallyForbiddenFromRoles.clear();
+            // If premium_only but there are *no* premium roles or user IDs at all,
+            // force one refetch once in case we're holding on to a stale empty config.
+            const hasAnyPremiumConfig = (this.config.premiumUserIds && this.config.premiumUserIds.length > 0) ||
+                (this.config.premiumRoleIds && this.config.premiumRoleIds.length > 0);
+            if (!this.forcedRefetchDone && this.config.permissionMode === 'premium_only' && !hasAnyPremiumConfig) {
                 this.forcedRefetchDone = true;
-                console.log(`[commandless] premium_only with empty premiumUserIds - forcing one refetch`);
+                console.log(`[commandless] premium_only with no premium roles or user IDs – forcing one refetch`);
                 this.config = null;
                 return this.fetch(botId);
             }
@@ -148,10 +156,11 @@ class ConfigCache {
         // Promote role matches to global, bot-wide flags.
         const hasGloballyForbiddenRoleHere = roles.some(roleId => this.config.disabledRoles.includes(roleId));
         const hasGloballyAllowedRoleHere = roles.some(roleId => this.config.enabledRoles.includes(roleId));
+        const hasPremiumRoleHere = roles.some(roleId => this.config.premiumRoleIds.includes(roleId));
         if (hasGloballyForbiddenRoleHere) {
             this.globallyForbiddenFromRoles.add(userId);
         }
-        if (hasGloballyAllowedRoleHere) {
+        if (hasGloballyAllowedRoleHere || hasPremiumRoleHere) {
             this.globallyAllowedFromRoles.add(userId);
         }
         // Check if user is explicitly disabled

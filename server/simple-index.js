@@ -68,8 +68,55 @@ async function upsertStripeCustomerMapping(userId, customerId) {
   }
 }
 
+// Free-trial credits: optional per-user message credits for trials
+async function getRemainingCredits(userId) {
+  try {
+    const { data, error } = await supabase
+      .from('user_credits')
+      .select('remaining_credits')
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (error) {
+      console.warn('[billing] getRemainingCredits failed:', error.message);
+      return 0;
+    }
+    return data?.remaining_credits || 0;
+  } catch (e) {
+    console.warn('[billing] getRemainingCredits exception:', e.message);
+    return 0;
+  }
+}
+
+async function consumeOneCredit(userId) {
+  try {
+    const { data, error } = await supabase
+      .from('user_credits')
+      .select('remaining_credits')
+      .eq('user_id', userId)
+      .single();
+    if (error || !data || data.remaining_credits <= 0) {
+      if (error) console.warn('[billing] consumeOneCredit select failed:', error.message);
+      return false;
+    }
+    const newValue = data.remaining_credits - 1;
+    const { error: updateError } = await supabase
+      .from('user_credits')
+      .update({ remaining_credits: newValue })
+      .eq('user_id', userId);
+    if (updateError) {
+      console.warn('[billing] consumeOneCredit update failed:', updateError.message);
+      return false;
+    }
+    console.log(`[billing] Consumed 1 credit for ${userId}, remaining=${newValue}`);
+    return true;
+  } catch (e) {
+    console.warn('[billing] consumeOneCredit exception:', e.message);
+    return false;
+  }
+}
+
 // Check if user has an active subscription (or is admin)
-async function hasActiveSubscription(userId) {
+async function hasActiveSubscription(userId, { consumeCredit = false } = {}) {
   // Admin users always have access
   if (isAdminUser(userId)) {
     return true;
@@ -83,23 +130,36 @@ async function hasActiveSubscription(userId) {
   
   try {
     const customerId = await getStripeCustomerIdForUser(userId);
-    if (!customerId) {
-      return false; // No customer = no subscription
+    let hasActive = false;
+
+    if (customerId) {
+      // Check for active subscriptions
+      const subscriptions = await stripe.subscriptions.list({
+        customer: customerId,
+        status: 'all', // We'll filter active ones
+        limit: 10,
+      });
+      
+      // Check if any subscription is active, trialing, or past_due (still usable)
+      const activeStatuses = ['active', 'trialing', 'past_due'];
+      hasActive = subscriptions.data.some(sub => activeStatuses.includes(sub.status));
+      console.log(`[billing] Subscription check for user ${userId}: customer=${customerId}, hasActive=${hasActive}`);
+      if (hasActive) {
+        return true;
+      }
     }
-    
-    // Check for active subscriptions
-    const subscriptions = await stripe.subscriptions.list({
-      customer: customerId,
-      status: 'all', // We'll filter active ones
-      limit: 10,
-    });
-    
-    // Check if any subscription is active, trialing, or past_due (still usable)
-    const activeStatuses = ['active', 'trialing', 'past_due'];
-    const hasActive = subscriptions.data.some(sub => activeStatuses.includes(sub.status));
-    
-    console.log(`[billing] Subscription check for user ${userId}: customer=${customerId}, hasActive=${hasActive}`);
-    return hasActive;
+
+    // No active subscription → fall back to free credits, if any
+    const credits = await getRemainingCredits(userId);
+    if (credits > 0) {
+      if (consumeCredit) {
+        await consumeOneCredit(userId);
+      }
+      console.log(`[billing] Granting access via credits for user ${userId}, remaining=${credits - (consumeCredit ? 1 : 0)}`);
+      return true;
+    }
+
+    return false;
   } catch (e) {
     console.error('[billing] Error checking subscription:', e.message);
     // On error, allow access to avoid blocking legitimate users
@@ -863,6 +923,17 @@ app.post('/api/billing/portal', async (req, res) => {
     }
     
     if (!customerId) {
+      // No Stripe customer yet. If the user has free-trial credits, treat that as active access
+      // and tell the frontend there is no portal to open.
+      const credits = await getRemainingCredits(userId);
+      if (credits > 0) {
+        return res.status(200).json({
+          url: `${APP_URL}/dashboard`,
+          message: `You are currently on a free trial with ${credits} remaining credits. No billing portal is needed yet.`,
+          mode: 'credits'
+        });
+      }
+
       return res.status(404).json({ 
         error: 'No Stripe customer on file',
         code: 'NO_CUSTOMER',
@@ -2542,11 +2613,11 @@ app.post('/v1/relay/events', async (req, res) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
     
-    // Check subscription status (admin users bypass this check)
+    // Check subscription status or free-trial credits (admin users bypass this check)
     const userId = apiKeyRecord.user_id;
-    const hasSubscription = await hasActiveSubscription(userId);
-    if (!hasSubscription) {
-      console.log(`[relay] Blocked request from user ${userId} - no active subscription`);
+    const hasSubscriptionOrCredits = await hasActiveSubscription(userId, { consumeCredit: true });
+    if (!hasSubscriptionOrCredits) {
+      console.log(`[relay] Blocked request from user ${userId} - no active subscription or credits`);
       return res.status(402).json({ 
         error: 'Payment Required',
         message: 'An active subscription is required to use Commandless. Please subscribe at https://commandless.app/pricing',
