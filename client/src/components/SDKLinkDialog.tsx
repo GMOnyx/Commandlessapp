@@ -81,11 +81,17 @@ BOT_TOKEN=your_discord_bot_token
 COMMANDLESS_API_KEY=${selectedKeyId || 'your_api_key'}
 BOT_ID=${bots?.[0]?.id || 'your_bot_id'}
 
-# Install SDK
+# Install SDK (Node.js)
 npm install discord.js @abdarrahmanabdelnasir/relay-node
 
-# Run with: npx commandless-discord
-# Or use the examples in /examples directory`;
+# Run (Node.js)
+npx commandless-discord
+
+# Install SDK (Python)
+pip install "commandless-relay[discord]"
+
+# Run (Python)
+commandless-discord`;
 
     navigator.clipboard.writeText(setupCode);
     toast({
@@ -168,10 +174,13 @@ npm install discord.js @abdarrahmanabdelnasir/relay-node
             </div>
             <div className="ml-8 space-y-3">
               <p className="text-sm text-gray-600">
-                Your bot will automatically register when it starts:
+                  Your bot will automatically register when it starts:
               </p>
-              <div className="bg-gray-50 border rounded-lg p-3 font-mono text-sm">
-                npx commandless-discord
+              <div className="bg-gray-50 border rounded-lg p-3 font-mono text-sm space-y-2">
+                <div># Node.js</div>
+                <div>npx commandless-discord</div>
+                <div className="pt-1"># Python</div>
+                <div>commandless-discord</div>
               </div>
               <Button variant="link" size="sm" asChild>
                 <a href="/sdk" className="flex items-center">

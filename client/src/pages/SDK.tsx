@@ -8,6 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 export default function SDKPage() {
   const { toast } = useToast();
   const [selectedIntegration, setSelectedIntegration] = useState<'ai-only' | 'command-execution' | null>(null);
+  const [selectedRuntime, setSelectedRuntime] = useState<'node' | 'python'>('node');
   const [copied, setCopied] = useState(false);
 
   const copyToClipboard = (text: string) => {
@@ -85,7 +86,29 @@ export default function SDKPage() {
       {/* AI Only Steps */}
       {selectedIntegration === 'ai-only' && (
         <Card className="p-6 md:p-8 border border-gray-200/50 shadow-sm">
-          <h2 className="text-2xl font-semibold text-gray-900 mb-6">AI Only Setup</h2>
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+            <h2 className="text-2xl font-semibold text-gray-900">AI Only Setup</h2>
+            <div className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1">
+              <button
+                type="button"
+                onClick={() => setSelectedRuntime('node')}
+                className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+                  selectedRuntime === 'node' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-800'
+                }`}
+              >
+                Node.js
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedRuntime('python')}
+                className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+                  selectedRuntime === 'python' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-800'
+                }`}
+              >
+                Python
+              </button>
+            </div>
+          </div>
 
           <div className="space-y-6">
             {/* Step 1 */}
@@ -97,19 +120,31 @@ export default function SDKPage() {
                 <h3 className="text-base font-medium text-gray-900 mb-2">Install the SDK</h3>
                 <p className="text-sm text-gray-600 mb-3">Add the SDK to your bot project:</p>
                 <div className="bg-gray-800 text-gray-100 p-4 rounded-lg font-mono text-sm relative">
-                  <code>npm install @abdarrahmanabdelnasir/relay-node</code>
+                  <code>{selectedRuntime === 'node' ? 'npm install @abdarrahmanabdelnasir/relay-node' : 'pip install "commandless-relay[discord]"'}</code>
                   <Button
                     size="sm"
                     variant="ghost"
                     className="absolute top-2 right-2 text-gray-400 hover:text-white"
-                    onClick={() => copyToClipboard('npm install @abdarrahmanabdelnasir/relay-node')}
+                    onClick={() =>
+                      copyToClipboard(
+                        selectedRuntime === 'node'
+                          ? 'npm install @abdarrahmanabdelnasir/relay-node'
+                          : 'pip install "commandless-relay[discord]"'
+                      )
+                    }
                   >
                     {copied ? <CheckCircleIcon className="h-4 w-4" /> : <CopyIcon className="h-4 w-4" />}
                   </Button>
                 </div>
-                <p className="text-xs text-gray-500 mt-2">
-                  Note: If you don't already have <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">discord.js</code> installed, you'll need it as well: <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">npm install discord.js</code>
-                </p>
+                {selectedRuntime === 'node' ? (
+                  <p className="text-xs text-gray-500 mt-2">
+                    Note: If you don't already have <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">discord.js</code> installed, you'll need it as well: <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">npm install discord.js</code>
+                  </p>
+                ) : (
+                  <p className="text-xs text-gray-500 mt-2">
+                    For Python CLI mode, the SDK auto-loads your <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">.env</code> file and starts with one command.
+                  </p>
+                )}
               </div>
             </div>
 
@@ -122,12 +157,12 @@ export default function SDKPage() {
                 <h3 className="text-base font-medium text-gray-900 mb-2">Run from Terminal</h3>
                 <p className="text-sm text-gray-600 mb-3">Run the bot using the CLI command. Set up your <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">.env</code> file with:</p>
                 <div className="bg-gray-800 text-gray-100 p-4 rounded-lg font-mono text-sm relative mb-3">
-                  <code>npx commandless-discord</code>
+                  <code>{selectedRuntime === 'node' ? 'npx commandless-discord' : 'commandless-discord'}</code>
                   <Button
                     size="sm"
                     variant="ghost"
                     className="absolute top-2 right-2 text-gray-400 hover:text-white"
-                    onClick={() => copyToClipboard('npx commandless-discord')}
+                    onClick={() => copyToClipboard(selectedRuntime === 'node' ? 'npx commandless-discord' : 'commandless-discord')}
                   >
                     {copied ? <CheckCircleIcon className="h-4 w-4" /> : <CopyIcon className="h-4 w-4" />}
                   </Button>
@@ -160,7 +195,7 @@ export default function SDKPage() {
               <div className="flex-1">
                 <h3 className="text-base font-medium text-gray-900 mb-2">You're Good to Go!</h3>
                 <p className="text-sm text-gray-600">
-                  Your bot is now running with AI-powered natural language processing. The bot will automatically use the personality and configuration from the bot you selected when creating your API key.
+                  Your bot is now running with AI-powered natural language processing. The bot automatically uses personality and configuration from the dashboard bot tied to your API key and BOT_ID.
                 </p>
               </div>
             </div>

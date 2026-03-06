@@ -1,0 +1,2 @@
+[console_scripts]
+commandless-discord = commandless_relay.discord_runner:main

@@ -1,0 +1,13 @@
+README.md
+pyproject.toml
+src/commandless_relay/__init__.py
+src/commandless_relay/client.py
+src/commandless_relay/config_cache.py
+src/commandless_relay/discord_adapter.py
+src/commandless_relay/discord_runner.py
+src/commandless_relay.egg-info/PKG-INFO
+src/commandless_relay.egg-info/SOURCES.txt
+src/commandless_relay.egg-info/dependency_links.txt
+src/commandless_relay.egg-info/entry_points.txt
+src/commandless_relay.egg-info/requires.txt
+src/commandless_relay.egg-info/top_level.txt
